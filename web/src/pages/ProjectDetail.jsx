@@ -581,7 +581,7 @@ function WebhookPanel({ serviceId }) {
 }
 
 // ── Settings Panel ────────────────────────────────────────────────────────────
-function SettingsPanel({ service, onUpdate }) {
+function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [name, setName] = useState(service.name);
   const [image, setImage] = useState(service.image || '');
   const [port, setPort] = useState(service.port || '');
@@ -592,6 +592,9 @@ function SettingsPanel({ service, onUpdate }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  // Domains handling
+  const [domainVal, setDomainVal] = useState('');
+
   useEffect(() => {
     setName(service.name);
     setImage(service.image || '');
@@ -599,7 +602,17 @@ function SettingsPanel({ service, onUpdate }) {
     setGitUrl(service.git_repo_url || '');
     setBranch(service.git_branch || 'main');
     setGitBuilder(service.git_builder || 'auto');
-  }, [service]);
+
+    const matched = domains.find(d => d.service === service.name && d.project === project?.name);
+    setDomainVal(matched ? matched.domain : '');
+  }, [service, domains, project]);
+
+  const handleGenerateDomain = () => {
+    const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+    const host = window.location.hostname;
+    const cleanHost = host.split(':')[0];
+    setDomainVal(`http://${randomStr}.${cleanHost}.nanofly.io`);
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -618,6 +631,25 @@ function SettingsPanel({ service, onUpdate }) {
         git_branch: branch.trim(),
         git_builder: gitBuilder,
       });
+
+      // Update domain in domains_v2 if modified
+      const matched = domains.find(d => d.service === service.name && d.project === project?.name);
+      const cleanNewDomain = domainVal.trim().replace(/^https?:\/\//, ''); // strip protocol
+      const cleanOldDomain = matched ? matched.domain : '';
+
+      if (cleanNewDomain !== cleanOldDomain) {
+        if (matched) {
+          await domainsApi.delete(matched.id);
+        }
+        if (cleanNewDomain) {
+          await domainsApi.create({
+            domain: cleanNewDomain,
+            service: service.name,
+            project: project?.name || 'Production'
+          });
+        }
+      }
+
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
       onUpdate();
@@ -674,6 +706,30 @@ function SettingsPanel({ service, onUpdate }) {
             <label className="form-label" style={{ fontSize: '0.75rem' }}>Port</label>
             <input className="form-input form-input-sm" value={port} onChange={e => setPort(e.target.value)} placeholder="80" />
           </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Domains 
+              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Add custom domains. Point your DNS A record to your server IP.">ℹ️</span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input 
+                className="form-input form-input-sm" 
+                value={domainVal} 
+                onChange={e => setDomainVal(e.target.value)} 
+                placeholder="e.g. app.yourdomain.com" 
+                style={{ flex: 1 }}
+              />
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-sm" 
+                onClick={handleGenerateDomain} 
+                style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+              >
+                Generate Domain
+              </button>
+            </div>
+          </div>
         </>
       )}
 
@@ -716,6 +772,7 @@ export default function ProjectDetail() {
 
   const handleDeploy = async (svcId) => {
     await servicesApi.deploy(svcId);
+    setActiveTab('deployments');
     setTimeout(load, 500);
   };
 
@@ -729,6 +786,7 @@ export default function ProjectDetail() {
   const handleRestart = async (svcId) => {
     try {
       await servicesApi.restart(svcId);
+      setActiveTab('logs');
       setTimeout(load, 500);
     } catch (e) { console.error(e); }
   };
@@ -849,7 +907,7 @@ export default function ProjectDetail() {
             {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
             {activeTab === 'logs'        && <ContainerLogsPanel serviceId={activeSvc} />}
             {activeTab === 'webhooks'    && <WebhookPanel serviceId={activeSvc} />}
-            {activeTab === 'settings'    && <SettingsPanel service={selectedSvc} onUpdate={load} />}
+            {activeTab === 'settings'    && <SettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />}
             {activeTab === 'envvars'     && <EnvVarsPanel serviceId={activeSvc} />}
           </div>
         </div>

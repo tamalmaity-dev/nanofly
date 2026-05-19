@@ -17,6 +17,25 @@ import (
 	"github.com/nanofly/nanofly/internal/db"
 )
 
+func parseSqliteTime(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t
+	}
+	// Try timezone stripped format
+	clean := strings.Replace(s, "T", " ", 1)
+	clean = strings.Split(clean, "Z")[0]
+	clean = strings.Split(clean, "+")[0]
+	clean = strings.Split(clean, ".")[0]
+	if t, err := time.Parse("2006-01-02 15:04:05", clean); err == nil {
+		return t
+	}
+	return time.Time{}
+}
+
 // ServiceType enumerates service kinds.
 type ServiceType string
 
@@ -103,7 +122,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		); err != nil {
 			return nil, err
 		}
-		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		s.CreatedAt = parseSqliteTime(createdAt)
 		s.Type = ServiceType(string(s.Type))
 		svcs = append(svcs, s)
 	}
@@ -134,7 +153,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	s.CreatedAt = parseSqliteTime(createdAt)
 	return &s, nil
 }
 
@@ -284,6 +303,15 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			m.db.ExecContext(bgCtx, `
 				UPDATE deployments SET status=?, log=?, finished_at=? WHERE id=?
 			`, finalStatus, logBuf.String(), now, deployID) //nolint:errcheck
+
+			if finalStatus == "running" {
+				m.db.ExecContext(bgCtx, `
+					UPDATE deployments 
+					SET status='completed', finished_at=? 
+					WHERE service_id=? AND id != ? AND status IN ('running', 'building')
+				`, now, serviceID, deployID) //nolint:errcheck
+			}
+
 			m.db.ExecContext(bgCtx, `UPDATE services SET status=? WHERE id=?`, finalStatus, serviceID) //nolint:errcheck
 		}()
 
@@ -722,7 +750,7 @@ func (m *Manager) GetDeployment(ctx context.Context, deployID string) (*Deployme
 	if err != nil {
 		return nil, err
 	}
-	d.StartedAt, _ = time.Parse("2006-01-02 15:04:05", startedAt)
+	d.StartedAt = parseSqliteTime(startedAt)
 	return &d, nil
 }
 
@@ -744,7 +772,7 @@ func (m *Manager) ListDeployments(ctx context.Context, serviceID string, limit i
 		var d Deployment
 		var startedAt string
 		rows.Scan(&d.ID, &d.ServiceID, &d.Status, &d.CommitSHA, &d.CommitMsg, &d.Log, &startedAt) //nolint:errcheck
-		d.StartedAt, _ = time.Parse("2006-01-02 15:04:05", startedAt)
+		d.StartedAt = parseSqliteTime(startedAt)
 		deps = append(deps, d)
 	}
 	if deps == nil {
