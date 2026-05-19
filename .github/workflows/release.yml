@@ -10,9 +10,10 @@ permissions:
 
 jobs:
   release:
-    name: Build & Release
+    name: Build & Release (${{ matrix.suffix }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: linux
@@ -29,7 +30,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -39,7 +40,7 @@ jobs:
       - name: Build Frontend
         working-directory: web
         run: |
-          npm ci --no-audit --no-fund
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Build Backend
@@ -56,9 +57,9 @@ jobs:
           mkdir -p release/web
           cp nanofly release/
           cp -r web/dist release/web/dist
-          cp nanofly.example.yaml release/
-          cp LICENSE release/
-          cp README.md release/
+          [ -f nanofly.example.yaml ] && cp nanofly.example.yaml release/ || true
+          [ -f LICENSE ] && cp LICENSE release/ || true
+          [ -f README.md ] && cp README.md release/ || true
           cd release
           tar -czf ../nanofly-${{ matrix.suffix }}.tar.gz .
 

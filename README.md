@@ -1,115 +1,105 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/web/public/logo.png" alt="NanoFly Logo" width="120" style="border-radius: 24px;" />
+  <img src="https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/web/public/logo.png" alt="NanoFly Logo" width="100" style="border-radius: 24px;" />
 </p>
-
 
 <h1 align="center">NanoFly</h1>
 
 <p align="center">
-  <strong>A premium, self-hosted server control panel and container orchestration platform.</strong>
+  <strong>An open-source & self-hostable alternative to Vercel, Netlify & Heroku.</strong>
 </p>
 
 <p align="center">
-  <a href="#license"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL v3" /></a>
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.23%2B-00ADD8.svg?logo=go" alt="Go Version" /></a>
-  <a href="https://react.dev"><img src="https://img.shields.io/badge/React-18%2B-61DAFB.svg?logo=react" alt="React" /></a>
-  <a href="https://www.sqlite.org"><img src="https://img.shields.io/badge/SQLite-WAL%20mode-003B57.svg?logo=sqlite" alt="SQLite" /></a>
+  Manage your servers, deploy applications & databases on your own hardware.<br/>
+  You only need an SSH connection. Works on VPS, bare metal, and Raspberry Pi.
+</p>
+
+<p align="center">
+  <a href="https://github.com/tamalmaity-dev/nanofly/releases/latest"><img src="https://img.shields.io/github/v/release/tamalmaity-dev/nanofly?style=flat-square&color=00d4aa" alt="Latest Release" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square" alt="License: AGPL v3" /></a>
+  <a href="https://github.com/tamalmaity-dev/nanofly/actions"><img src="https://img.shields.io/github/actions/workflow/status/tamalmaity-dev/nanofly/release.yml?style=flat-square&label=CI" alt="CI" /></a>
+  <a href="https://github.com/tamalmaity-dev/nanofly/stargazers"><img src="https://img.shields.io/github/stars/tamalmaity-dev/nanofly?style=flat-square" alt="Stars" /></a>
 </p>
 
 ---
 
-NanoFly is a professional-grade, lightweight self-hosted dashboard that turns any server (from a resource-constrained **Raspberry Pi** up to a high-end **dedicated VPS**) into an automated service orchestration platform.
+## 🚀 Installation
 
-Deploy Docker applications, spin up multi-version databases with automatic credential provisioning, inspect container build logs, and manage server resources with a premium glassmorphic interface and a built-in real-time WebSocket PTY terminal.
+To get started, run the following command on your server:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/install.sh | sudo bash
+```
+
+That's it. NanoFly will be installed, configured, and running as a system service.
+
+> **Note**
+> Please refer to the docs for more information about the installation. Supports **x86_64** and **ARM64** (Raspberry Pi).
 
 ---
 
 ## ✨ Features
 
-- **🚀 Docker App Orchestration:** Support for deploying raw Docker images or GitHub source repositories. Automatic container build pipelines, tags, and start/stop controls.
-- **🐘 Managed Multi-Version Databases:** Create PostgreSQL, MySQL, MariaDB, Redis, MongoDB, KeyDB, or ClickHouse instances instantly. Select major engine versions right from the UI, with auto-generated secure credentials.
-- **📟 Real WebSocket PTY Terminal:** Fully interactive web terminal powered by `xterm.js` and `creack/pty` stream backends.
-- **🔐 Environment Variables & Security:** Complete Env Var panels featuring secure key-value creation, visual value hiding toggles, and copy helpers.
-- **🪵 Live Build Logs:** Track Docker builds (`docker build -t ...`) in real-time with expandable log streams.
-- **⚡ Lightweight & ARM Compatible:** Optimized to run perfectly on Raspberry Pi or low-end cloud servers, using Go's performance, SQLite's small footprint, and Docker's native daemon.
-- **🎨 Glassmorphic Dark UI:** Responsive design prioritizing high-fidelity layouts, custom area charts for server telemetry (CPU, RAM, Temp), and micro-animations.
+### 🐳 Docker Application Deployment
+Deploy applications from Docker images or directly from GitHub repositories. Automatic container build pipelines with real-time build log streaming, environment variable management, and one-click start/stop controls.
+
+### 🐘 One-Click Database Provisioning
+Spin up **PostgreSQL**, **MySQL**, **MariaDB**, **Redis**, **MongoDB**, **KeyDB**, or **ClickHouse** instances instantly. Select major engine versions from the UI with auto-generated secure credentials.
+
+### 📟 Web Terminal
+Fully interactive web-based terminal powered by `xterm.js` and `creack/pty`. SSH into your server directly from the browser — no external tools needed.
+
+### 📊 Real-Time Server Monitoring
+Live dashboard with CPU usage, memory consumption, temperature readings, and disk metrics. Beautiful area charts with smooth animations for server telemetry.
+
+### 🔐 Security First
+- JWT-based authentication with secure session management
+- Auto-generated cryptographic secrets during installation
+- Environment variable panels with visibility toggles and copy helpers
+- AGPL-3.0 licensed — your data stays on your server
+
+### 🪵 Live Build Logs
+Track Docker builds in real-time with expandable, streaming log output. Monitor every step of your application's build process as it happens.
+
+### 📦 Project Organization
+Group your applications and databases into projects for clean organization. Full CRUD management with intuitive navigation.
+
+### ⚡ Lightweight & ARM Compatible
+Optimized to run on a **Raspberry Pi** or low-end cloud servers. Single binary, SQLite database, minimal resource usage. No Java, no heavy runtimes.
+
+### 🔄 Self-Updating
+Check for updates and apply them directly from the dashboard. The panel automatically rebuilds and restarts itself with zero manual intervention.
+
+### 🎨 Premium Dark UI
+Modern glassmorphic dark interface with smooth micro-animations, responsive layouts, and a design that feels premium — not like a typical admin panel.
 
 ---
 
-## 🛠️ Architecture
+## 🏗️ Architecture
 
 ```mermaid
 graph TD;
-    Client[React/Vite Glassmorphism Frontend] -- REST API / WebSockets --> GoServer[Go Backend Server]
-    GoServer -- SQL queries --> SQLite[(SQLite WAL Database)]
-    GoServer -- Docker SDK --> DockerDaemon[Docker Daemon]
-    GoServer -- WebSocket creack/pty --> ServerShell[Server Shell /bin/sh]
+    Client[React Frontend] -- REST API / WebSockets --> GoServer[Go Backend]
+    GoServer -- SQL --> SQLite[(SQLite WAL)]
+    GoServer -- Docker SDK --> DockerDaemon[Docker Engine]
+    GoServer -- WebSocket PTY --> Shell[Server Shell]
 ```
+
+**Tech Stack:**
+- **Backend:** Go with Chi router — single compiled binary
+- **Frontend:** React 18 + Vite — pre-built and served by the Go binary
+- **Database:** SQLite in WAL mode — zero configuration
+- **Containers:** Docker Engine SDK — direct API integration
 
 ---
 
-## 🚀 Getting Started
+## 🤝 Contributing
 
-### ⚡ One-Line Automatic Install (Linux & macOS)
-
-To install dependencies, clone, compile, and start NanoFly on your server in a single command, simply run:
-
-```bash
-curl -sSL https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/install.sh | bash
-```
-
----
-
-### Prerequisites (For Manual Install)
-- [Go 1.23+](https://go.dev/dl/)
-- [Node.js 18+](https://nodejs.org/) (for frontend assets compilation)
-- [Docker daemon](https://docs.docker.com/get-docker/) running on host system
-
-### Local Development
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/tamalmaity-dev/nanofly.git
-   cd nanofly
-   ```
-
-2. **Run the Go Backend:**
-   ```bash
-   # Run dependencies resolution
-   go mod tidy
-   # Run the server
-   go run ./cmd/nanofly
-   ```
-   The backend starts at `http://localhost:8080`.
-
-3. **Run the React Frontend:**
-   ```bash
-   cd web
-   npm install
-   npm run dev
-   ```
-   The Vite dev server will start at `http://localhost:5173`. Open it, and the setup wizard will guide you to create your admin account.
-
----
-
-## 📦 Building for Production
-
-Compile NanoFly into a single, high-performance binary that serves both the API and the compiled React frontend assets:
-
-```bash
-# 1. Build frontend assets
-cd web
-npm run build
-cd ..
-
-# 2. Compile Go binary (cross-compile for Raspberry Pi/Linux ARM64 if needed)
-GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o nanofly ./cmd/nanofly
-```
+We welcome contributions! Feel free to open issues, submit pull requests, or start discussions.
 
 ---
 
 ## 📄 License
 
-NanoFly is open-source software licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. 
+NanoFly is open-source software licensed under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
 
-If you make modifications to the software and run a hosted version of it over a network, you **must** make your modified source code publicly available under the terms of the AGPL-3.0. This guarantees community contribution and keeps NanoFly open for everyone.
+If you deploy a modified version of NanoFly over a network, you must make your source code available under the same license. This keeps NanoFly open for everyone.
