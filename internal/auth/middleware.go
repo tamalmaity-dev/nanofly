@@ -19,20 +19,29 @@ const claimsKey contextKey = "claims"
 // the request is rejected with 401 Unauthorized.
 func (s *Service) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract "Authorization: Bearer <token>" header
+		var tokenStr string
+
+		// 1. Try "Authorization: Bearer <token>" header (standard REST)
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			response.Error(w, http.StatusUnauthorized, "missing Authorization header")
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+				tokenStr = parts[1]
+			}
+		}
+
+		// 2. Fallback: ?token=<jwt> query parameter (required for WebSocket connections
+		//    since browsers cannot send custom headers on WebSocket upgrade requests)
+		if tokenStr == "" {
+			tokenStr = r.URL.Query().Get("token")
+		}
+
+		if tokenStr == "" {
+			response.Error(w, http.StatusUnauthorized, "missing authentication token")
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			response.Error(w, http.StatusUnauthorized, "Authorization header must be: Bearer <token>")
-			return
-		}
-
-		claims, err := s.ValidateToken(parts[1])
+		claims, err := s.ValidateToken(tokenStr)
 		if err != nil {
 			response.Error(w, http.StatusUnauthorized, "invalid or expired token")
 			return
