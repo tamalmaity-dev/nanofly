@@ -49,7 +49,17 @@ graph TD;
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### ⚡ One-Line Automatic Install (Linux & macOS)
+
+To install dependencies, clone, compile, and start NanoFly on your server in a single command, simply run:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/install.sh | bash
+```
+
+---
+
+### Prerequisites (For Manual Install)
 - [Go 1.23+](https://go.dev/dl/)
 - [Node.js 18+](https://nodejs.org/) (for frontend assets compilation)
 - [Docker daemon](https://docs.docker.com/get-docker/) running on host system
@@ -58,7 +68,7 @@ graph TD;
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/nanofly.git
+   git clone https://github.com/tamalmaity-dev/nanofly.git
    cd nanofly
    ```
 
