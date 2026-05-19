@@ -276,6 +276,9 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
                       <label className="form-label">Exposed Container Port</label>
                       <input className="form-input" placeholder="e.g. 3000" value={form.port} onChange={set('port')} />
                     </div>
+                    <div style={{ background: 'rgba(79,110,247,0.06)', borderRadius: 'var(--radius)', padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid rgba(79,110,247,0.1)', marginTop: -6 }}>
+                      💡 <strong>No Dockerfile?</strong> NanoFly automatically detects and builds Node.js, Go, Python, PHP, or HTML/Static runtimes.
+                    </div>
                   </>
                 )}
               </div>

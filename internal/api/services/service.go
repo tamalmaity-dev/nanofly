@@ -376,7 +376,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 		if svc.GitRepoURL != "" {
 			// Git-based deploy
-			if err := gitDeploy(bgCtx, svc, log); err != nil {
+			if err := m.gitDeploy(bgCtx, svc, log); err != nil {
 				log("❌ Deploy failed: " + err.Error())
 				finalStatus = "error"
 				return
@@ -418,7 +418,8 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 }
 
 // gitDeploy clones a repo and runs the app inside Docker.
-func gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
+// gitDeploy clones a repo and runs the app inside Docker.
+func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
 	repoDir := filepath.Join(os.TempDir(), "nanofly-"+svc.ID)
 	os.RemoveAll(repoDir) //nolint:errcheck
 
@@ -430,6 +431,11 @@ func gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
 	log(string(out))
 	if err != nil {
 		return fmt.Errorf("git clone: %w", err)
+	}
+
+	// Dynamic detection and generation of Dockerfile if none exists
+	if err := detectAndWriteDockerfile(repoDir, svc.Port, log); err != nil {
+		return fmt.Errorf("generating Dockerfile: %w", err)
 	}
 
 	log("🔨 Building Docker image…")
@@ -446,8 +452,38 @@ func gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
 		"--name", "nf-app-" + svc.Name,
 		"-l", "nanofly.service=" + svc.ID,
 	}
+
+	// Fetch environment variables from DB
+	var envSlice []string
+	rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=?`, svc.ID)
+	if err == nil && rows != nil {
+		for rows.Next() {
+			var k, v string
+			if err := rows.Scan(&k, &v); err == nil {
+				envSlice = append(envSlice, k+"="+v)
+			}
+		}
+		rows.Close()
+	}
+
+	// Append env vars to docker run command
+	for _, env := range envSlice {
+		runArgs = append(runArgs, "-e", env)
+	}
+
 	if svc.Port > 0 {
 		runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", svc.Port, svc.Port))
+		// Inject dynamic PORT env if not already defined
+		hasPortEnv := false
+		for _, env := range envSlice {
+			if strings.HasPrefix(strings.ToUpper(env), "PORT=") {
+				hasPortEnv = true
+				break
+			}
+		}
+		if !hasPortEnv {
+			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", svc.Port))
+		}
 	}
 	runArgs = append(runArgs, imageTag)
 
@@ -459,6 +495,127 @@ func gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
 		return fmt.Errorf("docker run: %w", err)
 	}
 	return nil
+}
+
+// detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
+func detectAndWriteDockerfile(repoDir string, svcPort int, log func(string)) error {
+	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
+	if _, err := os.Stat(dockerfilePath); err == nil {
+		log("ℹ️ Found existing Dockerfile in repository, using it.")
+		return nil
+	}
+
+	portStr := "8080"
+	if svcPort > 0 {
+		portStr = fmt.Sprintf("%d", svcPort)
+	}
+
+	// 1. Detect Node.js
+	if _, err := os.Stat(filepath.Join(repoDir, "package.json")); err == nil {
+		log("ℹ️ Detected Node.js runtime. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY . .
+ENV PORT=%s
+EXPOSE %s
+CMD ["npm", "start"]
+`, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	// 2. Detect Go
+	if _, err := os.Stat(filepath.Join(repoDir, "go.mod")); err == nil {
+		log("ℹ️ Detected Go runtime. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod* go.sum* ./
+RUN if [ -f go.mod ]; then go mod download; fi
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/main .
+ENV PORT=%s
+EXPOSE %s
+CMD ["./main"]
+`, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	// 3. Detect Python
+	hasRequirements := false
+	if _, err := os.Stat(filepath.Join(repoDir, "requirements.txt")); err == nil {
+		hasRequirements = true
+	}
+	if hasRequirements || fileExistsWithExtension(repoDir, ".py") {
+		log("ℹ️ Detected Python runtime. Generating optimized Dockerfile…")
+		mainPy := "main.py"
+		if _, err := os.Stat(filepath.Join(repoDir, "app.py")); err == nil {
+			mainPy = "app.py"
+		} else if _, err := os.Stat(filepath.Join(repoDir, "wsgi.py")); err == nil {
+			mainPy = "wsgi.py"
+		}
+		
+		content := fmt.Sprintf(`FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt* ./
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+COPY . .
+ENV PORT=%s
+EXPOSE %s
+CMD ["python", "%s"]
+`, portStr, portStr, mainPy)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	// 4. Detect PHP
+	if _, err := os.Stat(filepath.Join(repoDir, "index.php")); err == nil || fileExistsWithExtension(repoDir, ".php") {
+		log("ℹ️ Detected PHP runtime. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM php:8.2-apache
+COPY . /var/www/html/
+RUN a2enmod rewrite || true
+RUN echo "Listen %s" > /etc/apache2/ports.conf && sed -i 's/<VirtualHost \\\*:80>/<VirtualHost *:%s>/g' /etc/apache2/sites-available/000-default.conf
+EXPOSE %s
+`, portStr, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	// 5. Detect Static Web
+	if _, err := os.Stat(filepath.Join(repoDir, "index.html")); err == nil || fileExistsWithExtension(repoDir, ".html") {
+		log("ℹ️ Detected HTML/Static website. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM nginx:alpine
+COPY . /usr/share/nginx/html/
+RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.conf
+EXPOSE %s
+`, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	// Default fallback: assume Static / HTML
+	log("ℹ️ No specific runtime files detected. Defaulting to HTML/Static web deployment…")
+	content := fmt.Sprintf(`FROM nginx:alpine
+COPY . /usr/share/nginx/html/
+RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.conf
+EXPOSE %s
+`, portStr, portStr)
+	return os.WriteFile(dockerfilePath, []byte(content), 0644)
+}
+
+// Helper to check if any file with a specific extension exists in a directory
+func fileExistsWithExtension(dir, ext string) bool {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetDeployment fetches a single deployment.
