@@ -82,6 +82,8 @@ if [ ${#missing_deps[@]} -ne 0 ]; then
 
       # 1. Install APT packages in one transaction (Git, Docker, xz-utils, etc.)
       if [ ${#apt_packages[@]} -ne 0 ]; then
+        echo -e "${BLUE}Configuring any interrupted package manager states...${CLEAR}"
+        sudo dpkg --configure -a || true
         echo -e "${BLUE}Updating system package lists...${CLEAR}"
         sudo apt-get update -y
         echo -e "${BLUE}Installing system dependencies via apt...${CLEAR}"
