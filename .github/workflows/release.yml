@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Frontend
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Build Backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          go mod tidy
+          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o nanofly ./cmd/nanofly
+
+      - name: Package Release
+        run: |
+          mkdir -p release/web
+          cp nanofly release/
+          cp -r web/dist release/web/dist
+          cp nanofly.example.yaml release/
+          cp LICENSE release/
+          cp README.md release/
+          cd release
+          tar -czf ../nanofly-${{ matrix.suffix }}.tar.gz .
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nanofly-${{ matrix.suffix }}.tar.gz
+          generate_release_notes: true

@@ -138,6 +138,27 @@ func (s *Server) buildRouter() *chi.Mux {
 		// TODO: domains, SSH keys...
 	})
 
+	// ── SPA Static File Server ──────────────────────────────────────────────
+	// Serve the pre-built React frontend from web/dist/.
+	// Any route that doesn't match an API endpoint falls through to the SPA.
+	distPath := "web/dist"
+	if _, err := os.Stat(distPath); err == nil {
+		fileServer := http.FileServer(http.Dir(distPath))
+		r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+			// If the requested file exists, serve it (JS, CSS, images, etc.)
+			filePath := distPath + req.URL.Path
+			if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+				fileServer.ServeHTTP(w, req)
+				return
+			}
+			// Otherwise, serve index.html for client-side routing (SPA fallback)
+			http.ServeFile(w, req, distPath+"/index.html")
+		})
+		slog.Info("serving frontend from web/dist/")
+	} else {
+		slog.Warn("web/dist/ not found — frontend will not be served (use Vite dev server)")
+	}
+
 	return r
 }
 
