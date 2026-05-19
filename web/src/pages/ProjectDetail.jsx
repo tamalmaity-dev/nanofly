@@ -6,9 +6,10 @@ import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Databa
 // ── Add Service Modal ─────────────────────────────────────────────────────────
 function AddServiceModal({ projectId, onClose, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
-  const [type, setType] = useState('app');
+  const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
   const [dbType, setDbType] = useState('postgres');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', branch: 'main', token: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -16,129 +17,286 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const submit = async () => {
-    if (!form.name) { setError('Name is required'); return; }
+    if (!form.name.trim()) { setError('Name is required'); return; }
     setLoading(true); setError('');
     try {
       let svc;
       if (type === 'database') {
-        svc = await servicesApi.createDB(projectId, { name: form.name, db_type: dbType });
+        svc = await servicesApi.createDB(projectId, { name: form.name.trim(), db_type: dbType });
       } else if (subType === 'github') {
-        svc = await servicesApi.createApp(projectId, { name: form.name, git_repo_url: form.gitUrl, git_branch: form.branch, git_token: form.token, port: Number(form.port) || 0 });
+        svc = await servicesApi.createApp(projectId, { 
+          name: form.name.trim(), 
+          git_repo_url: form.gitUrl.trim(), 
+          git_branch: form.branch.trim() || 'main', 
+          git_token: form.token.trim(), 
+          port: Number(form.port) || 0 
+        });
       } else {
-        svc = await servicesApi.createApp(projectId, { name: form.name, image: form.image, port: Number(form.port) || 0 });
+        svc = await servicesApi.createApp(projectId, { 
+          name: form.name.trim(), 
+          image: form.image.trim(), 
+          port: Number(form.port) || 0 
+        });
       }
       onCreated(svc);
-    } catch (e) { setError(e.message); }
+    } catch (e) { setError(e.message || 'Failed to create resource'); }
     setLoading(false);
   };
 
-  const DB_TYPES = [
-    { id: 'postgres', icon: '🐘', label: 'PostgreSQL' },
-    { id: 'mysql',    icon: '🐬', label: 'MySQL' },
-    { id: 'redis',    icon: '🔴', label: 'Redis' },
-    { id: 'mongo',    icon: '🍃', label: 'MongoDB' },
+  const handleSelectResource = (resource) => {
+    if (resource.type === 'app') {
+      setType('app');
+      setSubType(resource.subType);
+      setIsPrivate(resource.isPrivate || false);
+      setForm(f => ({
+        ...f,
+        name: resource.defaultName || '',
+        image: resource.defaultImage || '',
+        port: resource.defaultPort || '',
+      }));
+    } else {
+      setType('database');
+      setDbType(resource.dbType);
+      setForm(f => ({
+        ...f,
+        name: `my-${resource.dbType}`,
+      }));
+    }
+    setStep('config');
+  };
+
+  const APP_RESOURCES = [
+    {
+      id: 'git-public',
+      type: 'app',
+      subType: 'github',
+      isPrivate: false,
+      title: 'Public Repository',
+      desc: 'Deploy any kind of public repositories from the supported git providers.',
+      icon: '🌐',
+      defaultName: 'public-app'
+    },
+    {
+      id: 'git-private-app',
+      type: 'app',
+      subType: 'github',
+      isPrivate: true,
+      title: 'Private Repository (GitHub App)',
+      desc: 'Deploy public & private repositories through GitHub Apps integrations.',
+      icon: '🔑',
+      defaultName: 'private-app'
+    },
+    {
+      id: 'git-private-key',
+      type: 'app',
+      subType: 'github',
+      isPrivate: true,
+      title: 'Private Repository (Deploy Key)',
+      desc: 'Deploy private repositories securely using a standalone SSH deploy key.',
+      icon: '🔒',
+      defaultName: 'secure-app'
+    },
+    {
+      id: 'dockerfile',
+      type: 'app',
+      subType: 'docker',
+      title: 'Dockerfile',
+      desc: 'Deploy a custom Dockerfile build configuration directly without Git setup.',
+      icon: '📄',
+      defaultName: 'docker-app',
+      defaultImage: 'nginx:alpine'
+    },
+    {
+      id: 'docker-compose',
+      type: 'app',
+      subType: 'docker',
+      title: 'Docker Compose Empty',
+      desc: 'Deploy complex application stacks easily with custom multi-container Compose definitions.',
+      icon: '🎛️',
+      defaultName: 'compose-app'
+    },
+    {
+      id: 'docker-image',
+      type: 'app',
+      subType: 'docker',
+      title: 'Docker Image',
+      desc: 'Deploy an existing compiled Docker image from Docker Hub or a custom registry.',
+      icon: '🐳',
+      titleSuffix: 'Image',
+      defaultName: 'web-image',
+      defaultImage: 'nginx:alpine'
+    }
+  ];
+
+  const DB_RESOURCES = [
+    { dbType: 'postgres', title: 'PostgreSQL', desc: 'Object-relational database known for robustness and standards compliance.', icon: '🐘' },
+    { dbType: 'mysql', title: 'MySQL', desc: 'Popular open-source relational database management system.', icon: '🐬' },
+    { dbType: 'mariadb', title: 'MariaDB', desc: 'Commercially supported fork of MySQL relational database system.', icon: '🌊' },
+    { dbType: 'redis', title: 'Redis', desc: 'Fast, in-memory key-value data store used as database, cache, or broker.', icon: '🔴' },
+    { dbType: 'keydb', title: 'KeyDB', desc: 'High-performance, multithreaded alternative to Redis core.', icon: '⚡' },
+    { dbType: 'dragonfly', title: 'Dragonfly', desc: 'Modern in-memory database built for high-throughput memory efficiency.', icon: '🐉' },
+    { dbType: 'mongo', title: 'MongoDB', desc: 'Flexible NoSQL document-oriented database for scalable data storage.', icon: '🍃' },
+    { dbType: 'clickhouse', title: 'ClickHouse', desc: 'Column-oriented DBMS optimized for real-time analytical queries.', icon: '📊' }
   ];
 
   return (
     <div className="modal-overlay fade-in" onClick={onClose}>
-      <div className="modal-content fade-in" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <h3 className="modal-title">Add New Resource</h3>
-            <button className="btn btn-ghost" style={{ padding: 4 }} onClick={onClose}><X size={16} /></button>
+      <div className="modal-content fade-in" style={{ maxWidth: 840, width: '90%', padding: '1.5rem', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+        
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1.25rem' }}>
+          <div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10 }}>
+              New Resource <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>Environment: production</span>
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>Deploy applications, databases, or third-party services on your server.</p>
           </div>
+          <button className="btn btn-ghost" style={{ padding: 6 }} onClick={onClose}><X size={18} /></button>
         </div>
 
         {step === 'type' ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              {[
-                { id: 'app',      icon: Package,  label: 'Application', desc: 'Docker image or GitHub repo' },
-                { id: 'database', icon: Database, label: 'Database',    desc: 'Managed Postgres, MySQL, Redis' },
-              ].map(t => (
-                <div key={t.id} className={`db-type-card ${type === t.id ? 'selected' : ''}`} onClick={() => setType(t.id)} style={{ padding: '1.25rem', gap: 10 }}>
-                  <t.icon size={24} color={type === t.id ? 'var(--accent)' : 'var(--text-muted)'} />
-                  <div className="db-type-name">{t.label}</div>
-                  <div className="db-type-desc">{t.desc}</div>
-                </div>
-              ))}
+          <div style={{ overflowY: 'auto', flex: 1, paddingRight: 6 }}>
+            {/* Apps Section */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Applications</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                {APP_RESOURCES.map(r => (
+                  <div 
+                    key={r.id} 
+                    onClick={() => handleSelectResource(r)}
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                      padding: '1rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                    className="hover-glow"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: '1.25rem' }}>{r.icon}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                    </div>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-              <button className="btn btn-primary" onClick={() => setStep('config')}>Continue <ChevronRight size={15} /></button>
+
+            {/* DB Section */}
+            <div style={{ marginBottom: '1rem' }}>
+              <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Databases</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                {DB_RESOURCES.map(r => (
+                  <div 
+                    key={r.dbType} 
+                    onClick={() => handleSelectResource({ type: 'database', dbType: r.dbType })}
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                      padding: '1rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                    className="hover-glow"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: '1.25rem' }}>{r.icon}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                    </div>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </>
+          </div>
         ) : (
-          <>
-            {type === 'app' && (
-              <>
-                <div className="tabs" style={{ marginBottom: '1rem' }}>
-                  <button className={`tab-btn ${subType === 'docker' ? 'active' : ''}`} onClick={() => setSubType('docker')}><Package size={13} style={{ marginRight: 6 }} />Docker Image</button>
-                  <button className={`tab-btn ${subType === 'github' ? 'active' : ''}`} onClick={() => setSubType('github')}><GitBranch size={13} style={{ marginRight: 6 }} />GitHub Repo</button>
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6 }}>
+            {type === 'app' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(79,110,247,0.06)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(79,110,247,0.1)' }}>
+                  <span style={{ fontSize: '1.1rem' }}>⚙️</span>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Configuring {subType === 'github' ? 'Git Application' : 'Docker Application'}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      Setup the name and deployment parameters for the container.
+                    </div>
+                  </div>
                 </div>
+
                 <div className="form-group">
                   <label className="form-label">Service Name *</label>
-                  <input className="form-input" placeholder="my-app" value={form.name} onChange={set('name')} autoFocus />
+                  <input className="form-input" placeholder="e.g. production-api" value={form.name} onChange={set('name')} autoFocus />
                 </div>
+
                 {subType === 'docker' ? (
                   <>
                     <div className="form-group">
-                      <label className="form-label">Docker Image</label>
-                      <input className="form-input" placeholder="nginx:alpine" value={form.image} onChange={set('image')} />
+                      <label className="form-label">Docker Image *</label>
+                      <input className="form-input" placeholder="e.g. nginx:alpine" value={form.image} onChange={set('image')} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Host Port</label>
-                      <input className="form-input" placeholder="3000" value={form.port} onChange={set('port')} />
+                      <label className="form-label">Host Port (Optional)</label>
+                      <input className="form-input" placeholder="e.g. 80 or empty for random" value={form.port} onChange={set('port')} />
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="form-group">
-                      <label className="form-label">Repository URL</label>
-                      <input className="form-input" placeholder="https://github.com/user/repo" value={form.gitUrl} onChange={set('gitUrl')} />
+                      <label className="form-label">Repository URL *</label>
+                      <input className="form-input" placeholder="e.g. https://github.com/username/repo" value={form.gitUrl} onChange={set('gitUrl')} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Branch</label>
                       <input className="form-input" placeholder="main" value={form.branch} onChange={set('branch')} />
                     </div>
+                    {isPrivate && (
+                      <div className="form-group">
+                        <label className="form-label">Personal Access Token (GitHub Token)</label>
+                        <input className="form-input" type="password" placeholder="ghp_xxxxxxxxxxxx" value={form.token} onChange={set('token')} />
+                      </div>
+                    )}
                     <div className="form-group">
-                      <label className="form-label">GitHub Token (for private repos)</label>
-                      <input className="form-input" type="password" placeholder="ghp_xxxxxxxxxxxx" value={form.token} onChange={set('token')} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Exposed Port</label>
-                      <input className="form-input" placeholder="3000" value={form.port} onChange={set('port')} />
+                      <label className="form-label">Exposed Container Port</label>
+                      <input className="form-input" placeholder="e.g. 3000" value={form.port} onChange={set('port')} />
                     </div>
                   </>
                 )}
-              </>
-            )}
-
-            {type === 'database' && (
-              <>
-                <div className="db-type-grid">
-                  {DB_TYPES.map(t => (
-                    <div key={t.id} className={`db-type-card ${dbType === t.id ? 'selected' : ''}`} onClick={() => setDbType(t.id)}>
-                      <div className="db-type-icon">{t.icon}</div>
-                      <div className="db-type-name">{t.label}</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(79,110,247,0.06)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(79,110,247,0.1)' }}>
+                  <span style={{ fontSize: '1.1rem' }}>💾</span>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Deploying Database: {dbType.toUpperCase()}
                     </div>
-                  ))}
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      NanoFly will spin up an isolated database container and inject connection strings automatically.
+                    </div>
+                  </div>
                 </div>
+
                 <div className="form-group">
-                  <label className="form-label">Instance Name *</label>
+                  <label className="form-label">Database Instance Name *</label>
                   <input className="form-input" placeholder={`my-${dbType}`} value={form.name} onChange={set('name')} autoFocus />
                 </div>
-              </>
+              </div>
             )}
 
-            {error && <p style={{ color: 'var(--red)', fontSize: '0.875rem', marginBottom: 8 }}>{error}</p>}
-            <div className="modal-footer">
+            {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1.5rem' }}>
               <button className="btn btn-ghost" onClick={() => setStep('type')}>Back</button>
               <button className="btn btn-primary" onClick={submit} disabled={loading}>
-                {loading ? 'Creating…' : `Create ${type === 'database' ? dbType : 'Service'}`}
+                {loading ? 'Creating...' : `Deploy Now`}
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

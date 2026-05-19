@@ -189,15 +189,15 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	var env []string
 	var connStr string
 
-	switch cfg.DBType {
-	case "postgres":
+	switch {
+	case cfg.DBType == "postgres" || strings.HasPrefix(cfg.DBType, "postgres:"):
 		env = []string{
 			"POSTGRES_USER=nanofly",
 			"POSTGRES_PASSWORD=" + cfg.Password,
 			"POSTGRES_DB=" + cfg.DBName,
 		}
 		connStr = fmt.Sprintf("postgres://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
-	case "mysql":
+	case cfg.DBType == "mysql" || strings.HasPrefix(cfg.DBType, "mysql:") || cfg.DBType == "mariadb" || strings.HasPrefix(cfg.DBType, "mariadb:"):
 		env = []string{
 			"MYSQL_ROOT_PASSWORD=" + cfg.Password,
 			"MYSQL_USER=nanofly",
@@ -205,14 +205,21 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 			"MYSQL_DATABASE=" + cfg.DBName,
 		}
 		connStr = fmt.Sprintf("mysql://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
-	case "redis":
+	case cfg.DBType == "redis" || strings.HasPrefix(cfg.DBType, "redis:") || cfg.DBType == "keydb":
 		connStr = fmt.Sprintf("redis://:@localhost:%d", hostPort)
-	case "mongo":
+	case cfg.DBType == "mongo" || strings.HasPrefix(cfg.DBType, "mongo:"):
 		env = []string{
 			"MONGO_INITDB_ROOT_USERNAME=nanofly",
 			"MONGO_INITDB_ROOT_PASSWORD=" + cfg.Password,
 		}
 		connStr = fmt.Sprintf("mongodb://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
+	case cfg.DBType == "clickhouse":
+		env = []string{
+			"CLICKHOUSE_USER=nanofly",
+			"CLICKHOUSE_PASSWORD=" + cfg.Password,
+			"CLICKHOUSE_DB=" + cfg.DBName,
+		}
+		connStr = fmt.Sprintf("clickhouse://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
 	}
 
 	containerName := "nf-db-" + cfg.Name

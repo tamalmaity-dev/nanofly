@@ -737,28 +737,65 @@ func (s *Server) runUpdateLoop() {
 
 	logMsg(fmt.Sprintf("Downloading %s...", expectedAsset))
 
-	// 3. Download the tarball
-	dlResp, err := http.Get(downloadURL)
+	// 3. Download the tarball with progress reporting
+	dlClient := &http.Client{Timeout: 5 * time.Minute}
+	dlResp, err := dlClient.Get(downloadURL)
 	if err != nil {
 		fail(fmt.Sprintf("Download failed: %v", err))
 		return
 	}
 	defer dlResp.Body.Close()
 
+	if dlResp.StatusCode != http.StatusOK {
+		fail(fmt.Sprintf("Download returned HTTP %d", dlResp.StatusCode))
+		return
+	}
+
+	totalSize := dlResp.ContentLength
+
 	tmpFile := "/tmp/nanofly-update.tar.gz"
-	out, err := os.Create(tmpFile)
+	outFile, err := os.Create(tmpFile)
 	if err != nil {
 		fail(fmt.Sprintf("Failed to create temp file: %v", err))
 		return
 	}
-	if _, err := io.Copy(out, dlResp.Body); err != nil {
-		out.Close()
-		fail(fmt.Sprintf("Download interrupted: %v", err))
-		return
-	}
-	out.Close()
 
-	logMsg("Download complete")
+	// Download with progress reporting
+	var downloaded int64
+	buf := make([]byte, 32*1024)
+	lastLog := time.Now()
+	for {
+		n, readErr := dlResp.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := outFile.Write(buf[:n]); writeErr != nil {
+				outFile.Close()
+				fail(fmt.Sprintf("Write error: %v", writeErr))
+				return
+			}
+			downloaded += int64(n)
+			// Log progress every 2 seconds
+			if time.Since(lastLog) > 2*time.Second {
+				if totalSize > 0 {
+					pct := float64(downloaded) / float64(totalSize) * 100
+					logMsg(fmt.Sprintf("  %.1f MB / %.1f MB (%.0f%%)", float64(downloaded)/1048576, float64(totalSize)/1048576, pct))
+				} else {
+					logMsg(fmt.Sprintf("  %.1f MB downloaded...", float64(downloaded)/1048576))
+				}
+				lastLog = time.Now()
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			outFile.Close()
+			fail(fmt.Sprintf("Download interrupted: %v", readErr))
+			return
+		}
+	}
+	outFile.Close()
+
+	logMsg(fmt.Sprintf("Download complete (%.1f MB)", float64(downloaded)/1048576))
 
 	// 4. Extract to a temp directory first
 	setStatus("extracting")

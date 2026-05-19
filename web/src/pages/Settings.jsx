@@ -178,11 +178,11 @@ function UpdatesTab() {
   const [updateLog, setUpdateLog] = useState('');
   const [updateStatus, setUpdateStatus] = useState('idle');
 
-  const checkUpdates = async (silent = false) => {
-    if (!silent) setChecking(true);
+  const checkUpdates = async () => {
+    setChecking(true);
     try {
       const data = await updateApi.check();
-      setInfo(data);
+      setInfo(data?.data || data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -193,63 +193,65 @@ function UpdatesTab() {
   const pollHealthAndReload = async () => {
     try {
       const res = await fetch('/health');
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        setTimeout(pollHealthAndReload, 1500);
-      }
-    } catch (e) {
-      setTimeout(pollHealthAndReload, 1500);
-    }
+      if (res.ok) { window.location.reload(); }
+      else { setTimeout(pollHealthAndReload, 1500); }
+    } catch { setTimeout(pollHealthAndReload, 1500); }
   };
 
   const checkStatus = async (isUpdating = false) => {
     try {
-      const data = await updateApi.log();
+      const res = await updateApi.log();
+      const data = res?.data || res;
       setUpdateStatus(data.status);
       setUpdateLog(data.log || '');
-      
-      if (data.status === 'pull' || data.status === 'build_front' || data.status === 'build_back') {
+      if (['downloading', 'extracting', 'installing'].includes(data.status)) {
         setUpdating(true);
-        setTimeout(() => checkStatus(true), 2000);
+        setTimeout(() => checkStatus(true), 1500);
       } else if (data.status === 'done') {
         setUpdating(true);
         setUpdateStatus('restarting');
-        setUpdateLog(prev => prev + `\n[System] Reconnecting to the new panel version...`);
         setTimeout(pollHealthAndReload, 3500);
-      } else {
+      } else if (data.status === 'error') {
+        setUpdating(false);
+      } else if (isUpdating) {
         setUpdating(false);
       }
     } catch (err) {
       if (isUpdating) {
         setUpdateStatus('restarting');
-        setUpdateLog(prev => prev + `\n[System] Connection lost. Reconnecting...`);
         setTimeout(pollHealthAndReload, 2000);
-      } else {
-        console.error(err);
-        setUpdating(false);
-      }
+      } else { setUpdating(false); }
     }
   };
 
   const applyUpdate = async () => {
     setUpdating(true);
-    setUpdateStatus('pull');
-    setUpdateLog('Initializing update...\n');
+    setUpdateStatus('downloading');
+    setUpdateLog('');
     try {
       await updateApi.apply();
       setTimeout(() => checkStatus(true), 1000);
     } catch (err) {
-      setUpdateLog(prev => prev + `\nError initiating update: ${err.message}`);
+      setUpdateLog(`Error: ${err.message}`);
       setUpdating(false);
       setUpdateStatus('error');
     }
   };
 
+  useEffect(() => { checkUpdates(); checkStatus(); }, []);
   useEffect(() => {
-    checkUpdates();
-    checkStatus();
-  }, []);
+    const el = document.getElementById('update-log');
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [updateLog]);
+
+  const STEPS = [
+    { key: 'downloading', label: 'Download' },
+    { key: 'extracting',  label: 'Extract' },
+    { key: 'installing',  label: 'Install' },
+    { key: 'restarting',  label: 'Restart' },
+  ];
+  const stepOrder = STEPS.map(s => s.key);
+  const currentIdx = stepOrder.indexOf(updateStatus);
 
   return (
     <div className="fade-in">
@@ -257,49 +259,40 @@ function UpdatesTab() {
         <div className="settings-section-title">NanoFly System Updates</div>
         <div className="settings-row" style={{ alignItems: 'flex-start' }}>
           <div>
-            <div className="settings-row-label">Current Version / Commit</div>
-            <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+            <div className="settings-row-label">Current Version</div>
+            <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--accent)' }}>
               {info?.current_version || info?.current_commit || 'dev'}
             </div>
           </div>
           <div>
             <div className="settings-row-label">Latest Available</div>
-            <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+            <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem', color: info?.has_update ? 'var(--primary)' : 'var(--text-secondary)' }}>
               {info?.latest_version || info?.latest_commit || 'dev'}
             </div>
           </div>
-          <button 
-            className="btn btn-ghost" 
-            style={{ border: '1px solid var(--border)' }}
-            onClick={() => checkUpdates()}
-            disabled={checking || updating}
-          >
+          <button className="btn btn-ghost" style={{ border: '1px solid var(--border)' }} onClick={checkUpdates} disabled={checking || updating}>
             <RefreshCw size={14} className={checking ? 'spin' : ''} /> Check
           </button>
         </div>
 
-        {info?.has_update && (
+        {info?.has_update && !updating && (
           <div className="card" style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.15)', marginBottom: '1.5rem', padding: '1.25rem' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
               <AlertCircle size={18} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
               <div>
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>New Update Available</h4>
                 <p style={{ margin: '0.25rem 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  {info.message || info.latest_message} (Released {(info.published_at || info.latest_date) ? new Date(info.published_at || info.latest_date).toLocaleDateString() : ''})
+                  {info.message || ''} {info.published_at ? `(Released ${new Date(info.published_at).toLocaleDateString()})` : ''}
                 </p>
-                <button 
-                  className="btn btn-primary btn-sm"
-                  onClick={applyUpdate}
-                  disabled={updating}
-                >
-                  <RefreshCw size={12} className={updating ? 'spin' : ''} /> Install Update Now
+                <button className="btn btn-primary btn-sm" onClick={applyUpdate} disabled={updating}>
+                  <RefreshCw size={12} /> Install Update Now
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {!info?.has_update && info && (
+        {!info?.has_update && info && !updating && (
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', margin: '1rem 0 1.5rem 0', color: 'var(--success)', fontSize: '0.9rem' }}>
             <CheckCircle2 size={16} />
             <span>Your panel is up to date!</span>
@@ -307,30 +300,52 @@ function UpdatesTab() {
         )}
       </div>
 
-      {(updating || updateLog) && (
+      {(updating || updateStatus === 'error') && (
         <div className="settings-section">
-          <div className="settings-section-title">Update Status: <span style={{ textTransform: 'capitalize', color: updateStatus === 'error' ? 'var(--danger)' : updateStatus === 'done' ? 'var(--success)' : 'var(--primary)' }}>{updateStatus.replace('_', ' ')}</span></div>
-          <pre 
-            style={{
-              background: '#0d1117',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              padding: '1rem',
-              color: '#c9d1d9',
-              fontFamily: 'monospace',
-              fontSize: '0.825rem',
-              maxHeight: '300px',
-              overflowY: 'auto',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {updateLog}
+          <div className="settings-section-title">Update Progress</div>
+
+          {/* Step indicators */}
+          <div style={{ display: 'flex', gap: 0, marginBottom: '1.25rem', padding: '0 1rem' }}>
+            {STEPS.map((step, idx) => {
+              const isComplete = currentIdx > idx || updateStatus === 'done';
+              const isCurrent = currentIdx === idx;
+              const isError = updateStatus === 'error' && isCurrent;
+              return (
+                <div key={step.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                  {idx > 0 && (
+                    <div style={{ position: 'absolute', left: '-50%', right: '50%', top: 13, height: 2, background: isComplete || isCurrent ? 'var(--primary)' : 'var(--border)', transition: 'background 0.3s' }} />
+                  )}
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.7rem', fontWeight: 700, zIndex: 1,
+                    background: isError ? 'var(--red)' : isComplete ? 'var(--primary)' : isCurrent ? 'var(--primary)' : 'var(--bg-elevated)',
+                    color: isComplete || isCurrent || isError ? '#fff' : 'var(--text-muted)',
+                    border: `2px solid ${isError ? 'var(--red)' : isComplete || isCurrent ? 'var(--primary)' : 'var(--border)'}`,
+                    ...(isCurrent && !isError ? { animation: 'pulse 2s ease-in-out infinite' } : {}),
+                  }}>
+                    {isComplete ? '✓' : isError ? '✕' : idx + 1}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: isCurrent ? 'var(--primary)' : 'var(--text-muted)', marginTop: 6 }}>
+                    {step.label}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <pre id="update-log" style={{
+            background: '#0d1117', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+            padding: '1rem', color: '#c9d1d9', fontFamily: 'monospace', fontSize: '0.8rem',
+            maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap',
+          }}>
+            {updateLog || 'Waiting for update process...'}
           </pre>
         </div>
       )}
     </div>
   );
 }
+
 
 export default function Settings() {
   const [tab, setTab] = useState('general');

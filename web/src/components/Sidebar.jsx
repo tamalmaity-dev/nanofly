@@ -1,10 +1,12 @@
-// src/components/Sidebar.jsx — Navigation sidebar
+// src/components/Sidebar.jsx — Navigation sidebar with update indicator
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import {
   LayoutDashboard, FolderOpen, Database, Globe, Terminal,
-  Settings, LogOut, Server, Activity, ChevronRight
+  Settings, LogOut, Server, Activity, ArrowUpCircle
 } from 'lucide-react';
+import { updateApi } from '../api/client';
 
 const NAV = [
   { label: 'Overview',    icon: LayoutDashboard, to: '/'           },
@@ -17,12 +19,28 @@ const NAV = [
 const SYSTEM = [
   { label: 'Services',    icon: Server,   to: '/services'  },
   { label: 'Activity',    icon: Activity, to: '/activity'  },
-  { label: 'Settings',    icon: Settings, to: '/settings'  },
 ];
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [hasUpdate, setHasUpdate] = useState(false);
+  const [latestVersion, setLatestVersion] = useState('');
+
+  useEffect(() => {
+    const checkUpdate = async () => {
+      try {
+        const res = await updateApi.check();
+        if (res?.data?.has_update) {
+          setHasUpdate(true);
+          setLatestVersion(res.data.latest_version || '');
+        }
+      } catch { /* ignore */ }
+    };
+    checkUpdate();
+    const interval = setInterval(checkUpdate, 5 * 60 * 1000); // every 5 min
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -63,7 +81,59 @@ export default function Sidebar() {
             {label}
           </NavLink>
         ))}
+
+        {/* Settings with update badge */}
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+        >
+          <Settings className="nav-icon" size={18} />
+          Settings
+          {hasUpdate && (
+            <span style={{
+              marginLeft: 'auto',
+              background: 'var(--primary)',
+              color: '#fff',
+              fontSize: '0.6rem',
+              fontWeight: 700,
+              padding: '2px 6px',
+              borderRadius: '10px',
+              lineHeight: 1.2,
+              animation: 'pulse 2s ease-in-out infinite',
+            }}>
+              UPDATE
+            </span>
+          )}
+        </NavLink>
       </nav>
+
+      {/* Update toast */}
+      {hasUpdate && (
+        <div
+          onClick={() => navigate('/settings')}
+          style={{
+            margin: '0 0.75rem 0.5rem',
+            padding: '0.625rem 0.875rem',
+            background: 'rgba(79,110,247,0.08)',
+            border: '1px solid rgba(79,110,247,0.2)',
+            borderRadius: 'var(--radius)',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ArrowUpCircle size={16} color="var(--primary)" />
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>
+                Update Available
+              </div>
+              <div style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>
+                {latestVersion}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* User / Logout */}
       <div className="sidebar-bottom">
