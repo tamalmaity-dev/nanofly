@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -43,71 +44,130 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 // List returns all systemd services with their status.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	// Get all loaded services
-	cmd := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend")
-	out, err := cmd.Output()
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to list services: %v", err))
-		return
+	var servicesMap = make(map[string]ServiceInfo)
+
+	// 1. Try to list all unit files
+	cmdFiles := exec.Command("systemctl", "list-unit-files", "--type=service", "--all", "--no-pager", "--no-legend")
+	outFiles, errFiles := cmdFiles.Output()
+	if errFiles == nil {
+		lines := strings.Split(strings.TrimSpace(string(outFiles)), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			unitName := fields[0]
+			if !strings.HasSuffix(unitName, ".service") {
+				continue
+			}
+			name := strings.TrimSuffix(unitName, ".service")
+			name = strings.TrimLeft(name, "● \t\n\r*")
+			if name == "" {
+				continue
+			}
+			servicesMap[name] = ServiceInfo{
+				Name:        name,
+				Status:      "stopped",
+				Description: "",
+				PID:         "—",
+				Memory:      "—",
+				CPU:         "—",
+				Since:       "—",
+			}
+		}
 	}
 
-	var services []ServiceInfo
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	// 2. Query running/active units and update or append
+	cmdUnits := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend")
+	outUnits, errUnits := cmdUnits.Output()
+	if errUnits != nil {
+		// If both list-unit-files and list-units failed, return the error
+		if errFiles != nil {
+			response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to list services: %v", errUnits))
+			return
 		}
+	} else {
+		lines := strings.Split(strings.TrimSpace(string(outUnits)), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			startIdx := 0
+			if fields[0] == "●" {
+				startIdx = 1
+			}
+			if len(fields)-startIdx < 4 {
+				continue
+			}
+			unitName := fields[startIdx]
+			if !strings.HasSuffix(unitName, ".service") {
+				continue
+			}
+			name := strings.TrimSuffix(unitName, ".service")
+			name = strings.TrimLeft(name, "● \t\n\r*")
+			if name == "" {
+				continue
+			}
 
-		// Parse systemctl list-units output
-		// Format: UNIT LOAD ACTIVE SUB DESCRIPTION
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
-			continue
+			active := fields[startIdx+2]
+			sub := fields[startIdx+3]
+
+			status := "stopped"
+			if sub == "running" {
+				status = "running"
+			} else if active == "failed" || sub == "failed" {
+				status = "failed"
+			}
+
+			description := ""
+			if len(fields) > startIdx+4 {
+				description = strings.Join(fields[startIdx+4:], " ")
+			}
+
+			if svc, exists := servicesMap[name]; exists {
+				svc.Status = status
+				if description != "" {
+					svc.Description = description
+				}
+				if status == "running" {
+					svc.PID, svc.Memory, svc.Since = getServiceDetails(name)
+				}
+				servicesMap[name] = svc
+			} else {
+				svc := ServiceInfo{
+					Name:        name,
+					Status:      status,
+					Description: description,
+					PID:         "—",
+					Memory:      "—",
+					CPU:         "—",
+					Since:       "—",
+				}
+				if status == "running" {
+					svc.PID, svc.Memory, svc.Since = getServiceDetails(name)
+				}
+				servicesMap[name] = svc
+			}
 		}
+	}
 
-		name := strings.TrimSuffix(fields[0], ".service")
-		// Remove leading bullet character if present
-		name = strings.TrimPrefix(name, "●")
-		name = strings.TrimSpace(name)
-
-		if name == "" {
-			continue
-		}
-
-		active := fields[2] // active, inactive, failed
-		sub := fields[3]    // running, dead, exited, failed
-
-		status := "stopped"
-		if sub == "running" {
-			status = "running"
-		} else if active == "failed" || sub == "failed" {
-			status = "failed"
-		}
-
-		description := ""
-		if len(fields) > 4 {
-			description = strings.Join(fields[4:], " ")
-		}
-
-		svc := ServiceInfo{
-			Name:        name,
-			Status:      status,
-			Description: description,
-			PID:         "—",
-			Memory:      "—",
-			CPU:         "—",
-			Since:       "—",
-		}
-
-		// Get details for running services
-		if status == "running" {
-			svc.PID, svc.Memory, svc.Since = getServiceDetails(name)
-		}
-
+	var services = make([]ServiceInfo, 0, len(servicesMap))
+	for _, svc := range servicesMap {
 		services = append(services, svc)
 	}
+
+	sort.Slice(services, func(i, j int) bool {
+		return services[i].Name < services[j].Name
+	})
 
 	response.Success(w, services)
 }
