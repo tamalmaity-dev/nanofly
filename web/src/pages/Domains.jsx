@@ -13,6 +13,7 @@ function AddDomainModal({ onClose, onAdded }) {
   const [domain, setDomain]   = useState('');
   const [service, setService] = useState('');
   const [project, setProject] = useState('');
+  const [direction, setDirection] = useState('both');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
 
@@ -22,7 +23,7 @@ function AddDomainModal({ onClose, onAdded }) {
     setLoading(true);
     setError(null);
     try {
-      await domainsApi.create({ domain: domain.trim(), service, project });
+      await domainsApi.create({ domain: domain.trim(), service, project, direction });
       onAdded();
       onClose();
     } catch (err) {
@@ -51,6 +52,14 @@ function AddDomainModal({ onClose, onAdded }) {
           <div className="form-group">
             <label className="form-label">Project (optional)</label>
             <input className="form-input" placeholder="e.g. Production" value={project} onChange={e => setProject(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Direction</label>
+            <select className="form-input" value={direction} onChange={e => setDirection(e.target.value)}>
+              <option value="both">Allow www & non-www.</option>
+              <option value="www">Redirect to www</option>
+              <option value="non-www">Redirect to non-www</option>
+            </select>
           </div>
           <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', padding: '0.75rem 1rem', marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
             <strong style={{ color: 'var(--text-secondary)' }}>DNS Setup Required:</strong> Point your domain's <code>A</code> record to this server's IP address before adding it here.
@@ -166,6 +175,7 @@ export default function Domains() {
                 <th>Domain</th>
                 <th>Service</th>
                 <th>Project</th>
+                <th>Direction</th>
                 <th>SSL Status</th>
                 <th>Actions</th>
               </tr>
@@ -181,6 +191,11 @@ export default function Domains() {
                   </td>
                   <td><code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>{d.service || '—'}</code></td>
                   <td>{d.project || '—'}</td>
+                  <td>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                      {d.direction === 'both' ? 'Both' : d.direction === 'www' ? 'www only' : 'non-www only'}
+                    </span>
+                  </td>
                   <td><SSLBadge status={d.tls_status} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 8 }}>

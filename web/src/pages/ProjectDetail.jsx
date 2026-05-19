@@ -592,8 +592,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  // Domains handling
+  // Domains & Direction handling
   const [domainVal, setDomainVal] = useState('');
+  const [direction, setDirection] = useState('both');
 
   useEffect(() => {
     setName(service.name);
@@ -605,13 +606,49 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
     setDomainVal(matched ? matched.domain : '');
+    setDirection(matched && matched.direction ? matched.direction : 'both');
   }, [service, domains, project]);
 
   const handleGenerateDomain = () => {
     const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
     const host = window.location.hostname;
     const cleanHost = host.split(':')[0];
-    setDomainVal(`http://${randomStr}.${cleanHost}.nanofly.io`);
+    setDomainVal(`http://${randomStr}.${cleanHost}.sslip.io`);
+  };
+
+  const handleSetDirection = async () => {
+    const cleanNewDomain = domainVal.trim().replace(/^https?:\/\//, '');
+    if (!cleanNewDomain) {
+      setError('Please specify a domain before setting direction');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess(false);
+    try {
+      const matched = domains.find(d => d.service === service.name && d.project === project?.name);
+      if (matched) {
+        await domainsApi.update(matched.id, {
+          domain: cleanNewDomain,
+          service: service.name,
+          project: project?.name || 'Production',
+          direction: direction
+        });
+      } else {
+        await domainsApi.create({
+          domain: cleanNewDomain,
+          service: service.name,
+          project: project?.name || 'Production',
+          direction: direction
+        });
+      }
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+      onUpdate();
+    } catch (err) {
+      setError(err.message || 'Failed to set direction');
+    }
+    setSaving(false);
   };
 
   const handleSave = async () => {
@@ -632,7 +669,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         git_builder: gitBuilder,
       });
 
-      // Update domain in domains_v2 if modified
+      // Update domain and direction in domains_v2 if modified
       const matched = domains.find(d => d.service === service.name && d.project === project?.name);
       const cleanNewDomain = domainVal.trim().replace(/^https?:\/\//, ''); // strip protocol
       const cleanOldDomain = matched ? matched.domain : '';
@@ -645,9 +682,17 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           await domainsApi.create({
             domain: cleanNewDomain,
             service: service.name,
-            project: project?.name || 'Production'
+            project: project?.name || 'Production',
+            direction: direction
           });
         }
+      } else if (matched && matched.direction !== direction) {
+        await domainsApi.update(matched.id, {
+          domain: cleanNewDomain,
+          service: service.name,
+          project: project?.name || 'Production',
+          direction: direction
+        });
       }
 
       setSuccess(true);
@@ -727,6 +772,33 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                 style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
               >
                 Generate Domain
+              </button>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Direction * 
+              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Select how requests to www and non-www subdomains are handled.">ℹ️</span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select 
+                className="form-input form-input-sm" 
+                value={direction} 
+                onChange={e => setDirection(e.target.value)}
+                style={{ flex: 1 }}
+              >
+                <option value="both">Allow www & non-www.</option>
+                <option value="www">Redirect to www</option>
+                <option value="non-www">Redirect to non-www</option>
+              </select>
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-sm" 
+                onClick={handleSetDirection} 
+                style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+              >
+                Set Direction
               </button>
             </div>
           </div>

@@ -23,6 +23,7 @@ type Domain struct {
 	Project   string `json:"project"`
 	TLSStatus string `json:"tls_status"` // pending, active, error
 	DNSStatus string `json:"dns_status"` // verified, unverified
+	Direction string `json:"direction"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -42,6 +43,8 @@ func NewHandler(db *sql.DB) *Handler {
 		tls_status TEXT NOT NULL DEFAULT 'pending',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
+	// Migrate column direction
+	db.Exec(`ALTER TABLE domains_v2 ADD COLUMN direction TEXT NOT NULL DEFAULT 'both'`)
 	return &Handler{db: db}
 }
 
@@ -49,13 +52,14 @@ func NewHandler(db *sql.DB) *Handler {
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/domains", h.List)
 	r.Post("/domains", h.Create)
+	r.Put("/domains/{id}", h.Update)
 	r.Delete("/domains/{id}", h.Delete)
 	r.Post("/domains/{id}/verify", h.VerifyDNS)
 }
 
 // List returns all configured domains.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.Query(`SELECT id, domain, service, project, tls_status, created_at FROM domains_v2 ORDER BY created_at DESC`)
+	rows, err := h.db.Query(`SELECT id, domain, service, project, tls_status, direction, created_at FROM domains_v2 ORDER BY created_at DESC`)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to list domains")
 		return
@@ -65,7 +69,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var domains []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.ID, &d.Domain, &d.Service, &d.Project, &d.TLSStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Domain, &d.Service, &d.Project, &d.TLSStatus, &d.Direction, &d.CreatedAt); err != nil {
 			continue
 		}
 		d.DNSStatus = "unverified"
@@ -80,9 +84,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // CreateRequest is the payload for adding a domain.
 type CreateRequest struct {
-	Domain  string `json:"domain"`
-	Service string `json:"service"`
-	Project string `json:"project"`
+	Domain    string `json:"domain"`
+	Service   string `json:"service"`
+	Project   string `json:"project"`
+	Direction string `json:"direction"`
 }
 
 // Create adds a new domain.
@@ -105,10 +110,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Direction == "" {
+		req.Direction = "both"
+	}
+
 	var id string
 	err := h.db.QueryRow(
-		`INSERT INTO domains_v2 (domain, service, project) VALUES (?, ?, ?) RETURNING id`,
-		req.Domain, req.Service, req.Project,
+		`INSERT INTO domains_v2 (domain, service, project, direction) VALUES (?, ?, ?, ?) RETURNING id`,
+		req.Domain, req.Service, req.Project, req.Direction,
 	).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -120,6 +129,49 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Success(w, map[string]string{"id": id, "domain": req.Domain, "status": "added"})
+}
+
+// UpdateRequest is the payload for updating a domain.
+type UpdateRequest struct {
+	Domain    string `json:"domain"`
+	Service   string `json:"service"`
+	Project   string `json:"project"`
+	Direction string `json:"direction"`
+}
+
+// Update updates an existing domain's details.
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	req.Domain = strings.TrimSpace(strings.ToLower(req.Domain))
+	if req.Domain == "" {
+		response.Error(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+
+	if req.Direction == "" {
+		req.Direction = "both"
+	}
+
+	_, err := h.db.Exec(
+		`UPDATE domains_v2 SET domain = ?, service = ?, project = ?, direction = ? WHERE id = ?`,
+		req.Domain, req.Service, req.Project, req.Direction, id,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			response.Error(w, http.StatusConflict, "domain already exists")
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to update domain: %v", err))
+		return
+	}
+
+	response.Success(w, map[string]string{"status": "updated"})
 }
 
 // Delete removes a domain.

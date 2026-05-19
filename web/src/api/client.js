@@ -21,6 +21,7 @@ async function request(method, path, body) {
 
 const get  = (path)        => request('GET',    path);
 const post = (path, body)  => request('POST',   path, body);
+const put  = (path, body)  => request('PUT',    path, body);
 const del  = (path)        => request('DELETE', path);
 
 // Auth
@@ -78,6 +79,7 @@ export const systemdApi = {
 export const domainsApi = {
   list:   ()      => get('/domains'),
   create: (body)  => post('/domains', body),
+  update: (id, body) => put(`/domains/${id}`, body),
   delete: (id)    => del(`/domains/${id}`),
   verify: (id)    => post(`/domains/${id}/verify`),
 };
