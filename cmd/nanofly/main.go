@@ -14,12 +14,15 @@ import (
 	"github.com/nanofly/nanofly/internal/server"
 )
 
+// Version is set at build time via -ldflags="-X main.Version=v0.1.0"
+var Version = "dev"
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
 
-	slog.Info("NanoFly starting", "version", "0.1.0")
+	slog.Info("NanoFly starting", "version", Version)
 
 	cfg, err := config.Load()
 	if err != nil {

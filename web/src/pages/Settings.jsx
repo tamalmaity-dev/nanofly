@@ -259,13 +259,13 @@ function UpdatesTab() {
           <div>
             <div className="settings-row-label">Current Version / Commit</div>
             <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
-              {info?.current_commit || '0.1.0'}
+              {info?.current_version || info?.current_commit || 'dev'}
             </div>
           </div>
           <div>
             <div className="settings-row-label">Latest Available</div>
             <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
-              {info?.latest_commit || '0.1.0'}
+              {info?.latest_version || info?.latest_commit || 'dev'}
             </div>
           </div>
           <button 
@@ -285,7 +285,7 @@ function UpdatesTab() {
               <div>
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>New Update Available</h4>
                 <p style={{ margin: '0.25rem 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  {info.latest_message} (Released {info.latest_date ? new Date(info.latest_date).toLocaleDateString() : ''})
+                  {info.message || info.latest_message} (Released {(info.published_at || info.latest_date) ? new Date(info.published_at || info.latest_date).toLocaleDateString() : ''})
                 </p>
                 <button 
                   className="btn btn-primary btn-sm"

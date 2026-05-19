@@ -18,6 +18,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -550,37 +551,36 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // ── Panel Updates ─────────────────────────────────────────────────────────────
 
-type gitCommitJSON struct {
-	SHA    string `json:"sha"`
-	Commit struct {
-		Message string `json:"message"`
-		Author  struct {
-			Date string `json:"date"`
-		} `json:"author"`
-	} `json:"commit"`
+const (
+	githubRepo    = "tamalmaity-dev/nanofly"
+	githubRelease = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+)
+
+type ghReleaseJSON struct {
+	TagName string `json:"tag_name"`
+	Body    string `json:"body"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
+	PublishedAt string `json:"published_at"`
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	var currentCommit string
-	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
-	if out, err := cmd.Output(); err == nil {
-		currentCommit = strings.TrimSpace(string(out))
-	} else {
-		currentCommit = "0.1.0"
-	}
+	// Determine current version from build-time or from a version file
+	currentVersion := s.getCurrentVersion()
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, _ := http.NewRequestWithContext(r.Context(), "GET", "https://api.github.com/repos/tamalmaity-dev/nanofly/commits/main", nil)
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", githubRelease, nil)
 	req.Header.Set("User-Agent", "NanoFly-Update-Checker")
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		response.Success(w, map[string]any{
-			"current_commit": currentCommit,
-			"latest_commit":  currentCommit,
-			"has_update":     false,
-			"latest_message": "Unable to check remote repository",
-			"latest_date":    "",
+			"current_version": currentVersion,
+			"latest_version":  currentVersion,
+			"has_update":      false,
+			"message":         "Unable to reach GitHub — check your internet connection",
 		})
 		return
 	}
@@ -588,35 +588,47 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode != http.StatusOK {
 		response.Success(w, map[string]any{
-			"current_commit": currentCommit,
-			"latest_commit":  currentCommit,
-			"has_update":     false,
-			"latest_message": fmt.Sprintf("GitHub returned status %d", resp.StatusCode),
-			"latest_date":    "",
+			"current_version": currentVersion,
+			"latest_version":  currentVersion,
+			"has_update":      false,
+			"message":         fmt.Sprintf("GitHub returned status %d", resp.StatusCode),
 		})
 		return
 	}
 
-	var ghCommit gitCommitJSON
-	if err := json.NewDecoder(resp.Body).Decode(&ghCommit); err != nil {
-		response.Error(w, http.StatusInternalServerError, "failed to decode github response")
+	var release ghReleaseJSON
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to decode GitHub response")
 		return
 	}
 
-	latestSHA := ghCommit.SHA
-	if len(latestSHA) > 7 {
-		latestSHA = latestSHA[:7]
-	}
-
-	hasUpdate := currentCommit != latestSHA && currentCommit != "0.1.0"
+	hasUpdate := release.TagName != "" && release.TagName != currentVersion
 
 	response.Success(w, map[string]any{
-		"current_commit": currentCommit,
-		"latest_commit":  latestSHA,
-		"has_update":     hasUpdate,
-		"latest_message": ghCommit.Commit.Message,
-		"latest_date":    ghCommit.Commit.Author.Date,
+		"current_version": currentVersion,
+		"latest_version":  release.TagName,
+		"has_update":      hasUpdate,
+		"message":         release.Body,
+		"published_at":    release.PublishedAt,
 	})
+}
+
+func (s *Server) getCurrentVersion() string {
+	// Check for a version file first (written by installer)
+	if data, err := os.ReadFile("VERSION"); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	// Try git tag
+	cmd := exec.Command("git", "describe", "--tags", "--exact-match")
+	if out, err := cmd.Output(); err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	// Fall back to git short SHA
+	cmd = exec.Command("git", "rev-parse", "--short", "HEAD")
+	if out, err := cmd.Output(); err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	return "unknown"
 }
 
 func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
@@ -635,8 +647,8 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "An update process is already running")
 		return
 	}
-	s.updateStatus = "pull"
-	s.updateLog = "Starting NanoFly update system...\n"
+	s.updateStatus = "downloading"
+	s.updateLog = ""
 	s.updateMu.Unlock()
 
 	go s.runUpdateLoop()
@@ -651,107 +663,166 @@ func (s *Server) runUpdateLoop() {
 		s.updateMu.Unlock()
 	}
 
-	runCmd := func(name string, args ...string) error {
-		logMsg(fmt.Sprintf("Running: %s %s", name, strings.Join(args, " ")))
-		cmd := exec.Command(name, args...)
-		out, err := cmd.CombinedOutput()
-		if len(out) > 0 {
-			logMsg(string(out))
-		}
-		if err != nil {
-			logMsg(fmt.Sprintf("Command failed: %v", err))
-			return err
-		}
-		return nil
-	}
-
-	s.updateMu.Lock()
-	s.updateStatus = "pull"
-	s.updateMu.Unlock()
-
-	if err := runCmd("git", "pull", "origin", "main"); err != nil {
+	setStatus := func(st string) {
 		s.updateMu.Lock()
-		s.updateStatus = "error"
+		s.updateStatus = st
 		s.updateMu.Unlock()
-		logMsg("Update failed during git pull")
-		return
 	}
 
-	s.updateMu.Lock()
-	s.updateStatus = "build_front"
-	s.updateMu.Unlock()
+	fail := func(msg string) {
+		logMsg("ERROR: " + msg)
+		setStatus("error")
+	}
 
-	npmCmd := "npm"
-	if runtime.GOOS == "windows" {
-		npmCmd = "npm.cmd"
-	}
-	
-	logMsg("Running npm install in web/...")
-	installCmd := exec.Command(npmCmd, "install", "--no-audit", "--no-fund")
-	installCmd.Dir = "./web"
-	out, err := installCmd.CombinedOutput()
-	if len(out) > 0 {
-		logMsg(string(out))
-	}
+	// 1. Fetch latest release info
+	logMsg("Checking for latest release...")
+	setStatus("downloading")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, _ := http.NewRequest("GET", githubRelease, nil)
+	req.Header.Set("User-Agent", "NanoFly-Updater")
+
+	resp, err := client.Do(req)
 	if err != nil {
-		s.updateMu.Lock()
-		s.updateStatus = "error"
-		s.updateMu.Unlock()
-		logMsg(fmt.Sprintf("npm install failed: %v", err))
+		fail(fmt.Sprintf("Failed to reach GitHub: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fail(fmt.Sprintf("GitHub returned status %d", resp.StatusCode))
 		return
 	}
 
-	logMsg("Running npm run build in web/...")
-	buildCmd := exec.Command(npmCmd, "run", "build")
-	buildCmd.Dir = "./web"
-	out, err = buildCmd.CombinedOutput()
-	if len(out) > 0 {
-		logMsg(string(out))
+	var release ghReleaseJSON
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		fail(fmt.Sprintf("Failed to parse release data: %v", err))
+		return
 	}
+
+	logMsg(fmt.Sprintf("Latest release: %s", release.TagName))
+
+	// 2. Find the right asset for this architecture
+	arch := runtime.GOARCH
+	if arch == "arm64" {
+		arch = "arm64"
+	}
+	expectedAsset := fmt.Sprintf("nanofly-linux-%s.tar.gz", arch)
+
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if asset.Name == expectedAsset {
+			downloadURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		fail(fmt.Sprintf("No release asset found for architecture: %s (looking for %s)", runtime.GOARCH, expectedAsset))
+		return
+	}
+
+	logMsg(fmt.Sprintf("Downloading %s...", expectedAsset))
+
+	// 3. Download the tarball
+	dlResp, err := http.Get(downloadURL)
 	if err != nil {
-		s.updateMu.Lock()
-		s.updateStatus = "error"
-		s.updateMu.Unlock()
-		logMsg(fmt.Sprintf("npm build failed: %v", err))
+		fail(fmt.Sprintf("Download failed: %v", err))
+		return
+	}
+	defer dlResp.Body.Close()
+
+	tmpFile := "/tmp/nanofly-update.tar.gz"
+	out, err := os.Create(tmpFile)
+	if err != nil {
+		fail(fmt.Sprintf("Failed to create temp file: %v", err))
+		return
+	}
+	if _, err := io.Copy(out, dlResp.Body); err != nil {
+		out.Close()
+		fail(fmt.Sprintf("Download interrupted: %v", err))
+		return
+	}
+	out.Close()
+
+	logMsg("Download complete")
+
+	// 4. Extract to a temp directory first
+	setStatus("extracting")
+	logMsg("Extracting update...")
+
+	tmpDir := "/tmp/nanofly-update"
+	os.RemoveAll(tmpDir)
+	os.MkdirAll(tmpDir, 0755)
+
+	extractCmd := exec.Command("tar", "-xzf", tmpFile, "-C", tmpDir)
+	if out, err := extractCmd.CombinedOutput(); err != nil {
+		fail(fmt.Sprintf("Extraction failed: %s — %v", string(out), err))
 		return
 	}
 
-	s.updateMu.Lock()
-	s.updateStatus = "build_back"
-	s.updateMu.Unlock()
+	logMsg("Extraction complete")
 
-	goCmd := "go"
-	outBinName := "nanofly"
-	if runtime.GOOS == "windows" {
-		outBinName = "nanofly.exe"
-	}
+	// 5. Replace binary and frontend
+	setStatus("installing")
+	logMsg("Installing update...")
 
-	if err := runCmd(goCmd, "build", "-o", outBinName, "./cmd/nanofly"); err != nil {
-		s.updateMu.Lock()
-		s.updateStatus = "error"
-		s.updateMu.Unlock()
-		logMsg("Backend rebuild failed")
+	execPath, err := os.Executable()
+	if err != nil {
+		fail(fmt.Sprintf("Cannot determine binary path: %v", err))
 		return
 	}
 
-	s.updateMu.Lock()
-	s.updateStatus = "done"
-	s.updateMu.Unlock()
-	logMsg("==================================================")
-	logMsg("Update complete! NanoFly has been successfully rebuilt.")
-	logMsg("Restarting the panel automatically in 3 seconds to apply changes...")
-
-	// Spawn auto-restart in a separate thread so this thread returns, allowing final logs to be delivered to client
-	go func() {
-		time.Sleep(3 * time.Second)
-		execPath, err := os.Executable()
-		if err != nil {
-			logMsg(fmt.Sprintf("Failed to get executable path: %v", err))
-			slog.Error("failed to get executable path for restart", "error", err)
+	// Replace binary
+	newBinary := tmpDir + "/nanofly"
+	if _, err := os.Stat(newBinary); err == nil {
+		// Backup current binary
+		os.Rename(execPath, execPath+".bak")
+		// Copy new binary
+		cpCmd := exec.Command("cp", newBinary, execPath)
+		if out, err := cpCmd.CombinedOutput(); err != nil {
+			// Restore backup on failure
+			os.Rename(execPath+".bak", execPath)
+			fail(fmt.Sprintf("Binary replacement failed: %s — %v", string(out), err))
 			return
 		}
-		slog.Info("Restarting NanoFly panel in place...", "executable", execPath)
-		restartInPlace(execPath)
+		os.Chmod(execPath, 0755)
+		logMsg("Binary updated")
+	}
+
+	// Replace frontend
+	newDist := tmpDir + "/web/dist"
+	if _, err := os.Stat(newDist); err == nil {
+		os.RemoveAll("web/dist")
+		cpCmd := exec.Command("cp", "-r", newDist, "web/dist")
+		if out, err := cpCmd.CombinedOutput(); err != nil {
+			logMsg(fmt.Sprintf("Frontend update warning: %s — %v", string(out), err))
+		} else {
+			logMsg("Frontend updated")
+		}
+	}
+
+	// Write version file
+	os.WriteFile("VERSION", []byte(release.TagName), 0644)
+	logMsg(fmt.Sprintf("Version updated to %s", release.TagName))
+
+	// Cleanup
+	os.RemoveAll(tmpDir)
+	os.Remove(tmpFile)
+	os.Remove(execPath + ".bak")
+
+	setStatus("done")
+	logMsg("==================================================")
+	logMsg("Update complete! Restarting NanoFly in 3 seconds...")
+
+	go func() {
+		time.Sleep(3 * time.Second)
+		// Try systemd restart first (preferred)
+		restartCmd := exec.Command("systemctl", "restart", "nanofly")
+		if err := restartCmd.Run(); err != nil {
+			slog.Info("systemctl restart failed, trying in-place restart", "error", err)
+			restartInPlace(execPath)
+		}
 	}()
 }
 
