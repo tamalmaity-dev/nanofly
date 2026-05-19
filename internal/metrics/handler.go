@@ -32,8 +32,9 @@ func NewHandler() *Handler {
 // Routes returns a chi router with all metrics routes.
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Get("/", h.snapshot)     // GET /api/v1/metrics
-	r.Get("/ws", h.liveStream) // GET /api/v1/metrics/ws  (WebSocket upgrade)
+	r.Get("/", h.snapshot)        // GET /api/v1/metrics
+	r.Get("/snapshot", h.snapshot) // GET /api/v1/metrics/snapshot (frontend compat)
+	r.Get("/ws", h.liveStream)    // GET /api/v1/metrics/ws  (WebSocket upgrade)
 	return r
 }
 
