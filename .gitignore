@@ -1,0 +1,45 @@
+# ── Go Binaries & Temp Files ─────────────────────────
+nanofly
+nanofly.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+/data/
+/data/*
+*.db
+*.db-journal
+*.db-wal
+*.log
+*.tmp
+temp/
+
+# ── Node/Vite Frontend Files ────────────────────────
+/web/node_modules/
+/web/dist/
+/web/.eslintcache
+/web/.vite/
+/web/npm-debug.log*
+/web/yarn-debug.log*
+/web/yarn-error.log*
+/web/.env
+/web/.env.local
+/web/.env.development.local
+/web/.env.test.local
+/web/.env.production.local
+
+# ── OS & IDE Files ──────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo

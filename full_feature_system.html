@@ -1,0 +1,126 @@
+
+<style>
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;padding:4px 0 16px}
+.feat-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.feat-card:hover{border-color:var(--color-border-secondary)}
+.feat-icon{font-size:22px;margin-bottom:8px;color:var(--color-text-secondary)}
+.feat-title{font-size:14px;font-weight:500;color:var(--color-text-primary);margin:0 0 4px}
+.feat-sub{font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5}
+.feat-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;margin-top:8px;font-weight:500}
+.badge-core{background:var(--color-background-info);color:var(--color-text-info)}
+.badge-net{background:var(--color-background-success);color:var(--color-text-success)}
+.badge-db{background:var(--color-background-warning);color:var(--color-text-warning)}
+.section-label{font-size:11px;font-weight:500;color:var(--color-text-tertiary);letter-spacing:.05em;margin:16px 0 8px;text-transform:uppercase}
+</style>
+
+<h2 class="sr-only">Complete feature map for the server management panel</h2>
+
+<div class="section-label">auth &amp; projects</div>
+<div class="feat-grid">
+  <div class="feat-card" onclick="sendPrompt('Design the auth system for the server panel — first-run, JWT, roles')">
+    <div class="feat-icon"><i class="ti ti-shield-lock" aria-hidden="true"></i></div>
+    <p class="feat-title">Auth system</p>
+    <p class="feat-sub">First-run wizard, admin + member roles, HTTP-only JWT cookies, optional GitHub OAuth</p>
+    <span class="feat-badge badge-core">core</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should project isolation work in the panel? Separate env vars, domains, services per project')">
+    <div class="feat-icon"><i class="ti ti-folder" aria-hidden="true"></i></div>
+    <p class="feat-title">Projects</p>
+    <p class="feat-sub">Isolated namespaces — each project has its own services, env vars, domains, and team access</p>
+    <span class="feat-badge badge-core">core</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should team/user management work per project in the panel?')">
+    <div class="feat-icon"><i class="ti ti-users"></i></div>
+    <p class="feat-title">Team access</p>
+    <p class="feat-sub">Invite users per project, roles: admin · developer · viewer</p>
+    <span class="feat-badge badge-core">core</span>
+  </div>
+</div>
+
+<div class="section-label">networking &amp; domains</div>
+<div class="feat-grid">
+  <div class="feat-card" onclick="sendPrompt('How should the domain management + auto HTTPS work using Caddy in the panel?')">
+    <div class="feat-icon"><i class="ti ti-world" aria-hidden="true"></i></div>
+    <p class="feat-title">Domain management</p>
+    <p class="feat-sub">Add any domain, panel configures Caddy, auto-provisions Let's Encrypt cert</p>
+    <span class="feat-badge badge-net">auto-HTTPS</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should the reverse proxy routing work in the panel? How to route multiple domains to multiple services?')">
+    <div class="feat-icon"><i class="ti ti-arrows-exchange" aria-hidden="true"></i></div>
+    <p class="feat-title">Reverse proxy</p>
+    <p class="feat-sub">Caddy managed via Admin API — routes domains to internal services on any port</p>
+    <span class="feat-badge badge-net">caddy</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should port management and firewall rules work in the panel?')">
+    <div class="feat-icon"><i class="ti ti-plug" aria-hidden="true"></i></div>
+    <p class="feat-title">Port &amp; firewall</p>
+    <p class="feat-sub">Expose / close ports per service, optional ufw integration</p>
+    <span class="feat-badge badge-net">networking</span>
+  </div>
+</div>
+
+<div class="section-label">deployments &amp; git</div>
+<div class="feat-grid">
+  <div class="feat-card" onclick="sendPrompt('How should GitHub and Git integration work with webhooks and auto-deploy in the panel?')">
+    <div class="feat-icon"><i class="ti ti-brand-github" aria-hidden="true"></i></div>
+    <p class="feat-title">GitHub / Git</p>
+    <p class="feat-sub">Connect repo, generate webhook secret, auto-deploy on push to branch</p>
+    <span class="feat-badge badge-core">webhooks</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should the build and deploy pipeline work? Dockerfile, buildpacks, or shell scripts?')">
+    <div class="feat-icon"><i class="ti ti-rocket" aria-hidden="true"></i></div>
+    <p class="feat-title">Build &amp; deploy</p>
+    <p class="feat-sub">Dockerfile, Nixpacks, or shell scripts — zero-downtime with rolling restart</p>
+    <span class="feat-badge badge-core">deploy</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should environment variable management work per project and service?')">
+    <div class="feat-icon"><i class="ti ti-key" aria-hidden="true"></i></div>
+    <p class="feat-title">Env vars</p>
+    <p class="feat-sub">Per-service and per-project secrets, encrypted at rest in SQLite</p>
+    <span class="feat-badge badge-core">secrets</span>
+  </div>
+</div>
+
+<div class="section-label">databases &amp; services</div>
+<div class="feat-grid">
+  <div class="feat-card" onclick="sendPrompt('How should one-click database installs work for MySQL, PostgreSQL, Redis in the panel?')">
+    <div class="feat-icon"><i class="ti ti-database" aria-hidden="true"></i></div>
+    <p class="feat-title">Databases</p>
+    <p class="feat-sub">One-click MySQL · PostgreSQL · Redis — Docker or native, connection string auto-injected</p>
+    <span class="feat-badge badge-db">managed</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should the app catalog work for one-click installs like Nginx, Wordpress, etc?')">
+    <div class="feat-icon"><i class="ti ti-apps" aria-hidden="true"></i></div>
+    <p class="feat-title">App catalog</p>
+    <p class="feat-sub">YAML-defined recipes for common apps — Nginx, Wordpress, Node, Python, etc.</p>
+    <span class="feat-badge badge-db">catalog</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should service management work — start, stop, restart, logs for systemd and Docker?')">
+    <div class="feat-icon"><i class="ti ti-player-play" aria-hidden="true"></i></div>
+    <p class="feat-title">Service control</p>
+    <p class="feat-sub">Start · stop · restart any service, live log stream, auto-restart policy</p>
+    <span class="feat-badge badge-db">services</span>
+  </div>
+</div>
+
+<div class="section-label">monitoring &amp; terminal</div>
+<div class="feat-grid">
+  <div class="feat-card" onclick="sendPrompt('How should the system metrics dashboard work? CPU, RAM, temp, disk, network graphs')">
+    <div class="feat-icon"><i class="ti ti-chart-bar" aria-hidden="true"></i></div>
+    <p class="feat-title">System metrics</p>
+    <p class="feat-sub">CPU · RAM · disk · temp · network — live via WebSocket, sparkline history</p>
+    <span class="feat-badge badge-core">gopsutil</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should the built-in web terminal (PTY/xterm.js) work in the panel?')">
+    <div class="feat-icon"><i class="ti ti-terminal" aria-hidden="true"></i></div>
+    <p class="feat-title">Web terminal</p>
+    <p class="feat-sub">Full PTY via xterm.js, WebSocket-backed, per-session auth, Ctrl+C works</p>
+    <span class="feat-badge badge-core">pty</span>
+  </div>
+  <div class="feat-card" onclick="sendPrompt('How should deployment and system notifications/alerts work in the panel?')">
+    <div class="feat-icon"><i class="ti ti-bell" aria-hidden="true"></i></div>
+    <p class="feat-title">Alerts &amp; logs</p>
+    <p class="feat-sub">Deploy events, crash alerts, disk warnings — webhook or email notify</p>
+    <span class="feat-badge badge-core">events</span>
+  </div>
+</div>
