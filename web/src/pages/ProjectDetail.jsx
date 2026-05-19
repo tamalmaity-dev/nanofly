@@ -3,12 +3,23 @@ import { useParams } from 'react-router-dom';
 import { servicesApi, projectsApi } from '../api/client';
 import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check } from 'lucide-react';
 
+const DB_VERSIONS = {
+  postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13'],
+  mysql: ['mysql:8.3', 'mysql:8.0'],
+  mariadb: ['mariadb:11', 'mariadb:10'],
+  redis: ['redis:7', 'redis:6'],
+  mongo: ['mongo:7', 'mongo:6', 'mongo:5'],
+  keydb: ['keydb'],
+  dragonfly: ['dragonfly'],
+  clickhouse: ['clickhouse'],
+};
+
 // ── Add Service Modal ─────────────────────────────────────────────────────────
 function AddServiceModal({ projectId, onClose, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
-  const [dbType, setDbType] = useState('postgres');
+  const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
   const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', branch: 'main', token: '' });
   const [loading, setLoading] = useState(false);
@@ -56,7 +67,8 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
       }));
     } else {
       setType('database');
-      setDbType(resource.dbType);
+      const defaultVer = DB_VERSIONS[resource.dbType]?.[0] || resource.dbType;
+      setDbType(defaultVer);
       setForm(f => ({
         ...f,
         name: `my-${resource.dbType}`,
@@ -282,8 +294,19 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
                 </div>
 
                 <div className="form-group">
+                  <label className="form-label">Database Version</label>
+                  <select className="form-input" value={dbType} onChange={e => setDbType(e.target.value)}>
+                    {(DB_VERSIONS[dbType.split(':')[0]] || [dbType]).map(v => (
+                      <option key={v} value={v}>
+                        {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : v.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
                   <label className="form-label">Database Instance Name *</label>
-                  <input className="form-input" placeholder={`my-${dbType}`} value={form.name} onChange={set('name')} autoFocus />
+                  <input className="form-input" placeholder={`my-${dbType.split(':')[0]}`} value={form.name} onChange={set('name')} autoFocus />
                 </div>
               </div>
             )}

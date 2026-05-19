@@ -19,7 +19,7 @@ export default function Services() {
   const fetchServices = useCallback(async () => {
     try {
       const res = await systemdApi.list();
-      setServices(res.data || []);
+      setServices(res.data || res || []);
       setError(null);
     } catch (err) {
       setError(err.message);

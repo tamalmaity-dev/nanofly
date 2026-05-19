@@ -222,7 +222,8 @@ export default function Databases() {
                   No databases yet. Click <strong>New Database</strong> to create one.
                 </td></tr>
               ) : dbs.map(db => {
-                const info = dbTypeInfo(db.name?.includes('redis') ? 'redis' : db.name?.includes('mysql') ? 'mysql' : db.name?.includes('mongo') ? 'mongo' : 'postgres');
+                const typeId = (db.image || '').split(':')[0] || (db.name?.includes('redis') ? 'redis' : db.name?.includes('mysql') ? 'mysql' : db.name?.includes('mongo') ? 'mongo' : 'postgres');
+                const info = dbTypeInfo(typeId);
                 return (
                   <tr key={db.id}>
                     <td>
@@ -231,7 +232,7 @@ export default function Databases() {
                         <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{db.name}</span>
                       </div>
                     </td>
-                    <td><span style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>{db.name}</span></td>
+                    <td><span style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>{typeId}</span></td>
                     <td>{projects.find(p => p.id === db.project_id)?.name || db.project_id}</td>
                     <td>{statusBadge(db.status)}</td>
                     <td><code style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: '0.8125rem' }}>{db.port > 0 ? db.port : '—'}</code></td>

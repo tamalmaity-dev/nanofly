@@ -82,7 +82,7 @@ export default function Domains() {
   const fetchDomains = useCallback(async () => {
     try {
       const res = await domainsApi.list();
-      setDomains(res.data || []);
+      setDomains(res.data || res || []);
       setError(null);
     } catch (err) {
       setError(err.message);

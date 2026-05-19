@@ -97,51 +97,50 @@ type DBConfig struct {
 func imageFor(dbType string) (string, int, error) {
 	// dbType format: "postgres", "postgres:15", "mysql:5.7", etc.
 	// If no tag specified, default to latest stable.
-	switch {
-	// PostgreSQL
-	case dbType == "postgres" || dbType == "postgres:16":
-		return "postgres:16-alpine", 5432, nil
-	case dbType == "postgres:15":
-		return "postgres:15-alpine", 5432, nil
-	case dbType == "postgres:14":
-		return "postgres:14-alpine", 5432, nil
-	case dbType == "postgres:13":
-		return "postgres:13-alpine", 5432, nil
+	parts := strings.Split(dbType, ":")
+	baseType := parts[0]
+	version := ""
+	if len(parts) > 1 {
+		version = parts[1]
+	}
 
-	// MySQL
-	case dbType == "mysql" || dbType == "mysql:8":
-		return "mysql:8.0", 3306, nil
-	case dbType == "mysql:5.7":
-		return "mysql:5.7", 3306, nil
-
-	// MariaDB
-	case dbType == "mariadb" || dbType == "mariadb:11":
-		return "mariadb:11", 3306, nil
-	case dbType == "mariadb:10":
-		return "mariadb:10.11", 3306, nil
-
-	// Redis
-	case dbType == "redis" || dbType == "redis:7":
-		return "redis:7-alpine", 6379, nil
-	case dbType == "redis:6":
-		return "redis:6-alpine", 6379, nil
-
-	// MongoDB
-	case dbType == "mongo" || dbType == "mongo:7":
-		return "mongo:7.0", 27017, nil
-	case dbType == "mongo:6":
-		return "mongo:6.0", 27017, nil
-	case dbType == "mongo:5":
-		return "mongo:5.0", 27017, nil
-
-	// KeyDB (Redis-compatible, multithreaded)
-	case dbType == "keydb":
+	switch baseType {
+	case "postgres":
+		tag := "16-alpine"
+		if version != "" {
+			tag = version + "-alpine"
+		}
+		return "postgres:" + tag, 5432, nil
+	case "mysql":
+		tag := "8.0"
+		if version != "" {
+			tag = version
+		}
+		return "mysql:" + tag, 3306, nil
+	case "mariadb":
+		tag := "11"
+		if version != "" {
+			tag = version
+		}
+		return "mariadb:" + tag, 3306, nil
+	case "redis":
+		tag := "7-alpine"
+		if version != "" {
+			tag = version + "-alpine"
+		}
+		return "redis:" + tag, 6379, nil
+	case "mongo":
+		tag := "7.0"
+		if version != "" {
+			tag = version
+		}
+		return "mongo:" + tag, 27017, nil
+	case "keydb":
 		return "eqalpha/keydb:latest", 6379, nil
-
-	// ClickHouse (analytics)
-	case dbType == "clickhouse":
+	case "clickhouse":
 		return "clickhouse/clickhouse-server:24-alpine", 8123, nil
-
+	case "dragonfly":
+		return "docker.dragonflydb.io/dragonflydb/dragonfly:latest", 6379, nil
 	default:
 		return "", 0, fmt.Errorf("unknown db type: %s", dbType)
 	}
@@ -170,10 +169,12 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 		return 0, "", err
 	}
 
-	rc, _ := m.cli.ImagePull(ctx, img, image.PullOptions{})
-	if rc != nil {
-		rc.Close()
+	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
+	if err != nil {
+		return 0, "", fmt.Errorf("pulling image %s: %w", img, err)
 	}
+	defer rc.Close()
+	_, _ = io.Copy(io.Discard, rc)
 
 	hostPort := cfg.HostPort
 	if hostPort == 0 {
@@ -283,9 +284,10 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	slog.Info("pulling image", "image", img)
 	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
-		return "", fmt.Errorf("pulling image: %w", err)
+		return "", fmt.Errorf("pulling image %s: %w", img, err)
 	}
-	rc.Close()
+	defer rc.Close()
+	_, _ = io.Copy(io.Discard, rc)
 
 	oldName := "nf-app-" + name
 	m.RemoveContainer(ctx, oldName) //nolint:errcheck

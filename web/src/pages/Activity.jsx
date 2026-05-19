@@ -37,7 +37,7 @@ export default function ActivityLog() {
   const fetchActivity = useCallback(async () => {
     try {
       const res = await activityApi.list();
-      setEvents(res.data || []);
+      setEvents(res.data || res || []);
     } catch {
       // silently fail
     } finally {
