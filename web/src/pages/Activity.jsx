@@ -1,17 +1,60 @@
-import { Activity, ShieldCheck, GitBranch, LogIn, Settings, Trash2, Plus } from 'lucide-react';
+// src/pages/Activity.jsx — Real activity log from database
+import { useState, useEffect, useCallback } from 'react';
+import { Activity, ShieldCheck, GitBranch, LogIn, Settings, Trash2, Plus, Server, Globe, RefreshCw, Loader2 } from 'lucide-react';
+import { activityApi } from '../api/client';
 
-const EVENTS = [
-  { id: 1, type: 'login',    icon: LogIn,       color: 'var(--blue)',   title: 'Admin logged in', meta: 'Tamal · dev.tamal@gmail.com', time: '2 minutes ago' },
-  { id: 2, type: 'project',  icon: Plus,        color: 'var(--green)',  title: 'Project "Nano Fly" created', meta: 'by Tamal', time: '5 minutes ago' },
-  { id: 3, type: 'setup',    icon: ShieldCheck, color: 'var(--accent)', title: 'Initial admin account created', meta: 'Setup wizard completed', time: '8 minutes ago' },
-  { id: 4, type: 'deploy',   icon: GitBranch,   color: 'var(--yellow)', title: 'Deployment triggered', meta: 'Branch: main · Commit: a3f92b1', time: '1 hour ago' },
-  { id: 5, type: 'settings', icon: Settings,    color: 'var(--text-muted)', title: 'Settings updated', meta: 'SMTP configuration changed', time: '2 hours ago' },
-  { id: 6, type: 'delete',   icon: Trash2,      color: 'var(--red)',    title: 'Service "old-app" deleted', meta: 'by Tamal', time: '1 day ago' },
-];
+const TYPE_CONFIG = {
+  login:    { icon: LogIn,       color: 'var(--blue)',       label: 'Auth' },
+  project:  { icon: Plus,        color: 'var(--green)',      label: 'Project' },
+  setup:    { icon: ShieldCheck, color: 'var(--accent)',     label: 'Setup' },
+  deploy:   { icon: GitBranch,   color: 'var(--yellow)',     label: 'Deploy' },
+  settings: { icon: Settings,    color: 'var(--text-muted)', label: 'Settings' },
+  delete:   { icon: Trash2,      color: 'var(--red)',        label: 'Delete' },
+  service:  { icon: Server,      color: 'var(--green)',      label: 'Service' },
+  domain:   { icon: Globe,       color: 'var(--accent)',     label: 'Domain' },
+  info:     { icon: Activity,    color: 'var(--text-muted)', label: 'Info' },
+};
 
-const TYPE_LABELS = { login: 'Auth', project: 'Project', setup: 'Setup', deploy: 'Deploy', settings: 'Settings', delete: 'Delete' };
+function timeAgo(dateStr) {
+  try {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now - date) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return dateStr;
+  }
+}
 
 export default function ActivityLog() {
+  const [events, setEvents]   = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      const res = await activityApi.list();
+      setEvents(res.data || []);
+    } catch {
+      // silently fail
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchActivity(); }, [fetchActivity]);
+
+  if (loading) {
+    return (
+      <div className="page-content fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh' }}>
+        <Loader2 size={32} className="spin" color="var(--primary)" />
+      </div>
+    );
+  }
+
   return (
     <div className="page-content fade-in">
       <div className="page-header">
@@ -19,40 +62,54 @@ export default function ActivityLog() {
           <h1 className="page-title">Activity Log</h1>
           <p className="page-subtitle">Audit trail of all deployments, logins and configuration changes.</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Activity size={20} color="var(--text-muted)" style={{ alignSelf: 'center' }} />
-          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)', alignSelf: 'center' }}>{EVENTS.length} events</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-ghost" onClick={fetchActivity} style={{ border: '1px solid var(--border)' }}>
+            <RefreshCw size={14} /> Refresh
+          </button>
+          <Activity size={20} color="var(--text-muted)" />
+          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{events.length} events</span>
         </div>
       </div>
 
-      <div className="card">
-        {EVENTS.map((e, idx) => {
-          const Icon = e.icon;
-          return (
-            <div key={e.id} className="activity-item">
-              <div className="activity-dot-col">
-                <div className="activity-dot" style={{ background: e.color }} />
-                {idx < EVENTS.length - 1 && <div className="activity-line" />}
-              </div>
-              <div className="activity-body">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon size={13} color={e.color} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="activity-title">{e.title}</div>
-                    <div className="activity-meta">{e.meta}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                    <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{TYPE_LABELS[e.type]}</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.time}</span>
+      {events.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+          <Activity size={48} color="var(--text-muted)" style={{ opacity: 0.4, marginBottom: '1rem' }} />
+          <h3 style={{ color: 'var(--text-secondary)', fontWeight: 500, marginBottom: '0.5rem' }}>No activity yet</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+            Events will appear here as you use NanoFly — logins, deployments, and configuration changes.
+          </p>
+        </div>
+      ) : (
+        <div className="card">
+          {events.map((e, idx) => {
+            const cfg = TYPE_CONFIG[e.type] || TYPE_CONFIG.info;
+            const Icon = cfg.icon;
+            return (
+              <div key={e.id} className="activity-item">
+                <div className="activity-dot-col">
+                  <div className="activity-dot" style={{ background: cfg.color }} />
+                  {idx < events.length - 1 && <div className="activity-line" />}
+                </div>
+                <div className="activity-body">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon size={13} color={cfg.color} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div className="activity-title">{e.title}</div>
+                      <div className="activity-meta">{e.meta || e.user_email}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                      <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{cfg.label}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{timeAgo(e.created_at)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

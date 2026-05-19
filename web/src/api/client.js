@@ -50,21 +50,24 @@ export const projectsApi = {
 
 // Services — apps & databases within a project
 export const servicesApi = {
-  // List all services for a project
   listByProject: (projectId)      => get(`/projects/${projectId}/services`),
-  // Create an app (Docker image or GitHub)
   createApp:     (projectId, body) => post(`/projects/${projectId}/services/app`, body),
-  // Create a managed database
   createDB:      (projectId, body) => post(`/projects/${projectId}/services/database`, body),
-  // Per-service
   get:           (id)              => get(`/services/${id}`),
   delete:        (id)              => del(`/services/${id}`),
   deploy:        (id)              => post(`/services/${id}/deploy`),
   deployments:   (id)              => get(`/services/${id}/deployments`),
-  // Env vars
   getEnvVars:    (id)              => get(`/services/${id}/envvars`),
   upsertEnvVar:  (id, key, value)  => post(`/services/${id}/envvars`, { key, value }),
   deleteEnvVar:  (id, key)         => del(`/services/${id}/envvars/${key}`),
+};
+
+// Systemd Services (real system services)
+export const systemdApi = {
+  list:    ()     => get('/services/systemd'),
+  start:   (name) => post(`/services/systemd/${name}/start`),
+  stop:    (name) => post(`/services/systemd/${name}/stop`),
+  restart: (name) => post(`/services/systemd/${name}/restart`),
 };
 
 // Domains
@@ -72,6 +75,12 @@ export const domainsApi = {
   list:   ()      => get('/domains'),
   create: (body)  => post('/domains', body),
   delete: (id)    => del(`/domains/${id}`),
+  verify: (id)    => post(`/domains/${id}/verify`),
+};
+
+// Activity Log
+export const activityApi = {
+  list: () => get('/activity'),
 };
 
 // Metrics
@@ -87,7 +96,6 @@ export const terminalWsUrl = () => {
 };
 
 // Metrics WebSocket — connects and calls onMessage with each JSON snapshot.
-// Returns the WebSocket instance so the caller can close it.
 export function connectMetricsWS(onMessage, onClose) {
   const token = localStorage.getItem('nanofly_token');
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -107,5 +115,3 @@ export const updateApi = {
   apply: () => post('/settings/update/apply'),
   log:   () => get('/settings/update/log'),
 };
-
-

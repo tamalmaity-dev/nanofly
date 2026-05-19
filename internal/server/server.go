@@ -31,12 +31,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/nanofly/nanofly/internal/api/activity"
 	"github.com/nanofly/nanofly/internal/api/docker"
+	"github.com/nanofly/nanofly/internal/api/domains"
 	"github.com/nanofly/nanofly/internal/api/projects"
 	"github.com/nanofly/nanofly/internal/api/services"
+	"github.com/nanofly/nanofly/internal/api/systemd"
 	"github.com/nanofly/nanofly/internal/api/terminal"
 	"github.com/nanofly/nanofly/internal/auth"
-	"github.com/nanofly/nanofly/internal/config" 
+	"github.com/nanofly/nanofly/internal/config"
 	"github.com/nanofly/nanofly/internal/db"
 	"github.com/nanofly/nanofly/internal/metrics"
 	"github.com/nanofly/nanofly/internal/response"
@@ -131,12 +134,22 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Get("/terminal/ws", terminal.WS)
 		r.Get("/terminal/status", s.handleTerminalStatus)
 
+		// Systemd services (real)
+		systemdHandler := systemd.NewHandler()
+		systemdHandler.RegisterRoutes(r)
+
+		// Domains CRUD
+		domainHandler := domains.NewHandler(s.db.DB)
+		domainHandler.RegisterRoutes(r)
+
+		// Activity log
+		activityHandler := activity.NewHandler(s.db.DB)
+		activityHandler.RegisterRoutes(r)
+
 		// Panel updates
 		r.Get("/settings/update/check", s.handleUpdateCheck)
 		r.Post("/settings/update/apply", s.handleUpdateApply)
 		r.Get("/settings/update/log", s.handleUpdateLog)
-
-		// TODO: domains, SSH keys...
 	})
 
 	// ── SPA Static File Server ──────────────────────────────────────────────

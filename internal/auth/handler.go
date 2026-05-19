@@ -3,9 +3,11 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nanofly/nanofly/internal/api/activity"
 	"github.com/nanofly/nanofly/internal/response"
 )
 
@@ -71,6 +73,9 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+
+	// Log successful login
+	activity.Log(h.svc.db.DB, "login", "User logged in", fmt.Sprintf("%s · %s", user.Name, user.Email), user.Email)
 
 	response.Success(w, loginResponse{
 		Token: token,
