@@ -1,6 +1,6 @@
-# paneld.yaml — Panel Configuration
+# nanofly.example.yaml — Panel Configuration
 #
-# Copy this to /etc/paneld/paneld.yaml (production)
+# Copy this to /etc/nanofly/nanofly.yaml (production)
 # or keep it in the same directory as your binary (dev).
 #
 # All values here can also be set via environment variables.
@@ -10,12 +10,12 @@
 # ── HTTP Server ────────────────────────────────────────────────────────────────
 
 # Port the web interface listens on.
-# Env: PANELD_PORT
+# Env: nanofly_PORT
 port: 8080
 
 # Host to bind to. Leave empty to listen on all interfaces (0.0.0.0).
 # Set to "127.0.0.1" if you want only local access.
-# Env: PANELD_HOST
+# Env: nanofly_HOST
 host: ""
 
 # ── Security ────────────────────────────────────────────────────────────────────
@@ -23,21 +23,21 @@ host: ""
 # Secret key for signing JWT login tokens.
 # CHANGE THIS! Use a long random string.
 # Generate one with: openssl rand -base64 48
-# Env: PANELD_SECRET_KEY
+# Env: nanofly_SECRET_KEY
 secret_key: "CHANGE-ME-use-openssl-rand-base64-48"
 
 # ── Storage ─────────────────────────────────────────────────────────────────────
 
 # Directory for the database file, logs, and uploads.
-# paneld must have read/write access to this directory.
-# Env: PANELD_DATA_DIR
-data_dir: "/var/lib/paneld"
+# nanofly must have read/write access to this directory.
+# Env: nanofly_DATA_DIR
+data_dir: "/var/lib/nanofly"
 
 # ── Caddy (Auto-HTTPS) ──────────────────────────────────────────────────────────
 
-# Caddy Admin API address. Paneld talks to Caddy here to manage
+# Caddy Admin API address. nanofly talks to Caddy here to manage
 # domains and TLS certificates automatically.
-# Env: PANELD_CADDY_ADMIN
+# Env: nanofly_CADDY_ADMIN
 caddy_admin_url: "http://localhost:2019"
 
 # ── Email Notifications (optional) ─────────────────────────────────────────────
@@ -47,10 +47,10 @@ smtp:
   port: 587
   username: ""
   password: ""
-  from: ""        # e.g. paneld@yourdomain.com
+  from: ""        # e.g. nanofly@yourdomain.com
 
 # ── Developer Settings ──────────────────────────────────────────────────────────
 
 # Enable verbose debug logging.
-# Env: PANELD_DEBUG
+# Env: nanofly_DEBUG
 debug: false
