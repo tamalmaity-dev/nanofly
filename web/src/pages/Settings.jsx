@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../store/auth';
-import { Save, Key, Bell, Shield, User } from 'lucide-react';
+import { Save, Key, Bell, Shield, User, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { updateApi } from '../api/client';
 
 const TABS = [
   { id: 'general',  label: 'General',      icon: User },
   { id: 'security', label: 'Security',     icon: Shield },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'api',      label: 'API Keys',     icon: Key },
+  { id: 'updates',  label: 'Updates',      icon: RefreshCw },
 ];
 
 function Toggle({ defaultChecked = false }) {
@@ -169,6 +171,146 @@ function ApiKeysTab() {
   );
 }
 
+function UpdatesTab() {
+  const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [info, setInfo] = useState(null);
+  const [updateLog, setUpdateLog] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('idle');
+
+  const checkUpdates = async (silent = false) => {
+    if (!silent) setChecking(true);
+    try {
+      const data = await updateApi.check();
+      setInfo(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const checkStatus = async () => {
+    try {
+      const data = await updateApi.log();
+      setUpdateStatus(data.status);
+      setUpdateLog(data.log || '');
+      
+      if (data.status === 'pull' || data.status === 'build_front' || data.status === 'build_back') {
+        setUpdating(true);
+        setTimeout(checkStatus, 2000);
+      } else {
+        setUpdating(false);
+        if (data.status === 'done') {
+          checkUpdates(true);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setUpdating(false);
+    }
+  };
+
+  const applyUpdate = async () => {
+    setUpdating(true);
+    setUpdateStatus('pull');
+    setUpdateLog('Initializing update...\n');
+    try {
+      await updateApi.apply();
+      setTimeout(checkStatus, 1000);
+    } catch (err) {
+      setUpdateLog(prev => prev + `\nError initiating update: ${err.message}`);
+      setUpdating(false);
+      setUpdateStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    checkUpdates();
+    checkStatus();
+  }, []);
+
+  return (
+    <div className="fade-in">
+      <div className="settings-section">
+        <div className="settings-section-title">NanoFly System Updates</div>
+        <div className="settings-row" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <div className="settings-row-label">Current Version / Commit</div>
+            <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+              {info?.current_commit || '0.1.0'}
+            </div>
+          </div>
+          <div>
+            <div className="settings-row-label">Latest Available</div>
+            <div className="settings-row-desc" style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}>
+              {info?.latest_commit || '0.1.0'}
+            </div>
+          </div>
+          <button 
+            className="btn btn-ghost" 
+            style={{ border: '1px solid var(--border)' }}
+            onClick={() => checkUpdates()}
+            disabled={checking || updating}
+          >
+            <RefreshCw size={14} className={checking ? 'spin' : ''} /> Check
+          </button>
+        </div>
+
+        {info?.has_update && (
+          <div className="card" style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.15)', marginBottom: '1.5rem', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <AlertCircle size={18} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>New Update Available</h4>
+                <p style={{ margin: '0.25rem 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  {info.latest_message} (Released {info.latest_date ? new Date(info.latest_date).toLocaleDateString() : ''})
+                </p>
+                <button 
+                  className="btn btn-primary btn-sm"
+                  onClick={applyUpdate}
+                  disabled={updating}
+                >
+                  <RefreshCw size={12} className={updating ? 'spin' : ''} /> Install Update Now
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!info?.has_update && info && (
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', margin: '1rem 0 1.5rem 0', color: 'var(--success)', fontSize: '0.9rem' }}>
+            <CheckCircle2 size={16} />
+            <span>Your panel is up to date!</span>
+          </div>
+        )}
+      </div>
+
+      {(updating || updateLog) && (
+        <div className="settings-section">
+          <div className="settings-section-title">Update Status: <span style={{ textTransform: 'capitalize', color: updateStatus === 'error' ? 'var(--danger)' : updateStatus === 'done' ? 'var(--success)' : 'var(--primary)' }}>{updateStatus.replace('_', ' ')}</span></div>
+          <pre 
+            style={{
+              background: '#0d1117',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)',
+              padding: '1rem',
+              color: '#c9d1d9',
+              fontFamily: 'monospace',
+              fontSize: '0.825rem',
+              maxHeight: '300px',
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {updateLog}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const [tab, setTab] = useState('general');
   const { user } = useAuth();
@@ -197,6 +339,7 @@ export default function Settings() {
       {tab === 'security'      && <SecurityTab />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'api'           && <ApiKeysTab />}
+      {tab === 'updates'       && <UpdatesTab />}
     </div>
   );
 }

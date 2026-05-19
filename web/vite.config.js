@@ -21,16 +21,5 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    // Chunk files for better caching
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          react:    ['react', 'react-dom'],
-          router:   ['react-router-dom'],
-          charts:   ['recharts'],
-          icons:    ['lucide-react'],
-        },
-      },
-    },
   },
 })

@@ -101,3 +101,11 @@ export function connectMetricsWS(onMessage, onClose) {
   return ws;
 }
 
+// Panel Update Management
+export const updateApi = {
+  check: () => get('/settings/update/check'),
+  apply: () => post('/settings/update/apply'),
+  log:   () => get('/settings/update/log'),
+};
+
+

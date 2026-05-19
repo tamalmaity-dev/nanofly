@@ -19,7 +19,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -38,20 +41,24 @@ import (
 
 // Server holds the HTTP server and all module dependencies.
 type Server struct {
-	cfg       *config.Config
-	db        *db.DB
-	router    *chi.Mux
-	httpSrv   *http.Server
-	authSvc   *auth.Service
-	dockerMgr *docker.Manager
-	serviceMgr *services.Manager
+	cfg          *config.Config
+	db           *db.DB
+	router       *chi.Mux
+	httpSrv      *http.Server
+	authSvc      *auth.Service
+	dockerMgr    *docker.Manager
+	serviceMgr   *services.Manager
+	updateStatus string // idle | pull | build_front | build_back | done | error
+	updateLog    string
+	updateMu     sync.Mutex
 }
 
 // New builds the server and wires all modules.
 func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	s := &Server{
-		cfg: cfg,
-		db:  database,
+		cfg:          cfg,
+		db:           database,
+		updateStatus: "idle",
 	}
 
 	s.authSvc = auth.NewService(database, cfg.SecretKey)
@@ -120,6 +127,11 @@ func (s *Server) buildRouter() *chi.Mux {
 		// Terminal WebSocket
 		r.Get("/terminal/ws", terminal.WS)
 		r.Get("/terminal/status", s.handleTerminalStatus)
+
+		// Panel updates
+		r.Get("/settings/update/check", s.handleUpdateCheck)
+		r.Post("/settings/update/apply", s.handleUpdateApply)
+		r.Get("/settings/update/log", s.handleUpdateLog)
 
 		// TODO: domains, SSH keys...
 	})
@@ -512,3 +524,198 @@ func (s *Server) Start() error {
 func (s *Server) Stop(ctx context.Context) error {
 	return s.httpSrv.Shutdown(ctx)
 }
+
+// ── Panel Updates ─────────────────────────────────────────────────────────────
+
+type gitCommitJSON struct {
+	SHA    string `json:"sha"`
+	Commit struct {
+		Message string `json:"message"`
+		Author  struct {
+			Date string `json:"date"`
+		} `json:"author"`
+	} `json:"commit"`
+}
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	var currentCommit string
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	if out, err := cmd.Output(); err == nil {
+		currentCommit = strings.TrimSpace(string(out))
+	} else {
+		currentCommit = "0.1.0"
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", "https://api.github.com/repos/tamalmaity-dev/nanofly/commits/main", nil)
+	req.Header.Set("User-Agent", "NanoFly-Update-Checker")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		response.Success(w, map[string]any{
+			"current_commit": currentCommit,
+			"latest_commit":  currentCommit,
+			"has_update":     false,
+			"latest_message": "Unable to check remote repository",
+			"latest_date":    "",
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		response.Success(w, map[string]any{
+			"current_commit": currentCommit,
+			"latest_commit":  currentCommit,
+			"has_update":     false,
+			"latest_message": fmt.Sprintf("GitHub returned status %d", resp.StatusCode),
+			"latest_date":    "",
+		})
+		return
+	}
+
+	var ghCommit gitCommitJSON
+	if err := json.NewDecoder(resp.Body).Decode(&ghCommit); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to decode github response")
+		return
+	}
+
+	latestSHA := ghCommit.SHA
+	if len(latestSHA) > 7 {
+		latestSHA = latestSHA[:7]
+	}
+
+	hasUpdate := currentCommit != latestSHA && currentCommit != "0.1.0"
+
+	response.Success(w, map[string]any{
+		"current_commit": currentCommit,
+		"latest_commit":  latestSHA,
+		"has_update":     hasUpdate,
+		"latest_message": ghCommit.Commit.Message,
+		"latest_date":    ghCommit.Commit.Author.Date,
+	})
+}
+
+func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	response.Success(w, map[string]any{
+		"status": s.updateStatus,
+		"log":    s.updateLog,
+	})
+}
+
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	s.updateMu.Lock()
+	if s.updateStatus != "idle" && s.updateStatus != "done" && s.updateStatus != "error" {
+		s.updateMu.Unlock()
+		response.Error(w, http.StatusBadRequest, "An update process is already running")
+		return
+	}
+	s.updateStatus = "pull"
+	s.updateLog = "Starting NanoFly update system...\n"
+	s.updateMu.Unlock()
+
+	go s.runUpdateLoop()
+
+	response.Success(w, map[string]string{"status": "update_started"})
+}
+
+func (s *Server) runUpdateLoop() {
+	logMsg := func(msg string) {
+		s.updateMu.Lock()
+		s.updateLog += fmt.Sprintf("[%s] %s\n", time.Now().Format("15:04:05"), msg)
+		s.updateMu.Unlock()
+	}
+
+	runCmd := func(name string, args ...string) error {
+		logMsg(fmt.Sprintf("Running: %s %s", name, strings.Join(args, " ")))
+		cmd := exec.Command(name, args...)
+		out, err := cmd.CombinedOutput()
+		if len(out) > 0 {
+			logMsg(string(out))
+		}
+		if err != nil {
+			logMsg(fmt.Sprintf("Command failed: %v", err))
+			return err
+		}
+		return nil
+	}
+
+	s.updateMu.Lock()
+	s.updateStatus = "pull"
+	s.updateMu.Unlock()
+
+	if err := runCmd("git", "pull", "origin", "main"); err != nil {
+		s.updateMu.Lock()
+		s.updateStatus = "error"
+		s.updateMu.Unlock()
+		logMsg("Update failed during git pull")
+		return
+	}
+
+	s.updateMu.Lock()
+	s.updateStatus = "build_front"
+	s.updateMu.Unlock()
+
+	npmCmd := "npm"
+	if runtime.GOOS == "windows" {
+		npmCmd = "npm.cmd"
+	}
+	
+	logMsg("Running npm install in web/...")
+	installCmd := exec.Command(npmCmd, "install", "--no-audit", "--no-fund")
+	installCmd.Dir = "./web"
+	out, err := installCmd.CombinedOutput()
+	if len(out) > 0 {
+		logMsg(string(out))
+	}
+	if err != nil {
+		s.updateMu.Lock()
+		s.updateStatus = "error"
+		s.updateMu.Unlock()
+		logMsg(fmt.Sprintf("npm install failed: %v", err))
+		return
+	}
+
+	logMsg("Running npm run build in web/...")
+	buildCmd := exec.Command(npmCmd, "run", "build")
+	buildCmd.Dir = "./web"
+	out, err = buildCmd.CombinedOutput()
+	if len(out) > 0 {
+		logMsg(string(out))
+	}
+	if err != nil {
+		s.updateMu.Lock()
+		s.updateStatus = "error"
+		s.updateMu.Unlock()
+		logMsg(fmt.Sprintf("npm build failed: %v", err))
+		return
+	}
+
+	s.updateMu.Lock()
+	s.updateStatus = "build_back"
+	s.updateMu.Unlock()
+
+	goCmd := "go"
+	outBinName := "nanofly"
+	if runtime.GOOS == "windows" {
+		outBinName = "nanofly.exe"
+	}
+
+	if err := runCmd(goCmd, "build", "-o", outBinName, "./cmd/nanofly"); err != nil {
+		s.updateMu.Lock()
+		s.updateStatus = "error"
+		s.updateMu.Unlock()
+		logMsg("Backend rebuild failed")
+		return
+	}
+
+	s.updateMu.Lock()
+	s.updateStatus = "done"
+	s.updateMu.Unlock()
+	logMsg("==================================================")
+	logMsg("Update complete! NanoFly has been successfully rebuilt.")
+	logMsg("Please restart the panel service to run the updated binary.")
+}
+
