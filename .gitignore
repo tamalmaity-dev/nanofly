@@ -43,3 +43,6 @@ Thumbs.db
 *.sln
 *.swp
 *.swo
+
+# ── Other ─────────────────────────────
+architecture/
