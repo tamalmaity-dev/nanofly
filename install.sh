@@ -47,37 +47,94 @@ if [ ${#missing_deps[@]} -ne 0 ]; then
   
   # Check if we have apt-get (Ubuntu/Debian)
   if command -v apt-get &> /dev/null; then
-    read -p "Would you like to automatically install these dependencies using apt? (y/N) " -n 1 -r < /dev/tty
+    read -p "Would you like to automatically install these dependencies? (y/N) " -n 1 -r < /dev/tty
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo -e "${BLUE}Updating system packages...${CLEAR}"
-      sudo apt-get update -y
-      
-      echo -e "${BLUE}Installing missing packages in a single transaction...${CLEAR}"
+      ARCH=$(uname -m)
       apt_packages=()
       install_docker=false
+      install_go_binary=false
+      install_node_binary=false
 
+      # Check which missing packages can be installed via optimized binaries vs apt
       for dep in "${missing_deps[@]}"; do
         if [ "$dep" = "docker" ]; then
           apt_packages+=("docker.io")
           install_docker=true
+        elif [ "$dep" = "git" ]; then
+          apt_packages+=("git")
         elif [ "$dep" = "golang" ]; then
-          apt_packages+=("golang")
-        elif [ "$dep" = "nodejs" ]; then
-          apt_packages+=("nodejs")
-        elif [ "$dep" = "npm" ]; then
-          apt_packages+=("npm")
+          install_go_binary=true
+        elif [ "$dep" = "nodejs" ] || [ "$dep" = "npm" ]; then
+          install_node_binary=true
         else
           apt_packages+=("$dep")
         fi
       done
 
-      sudo apt-get install -y "${apt_packages[@]}"
+      # Add packages required for extracting official binaries
+      if [ "$install_node_binary" = true ]; then
+        apt_packages+=("xz-utils" "tar" "curl")
+      fi
+      if [ "$install_go_binary" = true ]; then
+        apt_packages+=("tar" "curl")
+      fi
 
+      # 1. Install APT packages in one transaction (Git, Docker, xz-utils, etc.)
+      if [ ${#apt_packages[@]} -ne 0 ]; then
+        echo -e "${BLUE}Updating system package lists...${CLEAR}"
+        sudo apt-get update -y
+        echo -e "${BLUE}Installing system dependencies via apt...${CLEAR}"
+        sudo apt-get install -y "${apt_packages[@]}"
+      fi
+
+      # 2. Install Go (optimized official binary extraction)
+      if [ "$install_go_binary" = true ]; then
+        echo -e "${BLUE}Installing Go language (official binary)...${CLEAR}"
+        GO_VERSION="1.22.3"
+        case "$ARCH" in
+          x86_64) GO_ARCH="amd64" ;;
+          aarch64) GO_ARCH="arm64" ;;
+          armv7l) GO_ARCH="armv6l" ;;
+          *) GO_ARCH="" ;;
+        esac
+
+        if [ -n "$GO_ARCH" ]; then
+          sudo rm -rf /usr/local/go
+          curl -fsSL "https://golang.org/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" | sudo tar -xz -C /usr/local
+          export PATH=$PATH:/usr/local/go/bin
+          if ! grep -q "/usr/local/go/bin" ~/.profile 2>/dev/null; then
+            echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
+          fi
+        else
+          echo -e "${YELLOW}Could not determine Go binary architecture for ${ARCH}, installing via apt...${CLEAR}"
+          sudo apt-get install -y golang
+        fi
+      fi
+
+      # 3. Install Node.js & npm (optimized official binary extraction)
+      if [ "$install_node_binary" = true ]; then
+        echo -e "${BLUE}Installing Node.js & npm (official binary)...${CLEAR}"
+        NODE_VERSION="v20.13.1"
+        case "$ARCH" in
+          x86_64) NODE_ARCH="x64" ;;
+          aarch64) NODE_ARCH="arm64" ;;
+          armv7l) NODE_ARCH="armv7l" ;;
+          *) NODE_ARCH="" ;;
+        esac
+
+        if [ -n "$NODE_ARCH" ]; then
+          curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" | sudo tar -xJ --strip-components=1 -C /usr/local
+        else
+          echo -e "${YELLOW}Could not determine Node.js binary architecture for ${ARCH}, installing via apt...${CLEAR}"
+          sudo apt-get install -y nodejs npm
+        fi
+      fi
+
+      # 4. Post-install Docker setup
       if [ "$install_docker" = true ]; then
         sudo systemctl start docker || true
         sudo systemctl enable docker || true
-        # Add current user to docker group if not root
         if [ "$USER" != "root" ]; then
           sudo usermod -aG docker "$USER" || true
           echo -e "${YELLOW}Notice: Added user $USER to docker group. You might need to log out and back in for Docker permissions to apply.${CLEAR}"
