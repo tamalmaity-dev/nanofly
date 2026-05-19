@@ -1,6 +1,6 @@
 # ── Go Binaries & Temp Files ─────────────────────────
-nanofly
-nanofly.exe
+/nanofly
+/nanofly.exe
 *.exe
 *.exe~
 *.dll
