@@ -41,6 +41,7 @@ type Service struct {
 	// Joined fields
 	GitRepoURL  string `json:"git_repo_url,omitempty"`
 	GitBranch   string `json:"git_branch,omitempty"`
+	Builder     string `json:"git_builder,omitempty"`
 	ConnString  string `json:"conn_string,omitempty"` // databases only (encrypted stub)
 }
 
@@ -79,7 +80,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		SELECT s.id, s.project_id, s.name, s.type, s.status, 
 		       COALESCE(s.port,0), COALESCE(s.updated_at,''), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
-		       COALESCE(s.image,'')
+		       COALESCE(s.image,''), COALESCE(g.builder,'auto')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -98,7 +99,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
 			&s.Port, &updatedAt, &createdAt,
 			&s.GitRepoURL, &s.GitBranch,
-			&s.Image,
+			&s.Image, &s.Builder,
 		); err != nil {
 			return nil, err
 		}
@@ -120,7 +121,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		SELECT s.id, s.project_id, s.name, s.type, s.status,
 		       COALESCE(s.port,0), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
-		       COALESCE(s.image,'')
+		       COALESCE(s.image,''), COALESCE(g.builder,'auto')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -128,7 +129,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
 		&s.Port, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
-		&s.Image,
+		&s.Image, &s.Builder,
 	)
 	if err != nil {
 		return nil, err
@@ -149,6 +150,7 @@ type CreateAppReq struct {
 	GitRepoURL  string
 	GitBranch   string
 	GitToken    string // PAT for private repos
+	Builder     string // auto, node, go, python, php, static, dockerfile
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -165,10 +167,14 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 
 	// Store git source if provided
 	if req.GitRepoURL != "" {
+		builderVal := req.Builder
+		if builderVal == "" {
+			builderVal = "auto"
+		}
 		_, err = m.db.ExecContext(ctx, `
-			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret)
-			VALUES (?, ?, ?, ?)
-		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword())
+			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder)
+			VALUES (?, ?, ?, ?, ?)
+		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal)
 		if err != nil {
 			slog.Warn("storing git source", "err", err)
 		}
@@ -434,7 +440,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	}
 
 	// Dynamic detection and generation of Dockerfile if none exists
-	if err := detectAndWriteDockerfile(repoDir, svc.Port, log); err != nil {
+	if err := detectAndWriteDockerfile(repoDir, svc.Port, svc.Builder, log); err != nil {
 		return fmt.Errorf("generating Dockerfile: %w", err)
 	}
 
@@ -498,7 +504,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 }
 
 // detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
-func detectAndWriteDockerfile(repoDir string, svcPort int, log func(string)) error {
+func detectAndWriteDockerfile(repoDir string, svcPort int, builder string, log func(string)) error {
 	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
 		log("ℹ️ Found existing Dockerfile in repository, using it.")
@@ -510,7 +516,89 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, log func(string)) err
 		portStr = fmt.Sprintf("%d", svcPort)
 	}
 
-	// 1. Detect Node.js
+	// 1. Manual selection triggers:
+	if builder == "node" {
+		log("ℹ️ Using NodeJS runtime template. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY . .
+ENV PORT=%s
+EXPOSE %s
+CMD ["npm", "start"]
+`, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	if builder == "go" {
+		log("ℹ️ Using Go (Golang) runtime template. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod* go.sum* ./
+RUN if [ -f go.mod ]; then go mod download; fi
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/main .
+ENV PORT=%s
+EXPOSE %s
+CMD ["./main"]
+`, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	if builder == "python" {
+		log("ℹ️ Using Python runtime template. Generating optimized Dockerfile…")
+		mainPy := "main.py"
+		if _, err := os.Stat(filepath.Join(repoDir, "app.py")); err == nil {
+			mainPy = "app.py"
+		} else if _, err := os.Stat(filepath.Join(repoDir, "wsgi.py")); err == nil {
+			mainPy = "wsgi.py"
+		}
+		
+		content := fmt.Sprintf(`FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt* ./
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+COPY . .
+ENV PORT=%s
+EXPOSE %s
+CMD ["python", "%s"]
+`, portStr, portStr, mainPy)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	if builder == "php" {
+		log("ℹ️ Using PHP runtime template. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM php:8.2-apache
+COPY . /var/www/html/
+RUN a2enmod rewrite || true
+RUN echo "Listen %s" > /etc/apache2/ports.conf && sed -i 's/<VirtualHost \\\*:80>/<VirtualHost *:%s>/g' /etc/apache2/sites-available/000-default.conf
+EXPOSE %s
+`, portStr, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	if builder == "static" {
+		log("ℹ️ Using HTML/Static runtime template. Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM nginx:alpine
+COPY . /usr/share/nginx/html/
+RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.conf
+EXPOSE %s
+`, portStr, portStr)
+		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	if builder == "dockerfile" {
+		log("⚠️ Dockerfile builder selected but no Dockerfile was found in repository root.")
+		return fmt.Errorf("no Dockerfile found in repository root")
+	}
+
+	// 2. Auto-detection fallback:
+	// NodeJS
 	if _, err := os.Stat(filepath.Join(repoDir, "package.json")); err == nil {
 		log("ℹ️ Detected Node.js runtime. Generating optimized Dockerfile…")
 		content := fmt.Sprintf(`FROM node:20-alpine
@@ -525,7 +613,7 @@ CMD ["npm", "start"]
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	// 2. Detect Go
+	// Go
 	if _, err := os.Stat(filepath.Join(repoDir, "go.mod")); err == nil {
 		log("ℹ️ Detected Go runtime. Generating optimized Dockerfile…")
 		content := fmt.Sprintf(`FROM golang:1.22-alpine AS builder
@@ -545,7 +633,7 @@ CMD ["./main"]
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	// 3. Detect Python
+	// Python
 	hasRequirements := false
 	if _, err := os.Stat(filepath.Join(repoDir, "requirements.txt")); err == nil {
 		hasRequirements = true
@@ -571,7 +659,7 @@ CMD ["python", "%s"]
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	// 4. Detect PHP
+	// PHP
 	if _, err := os.Stat(filepath.Join(repoDir, "index.php")); err == nil || fileExistsWithExtension(repoDir, ".php") {
 		log("ℹ️ Detected PHP runtime. Generating optimized Dockerfile…")
 		content := fmt.Sprintf(`FROM php:8.2-apache
@@ -583,7 +671,7 @@ EXPOSE %s
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	// 5. Detect Static Web
+	// Static Web
 	if _, err := os.Stat(filepath.Join(repoDir, "index.html")); err == nil || fileExistsWithExtension(repoDir, ".html") {
 		log("ℹ️ Detected HTML/Static website. Generating optimized Dockerfile…")
 		content := fmt.Sprintf(`FROM nginx:alpine
@@ -759,6 +847,7 @@ type UpdateServiceReq struct {
 	Port       int    `json:"port"`
 	GitRepoURL string `json:"git_repo_url"`
 	GitBranch  string `json:"git_branch"`
+	Builder    string `json:"git_builder"`
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -772,6 +861,11 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}
 
+	builderVal := req.Builder
+	if builderVal == "" {
+		builderVal = "auto"
+	}
+
 	// Update git sources if relevant
 	var exists bool
 	_ = m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM git_sources WHERE service_id = ?)`, serviceID).Scan(&exists)
@@ -781,15 +875,15 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		} else {
 			_, _ = m.db.ExecContext(ctx, `
 				UPDATE git_sources
-				SET repo_url = ?, branch = ?
+				SET repo_url = ?, branch = ?, builder = ?
 				WHERE service_id = ?
-			`, req.GitRepoURL, req.GitBranch, serviceID)
+			`, req.GitRepoURL, req.GitBranch, builderVal, serviceID)
 		}
 	} else if req.GitRepoURL != "" {
 		_, _ = m.db.ExecContext(ctx, `
-			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret)
-			VALUES (?, ?, ?, ?)
-		`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword())
+			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder)
+			VALUES (?, ?, ?, ?, ?)
+		`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal)
 	}
 
 	return m.Get(ctx, serviceID)

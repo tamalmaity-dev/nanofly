@@ -21,7 +21,7 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
   const [subType, setSubType] = useState('docker'); // docker | github
   const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', branch: 'main', token: '' });
+  const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', branch: 'main', token: '', gitBuilder: 'auto' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -40,6 +40,7 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
           git_repo_url: form.gitUrl.trim(), 
           git_branch: form.branch.trim() || 'main', 
           git_token: form.token.trim(), 
+          git_builder: form.gitBuilder || 'auto',
           port: Number(form.port) || 0 
         });
       } else {
@@ -276,8 +277,17 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
                       <label className="form-label">Exposed Container Port</label>
                       <input className="form-input" placeholder="e.g. 3000" value={form.port} onChange={set('port')} />
                     </div>
-                    <div style={{ background: 'rgba(79,110,247,0.06)', borderRadius: 'var(--radius)', padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid rgba(79,110,247,0.1)', marginTop: -6 }}>
-                      💡 <strong>No Dockerfile?</strong> NanoFly automatically detects and builds Node.js, Go, Python, PHP, or HTML/Static runtimes.
+                    <div className="form-group">
+                      <label className="form-label">Build Type / Runtime</label>
+                      <select className="form-input" value={form.gitBuilder} onChange={set('gitBuilder')}>
+                        <option value="auto">Auto-detect (Recommended)</option>
+                        <option value="node">Node.js</option>
+                        <option value="go">Go (Golang)</option>
+                        <option value="python">Python</option>
+                        <option value="php">PHP</option>
+                        <option value="static">HTML / Static Website</option>
+                        <option value="dockerfile">Use existing Dockerfile</option>
+                      </select>
                     </div>
                   </>
                 )}
@@ -520,6 +530,56 @@ function ContainerLogsPanel({ serviceId }) {
   );
 }
 
+// ── Webhook Panel ─────────────────────────────────────────────────────────────
+function WebhookPanel({ serviceId }) {
+  const [copied, setCopied] = useState(false);
+  const webhookUrl = `${window.location.origin}/api/webhooks/${serviceId}`;
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <h4 style={{ margin: '0 0 6px 0', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Automatic Deployments Webhook</h4>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          Configure a webhook in your repository provider to trigger automatic builds and deployments on every Git push event.
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input 
+          readOnly 
+          className="form-input" 
+          value={webhookUrl} 
+          style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', flex: 1 }} 
+        />
+        <button className="btn btn-ghost" onClick={copyToClipboard} style={{ height: 38, width: 38, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {copied ? <Check size={16} color="var(--green)" style={{ margin: 0 }} /> : <Copy size={16} style={{ margin: 0 }} />}
+        </button>
+      </div>
+
+      <div className="card" style={{ padding: '1rem', background: 'rgba(79,110,247,0.04)', border: '1px solid rgba(79,110,247,0.08)', borderRadius: 8 }}>
+        <h5 style={{ margin: '0 0 10px 0', fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>🛠️</span> How to configure GitHub Webhooks
+        </h5>
+        <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <li>Go to your repository on <strong>GitHub</strong>.</li>
+          <li>Navigate to <strong>Settings</strong> &rarr; <strong>Webhooks</strong> in the sidebar.</li>
+          <li>Click the <strong>Add webhook</strong> button on the right.</li>
+          <li>Paste the Payload URL copied above into the <strong>Payload URL</strong> input field.</li>
+          <li>Set Content type to <strong>application/json</strong>.</li>
+          <li>Set triggering events to <strong>Just the push event</strong>.</li>
+          <li>Click the green <strong>Add webhook</strong> button to save.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 // ── Settings Panel ────────────────────────────────────────────────────────────
 function SettingsPanel({ service, onUpdate }) {
   const [name, setName] = useState(service.name);
@@ -527,6 +587,7 @@ function SettingsPanel({ service, onUpdate }) {
   const [port, setPort] = useState(service.port || '');
   const [gitUrl, setGitUrl] = useState(service.git_repo_url || '');
   const [branch, setBranch] = useState(service.git_branch || 'main');
+  const [gitBuilder, setGitBuilder] = useState(service.git_builder || 'auto');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -537,6 +598,7 @@ function SettingsPanel({ service, onUpdate }) {
     setPort(service.port || '');
     setGitUrl(service.git_repo_url || '');
     setBranch(service.git_branch || 'main');
+    setGitBuilder(service.git_builder || 'auto');
   }, [service]);
 
   const handleSave = async () => {
@@ -554,6 +616,7 @@ function SettingsPanel({ service, onUpdate }) {
         port: Number(port) || 0,
         git_repo_url: gitUrl.trim(),
         git_branch: branch.trim(),
+        git_builder: gitBuilder,
       });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -587,6 +650,18 @@ function SettingsPanel({ service, onUpdate }) {
               <div className="form-group">
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Branch</label>
                 <input className="form-input form-input-sm" value={branch} onChange={e => setBranch(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Build Type / Runtime</label>
+                <select className="form-input form-input-sm" value={gitBuilder} onChange={e => setGitBuilder(e.target.value)}>
+                  <option value="auto">Auto-detect (Recommended)</option>
+                  <option value="node">Node.js</option>
+                  <option value="go">Go (Golang)</option>
+                  <option value="python">Python</option>
+                  <option value="php">PHP</option>
+                  <option value="static">HTML / Static Website</option>
+                  <option value="dockerfile">Use existing Dockerfile</option>
+                </select>
               </div>
             </>
           ) : (
@@ -662,6 +737,69 @@ export default function ProjectDetail() {
 
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
+  if (activeSvc && selectedSvc) {
+    return (
+      <div className="page-content fade-in">
+        {/* Resource Header */}
+        <div className="page-header" style={{ marginBottom: '1.25rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <button 
+                className="btn btn-ghost btn-sm" 
+                onClick={() => setActiveSvc(null)} 
+                style={{ padding: '2px 8px', fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                &larr; Back to Resources
+              </button>
+              <ChevronRight size={14} color="var(--text-muted)" />
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{selectedSvc.name}</span>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)', display: 'inline-block', marginLeft: 6 }} />
+              <span style={{ fontSize: '0.78rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
+            </div>
+            <div className="page-subtitle" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span>Type: <strong style={{ color: 'var(--text-primary)' }}>{selectedSvc.type === 'database' ? `${selectedSvc.image || 'Database'}` : 'Application'}</strong></span>
+              {selectedSvc.git_repo_url && (
+                <span>&bull;&nbsp;&nbsp;Repository: <strong style={{ color: 'var(--text-primary)' }}>{selectedSvc.git_repo_url.replace('https://github.com/', '')} ({selectedSvc.git_branch})</strong></span>
+              )}
+              {selectedSvc.port > 0 && (
+                <span>&bull;&nbsp;&nbsp;Container Port: <strong style={{ color: 'var(--text-primary)' }}>:{selectedSvc.port}</strong></span>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn btn-primary" onClick={() => handleDeploy(selectedSvc.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Play size={14} /> Deploy Now
+            </button>
+            <button className="btn btn-ghost" style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }} onClick={() => handleDelete(selectedSvc.id)}>
+              <Trash2 size={14} style={{ marginRight: 4 }} /> Delete
+            </button>
+          </div>
+        </div>
+
+        {/* Full-width Details Panel */}
+        <div className="card hover-glow" style={{ padding: '1.5rem', minHeight: '400px' }}>
+          <div className="tabs" style={{ marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.25rem' }}>
+            <button className={`tab-btn ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => setActiveTab('deployments')}>Deployments</button>
+            <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>Logs</button>
+            {selectedSvc.git_repo_url && (
+              <button className={`tab-btn ${activeTab === 'webhooks' ? 'active' : ''}`} onClick={() => setActiveTab('webhooks')}>Webhooks</button>
+            )}
+            <button className={`tab-btn ${activeTab === 'envvars' ? 'active' : ''}`} onClick={() => setActiveTab('envvars')}>Environment Variables</button>
+            <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}><Settings size={13} style={{ marginRight: 5, display: 'inline', verticalAlign: 'middle' }} />Settings</button>
+          </div>
+
+          <div style={{ marginTop: '1rem' }}>
+            {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
+            {activeTab === 'logs'        && <ContainerLogsPanel serviceId={activeSvc} />}
+            {activeTab === 'webhooks'    && <WebhookPanel serviceId={activeSvc} />}
+            {activeTab === 'settings'    && <SettingsPanel service={selectedSvc} onUpdate={load} />}
+            {activeTab === 'envvars'     && <EnvVarsPanel serviceId={activeSvc} />}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-content fade-in">
       {/* Header */}
@@ -734,42 +872,6 @@ export default function ProjectDetail() {
             </div>
           )}
         </div>
-
-        {/* Right: detail panel */}
-        {activeSvc && selectedSvc && (
-          <div className="card" style={{ padding: '1.25rem', height: 'fit-content' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1rem' }}>{selectedSvc.name}</span>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)' }} />
-                  <span style={{ fontSize: '0.75rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  Type: {selectedSvc.type === 'database' ? `${selectedSvc.image || 'Database'}` : 'Application'}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button className="btn btn-primary btn-sm" onClick={() => { handleDeploy(selectedSvc.id); setActiveTab('deployments'); }}>
-                  <Play size={12} style={{ marginRight: 4 }} /> Deploy
-                </button>
-                <button className="btn btn-ghost" style={{ padding: 4 }} onClick={() => setActiveSvc(null)}><X size={15} /></button>
-              </div>
-            </div>
-
-            <div className="tabs">
-              <button className={`tab-btn ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => setActiveTab('deployments')}>Deployments</button>
-              <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>Logs</button>
-              <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}><Settings size={12} style={{ marginRight: 4 }} />Settings</button>
-              <button className={`tab-btn ${activeTab === 'envvars' ? 'active' : ''}`} onClick={() => setActiveTab('envvars')}>Env Vars</button>
-            </div>
-
-            {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
-            {activeTab === 'logs'        && <ContainerLogsPanel serviceId={activeSvc} />}
-            {activeTab === 'settings'    && <SettingsPanel service={selectedSvc} onUpdate={load} />}
-            {activeTab === 'envvars'     && <EnvVarsPanel serviceId={activeSvc} />}
-          </div>
-        )}
       </div>
 
       {showModal && <AddServiceModal projectId={id} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
