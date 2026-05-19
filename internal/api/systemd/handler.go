@@ -6,6 +6,7 @@ package systemd
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"sort"
@@ -47,9 +48,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var servicesMap = make(map[string]ServiceInfo)
 
 	// 1. Try to list all unit files
-	cmdFiles := exec.Command("systemctl", "list-unit-files", "--type=service", "--all", "--no-pager", "--no-legend")
+	cmdFiles := exec.Command("systemctl", "list-unit-files", "--type=service", "--no-pager", "--no-legend")
 	outFiles, errFiles := cmdFiles.Output()
-	if errFiles == nil {
+	if errFiles != nil {
+		stderr := ""
+		if exitErr, ok := errFiles.(*exec.ExitError); ok {
+			stderr = string(exitErr.Stderr)
+		}
+		slog.Error("systemctl list-unit-files failed", "err", errFiles, "stderr", stderr)
+	} else {
 		lines := strings.Split(strings.TrimSpace(string(outFiles)), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -85,9 +92,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	cmdUnits := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend")
 	outUnits, errUnits := cmdUnits.Output()
 	if errUnits != nil {
+		stderr := ""
+		if exitErr, ok := errUnits.(*exec.ExitError); ok {
+			stderr = string(exitErr.Stderr)
+		}
+		slog.Error("systemctl list-units failed", "err", errUnits, "stderr", stderr)
+
 		// If both list-unit-files and list-units failed, return the error
 		if errFiles != nil {
-			response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to list services: %v", errUnits))
+			response.Error(w, http.StatusInternalServerError, fmt.Sprintf("failed to list services: %v (stderr: %s)", errUnits, stderr))
 			return
 		}
 	} else {

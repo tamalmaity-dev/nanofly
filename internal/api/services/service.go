@@ -312,6 +312,41 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			}
 			dbName := strings.ReplaceAll(strings.ToLower(svc.Name), "-", "_")
 
+			dbType := svc.Image
+			if dbType == "" {
+				if strings.HasPrefix(existingConn, "postgres://") {
+					dbType = "postgres"
+				} else if strings.HasPrefix(existingConn, "mysql://") {
+					dbType = "mysql"
+				} else if strings.HasPrefix(existingConn, "mongodb://") {
+					dbType = "mongo"
+				} else if strings.HasPrefix(existingConn, "redis://") {
+					dbType = "redis"
+				} else if strings.HasPrefix(existingConn, "clickhouse://") {
+					dbType = "clickhouse"
+				} else {
+					nameLower := strings.ToLower(svc.Name)
+					if strings.Contains(nameLower, "redis") {
+						dbType = "redis"
+					} else if strings.Contains(nameLower, "postgres") || strings.Contains(nameLower, "pg") {
+						dbType = "postgres"
+					} else if strings.Contains(nameLower, "mysql") {
+						dbType = "mysql"
+					} else if strings.Contains(nameLower, "mongo") {
+						dbType = "mongo"
+					} else if strings.Contains(nameLower, "clickhouse") {
+						dbType = "clickhouse"
+					} else if strings.Contains(nameLower, "mariadb") {
+						dbType = "mariadb"
+					} else {
+						dbType = "redis"
+					}
+				}
+				// Backfill the database
+				m.db.ExecContext(bgCtx, `UPDATE services SET image = ? WHERE id = ?`, dbType, svc.ID) //nolint:errcheck
+				svc.Image = dbType
+			}
+
 			log("🚀 Launching " + svc.Image + " container...")
 			hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 				ServiceID: svc.ID,
