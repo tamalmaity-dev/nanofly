@@ -57,3 +57,7 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string) (string, error) {
 	return "", fmt.Errorf("docker not available on Windows")
 }
+
+func (m *Manager) RestartContainer(ctx context.Context, nameOrID string) error {
+	return fmt.Errorf("docker not available on Windows")
+}

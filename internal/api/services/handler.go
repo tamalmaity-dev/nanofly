@@ -29,6 +29,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Put("/services/{id}", h.Update)
 	r.Delete("/services/{id}", h.Delete)
 	r.Post("/services/{id}/deploy", h.Deploy)
+	r.Post("/services/{id}/stop", h.Stop)
+	r.Post("/services/{id}/restart", h.Restart)
 	r.Get("/services/{id}/logs", h.GetContainerLogs)
 	r.Get("/services/{id}/deployments", h.ListDeployments)
 	r.Get("/services/{id}/envvars", h.GetEnvVars)
@@ -200,4 +202,22 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, svc)
+}
+
+func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
+	err := h.mgr.Stop(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+func (h *Handler) Restart(w http.ResponseWriter, r *http.Request) {
+	err := h.mgr.Restart(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "running"})
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { servicesApi, projectsApi } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check } from 'lucide-react';
+import { servicesApi, projectsApi, domainsApi } from '../api/client';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink } from 'lucide-react';
 
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13'],
@@ -692,6 +692,7 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const [project, setProject]   = useState(null);
   const [services, setServices] = useState([]);
+  const [domains, setDomains]   = useState([]);
   const [loading, setLoading]   = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState('deployments');
@@ -699,12 +700,14 @@ export default function ProjectDetail() {
 
   const load = useCallback(async () => {
     try {
-      const [proj, svcs] = await Promise.all([
+      const [proj, svcs, doms] = await Promise.all([
         projectsApi.get(id),
         servicesApi.listByProject(id),
+        domainsApi.list(),
       ]);
       setProject(proj?.data || proj);
       setServices(svcs || []);
+      setDomains(doms?.data || doms || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   }, [id]);
@@ -714,6 +717,20 @@ export default function ProjectDetail() {
   const handleDeploy = async (svcId) => {
     await servicesApi.deploy(svcId);
     setTimeout(load, 500);
+  };
+
+  const handleStop = async (svcId) => {
+    try {
+      await servicesApi.stop(svcId);
+      setTimeout(load, 500);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleRestart = async (svcId) => {
+    try {
+      await servicesApi.restart(svcId);
+      setTimeout(load, 500);
+    } catch (e) { console.error(e); }
   };
 
   const handleDelete = async (svcId) => {
@@ -738,22 +755,30 @@ export default function ProjectDetail() {
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
   if (activeSvc && selectedSvc) {
+    const matchedDomain = domains.find(d => d.service === selectedSvc.name && d.project === project?.name);
+    const serviceUrl = matchedDomain 
+      ? (matchedDomain.domain.startsWith('http') ? matchedDomain.domain : `http://${matchedDomain.domain}`)
+      : (selectedSvc.port > 0 && selectedSvc.type === 'app' ? `http://${window.location.hostname}:${selectedSvc.port}` : null);
+
     return (
       <div className="page-content fade-in">
         {/* Resource Header */}
         <div className="page-header" style={{ marginBottom: '1.25rem' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
               <button 
                 className="btn btn-ghost btn-sm" 
                 onClick={() => setActiveSvc(null)} 
                 style={{ padding: '2px 8px', fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}
               >
-                &larr; Back to Resources
+                &larr; Projects
               </button>
               <ChevronRight size={14} color="var(--text-muted)" />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{selectedSvc.name}</span>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)', display: 'inline-block', marginLeft: 6 }} />
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{project?.name}</span>
+              <ChevronRight size={14} color="var(--text-muted)" />
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.95rem' }}>{selectedSvc.name}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: 4, marginLeft: 4 }}>localhost</span>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)', display: 'inline-block', marginLeft: 8 }} />
               <span style={{ fontSize: '0.78rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
             </div>
             <div className="page-subtitle" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -764,14 +789,46 @@ export default function ProjectDetail() {
               {selectedSvc.port > 0 && (
                 <span>&bull;&nbsp;&nbsp;Container Port: <strong style={{ color: 'var(--text-primary)' }}>:{selectedSvc.port}</strong></span>
               )}
+              {serviceUrl && (
+                <>
+                  <span>&bull;&nbsp;&nbsp;Access URL:</span>
+                  <a href={serviceUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '2px 8px', borderRadius: 4, textDecoration: 'none', fontWeight: 500, fontSize: '0.78rem' }}>
+                    <ExternalLink size={11} /> {serviceUrl}
+                  </a>
+                </>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={() => handleDeploy(selectedSvc.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Play size={14} /> Deploy Now
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button 
+              className="btn" 
+              onClick={() => handleDeploy(selectedSvc.id)} 
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f59e0b', color: '#111', fontWeight: 600, border: 'none', height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
+            >
+              <Play size={13} /> Redeploy
             </button>
-            <button className="btn btn-ghost" style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }} onClick={() => handleDelete(selectedSvc.id)}>
-              <Trash2 size={14} style={{ marginRight: 4 }} /> Delete
+            <button 
+              className="btn" 
+              onClick={() => handleRestart(selectedSvc.id)} 
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', fontWeight: 500, height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
+            >
+              <RefreshCw size={13} /> Restart
+            </button>
+            {selectedSvc.status === 'running' && (
+              <button 
+                className="btn" 
+                onClick={() => handleStop(selectedSvc.id)} 
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 500, height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
+              >
+                <X size={13} /> Stop
+              </button>
+            )}
+            <button 
+              className="btn btn-ghost" 
+              style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)', height: 34, display: 'flex', alignItems: 'center' }} 
+              onClick={() => handleDelete(selectedSvc.id)}
+            >
+              <Trash2 size={13} style={{ marginRight: 4 }} /> Delete
             </button>
           </div>
         </div>

@@ -253,6 +253,12 @@ func (m *Manager) StopContainer(ctx context.Context, nameOrID string) error {
 	return m.cli.ContainerStop(ctx, nameOrID, container.StopOptions{Timeout: &timeout})
 }
 
+// RestartContainer restarts a container.
+func (m *Manager) RestartContainer(ctx context.Context, nameOrID string) error {
+	timeout := 10
+	return m.cli.ContainerRestart(ctx, nameOrID, container.StopOptions{Timeout: &timeout})
+}
+
 // RemoveContainer stops and removes a container.
 func (m *Manager) RemoveContainer(ctx context.Context, nameOrID string) error {
 	m.StopContainer(ctx, nameOrID) //nolint:errcheck

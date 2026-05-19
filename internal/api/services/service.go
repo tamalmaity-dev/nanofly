@@ -888,3 +888,36 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 
 	return m.Get(ctx, serviceID)
 }
+
+// Stop stops a service container.
+func (m *Manager) Stop(ctx context.Context, serviceID string) error {
+	if m.docker != nil {
+		containers, _ := m.docker.ListByLabel(ctx, serviceID)
+		for _, c := range containers {
+			_ = m.docker.StopContainer(ctx, c.ID)
+		}
+	}
+	_, err := m.db.ExecContext(ctx, `UPDATE services SET status='stopped' WHERE id=?`, serviceID)
+	return err
+}
+
+// Restart restarts a service container.
+func (m *Manager) Restart(ctx context.Context, serviceID string) error {
+	if m.docker == nil {
+		return fmt.Errorf("docker not available")
+	}
+	containers, err := m.docker.ListByLabel(ctx, serviceID)
+	if err != nil {
+		return err
+	}
+	if len(containers) == 0 {
+		// Not running / not deployed yet, deploy it
+		_, err := m.Deploy(ctx, serviceID)
+		return err
+	}
+	for _, c := range containers {
+		_ = m.docker.RestartContainer(ctx, c.ID)
+	}
+	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='running' WHERE id=?`, serviceID)
+	return err
+}
