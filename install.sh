@@ -8,15 +8,22 @@ set -euo pipefail
 # Style helpers
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
-NC='\033[0;35m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 NC_BOLD='\033[1m'
 CLEAR='\033[0m'
 
-echo -e "${BLUE}==============================================${CLEAR}"
-echo -e "${GREEN}${NC_BOLD}           NanoFly Server Installer           ${CLEAR}"
-echo -e "${BLUE}==============================================${CLEAR}"
+echo -e "${CYAN}"
+echo -e "    _   __                 ______ __      "
+echo -e "   / | / /____ _ ____  ___ / ____// /__  __"
+echo -e "  /  |/ // __ \`/ __ \\/ __ \\/ /_   / // / / /"
+echo -e " / /|  // /_/ // / / / /_/ / __/  / // /_/ /"
+echo -e "/_/ |_/ \\__,_//_/ /_/\\____/_/    /_/ \\__, /"
+echo -e "                                    /____/ "
+echo -e "${GREEN}      ✨ Self-Hosted Server Control Panel ✨${NC}"
+echo -e "${CYAN}------------------------------------------------${NC}"
 
 # 1. Dependency checks
 echo -e "\n${BLUE}[1/5] Checking dependencies...${CLEAR}"
