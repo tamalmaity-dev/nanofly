@@ -21,27 +21,64 @@ echo -e "${BLUE}==============================================${CLEAR}"
 # 1. Dependency checks
 echo -e "\n${BLUE}[1/5] Checking dependencies...${CLEAR}"
 
-deps_failed=0
-
 check_dep() {
   if ! command -v "$1" &> /dev/null; then
-    echo -e "${RED}✗ $1 is not installed.${CLEAR}"
-    deps_failed=1
-  else
-    echo -e "${GREEN}✓ $1 is installed (${2:-$( "$1" --version | head -n 1 )})${CLEAR}"
+    return 1
   fi
+  return 0
 }
 
-check_dep "git" "Git"
-check_dep "go" "Go ($(go version | awk '{print $3}'))"
-check_dep "node" "Node.js ($(node -v))"
-check_dep "npm" "NPM ($(npm -v))"
-check_dep "docker" "Docker"
+missing_deps=()
+check_dep "git"    || missing_deps+=("git")
+check_dep "docker" || missing_deps+=("docker")
+check_dep "go"     || missing_deps+=("golang")
+check_dep "node"   || missing_deps+=("nodejs")
+check_dep "npm"    || missing_deps+=("npm")
 
-if [ $deps_failed -ne 0 ]; then
-  echo -e "\n${RED}Error: Please install missing dependencies before running the installer.${CLEAR}"
-  exit 1
+if [ ${#missing_deps[@]} -ne 0 ]; then
+  echo -e "${YELLOW}The following dependencies are missing: ${missing_deps[*]}${CLEAR}"
+  
+  # Check if we have apt-get (Ubuntu/Debian)
+  if command -v apt-get &> /dev/null; then
+    read -p "Would you like to automatically install these dependencies using apt? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo -e "${BLUE}Updating system packages...${CLEAR}"
+      sudo apt-get update -y
+      
+      echo -e "${BLUE}Installing missing packages...${CLEAR}"
+      for pkg in "${missing_deps[@]}"; do
+        if [ "$pkg" = "docker" ]; then
+          sudo apt-get install -y docker.io
+          sudo systemctl start docker || true
+          sudo systemctl enable docker || true
+          # Add current user to docker group if not root
+          if [ "$USER" != "root" ]; then
+            sudo usermod -aG docker "$USER" || true
+            echo -e "${YELLOW}Notice: Added user $USER to docker group. You might need to log out and back in for Docker permissions to apply.${CLEAR}"
+          fi
+        elif [ "$pkg" = "golang" ]; then
+          sudo apt-get install -y golang-go || sudo apt-get install -y golang
+        elif [ "$pkg" = "nodejs" ]; then
+          sudo apt-get install -y nodejs
+        elif [ "$pkg" = "npm" ]; then
+          sudo apt-get install -y npm
+        else
+          sudo apt-get install -y "$pkg"
+        fi
+      done
+    else
+      echo -e "${RED}Error: Installer aborted. Please install dependencies manually.${CLEAR}"
+      exit 1
+    fi
+  else
+    echo -e "${RED}Error: Unsupported package manager. Please manually install: ${missing_deps[*]}${CLEAR}"
+    exit 1
+  fi
+else
+  echo -e "${GREEN}✓ All dependencies are installed (git, docker, go, node, npm).${CLEAR}"
 fi
+
 
 # 2. Clone Repository
 echo -e "\n${BLUE}[2/5] Cloning NanoFly repository...${CLEAR}"
