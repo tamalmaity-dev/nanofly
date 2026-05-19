@@ -1,6 +1,7 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/username/nanofly/main/web/public/logo.png" alt="NanoFly Logo" width="120" style="border-radius: 24px;" error="this.style.display='none'" />
+  <img src="https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/web/public/logo.png" alt="NanoFly Logo" width="120" style="border-radius: 24px;" />
 </p>
+
 
 <h1 align="center">NanoFly</h1>
 
