@@ -9,18 +9,41 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build & Release (${{ matrix.suffix }})
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & Build
+        working-directory: web
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist
+
+  build-backend:
+    name: Build Backend (${{ matrix.suffix }})
+    runs-on: ubuntu-latest
+    needs: build-frontend
     strategy:
       fail-fast: false
       matrix:
         include:
-          - goos: linux
-            goarch: amd64
+          - goarch: amd64
             suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
+          - goarch: arm64
             suffix: linux-arm64
 
     steps:
@@ -30,29 +53,23 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20'
+          name: frontend-dist
+          path: web/dist
 
-      - name: Build Frontend
-        working-directory: web
-        run: |
-          npm install --no-audit --no-fund
-          npm run build
-
-      - name: Build Backend
+      - name: Build
         env:
-          GOOS: ${{ matrix.goos }}
+          GOOS: linux
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
         run: |
           go mod tidy
           go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o nanofly ./cmd/nanofly
 
-      - name: Package Release
+      - name: Package
         run: |
           mkdir -p release/web
           cp nanofly release/
