@@ -53,27 +53,36 @@ if [ ${#missing_deps[@]} -ne 0 ]; then
       echo -e "${BLUE}Updating system packages...${CLEAR}"
       sudo apt-get update -y
       
-      echo -e "${BLUE}Installing missing packages...${CLEAR}"
-      for pkg in "${missing_deps[@]}"; do
-        if [ "$pkg" = "docker" ]; then
-          sudo apt-get install -y docker.io
-          sudo systemctl start docker || true
-          sudo systemctl enable docker || true
-          # Add current user to docker group if not root
-          if [ "$USER" != "root" ]; then
-            sudo usermod -aG docker "$USER" || true
-            echo -e "${YELLOW}Notice: Added user $USER to docker group. You might need to log out and back in for Docker permissions to apply.${CLEAR}"
-          fi
-        elif [ "$pkg" = "golang" ]; then
-          sudo apt-get install -y golang-go || sudo apt-get install -y golang
-        elif [ "$pkg" = "nodejs" ]; then
-          sudo apt-get install -y nodejs
-        elif [ "$pkg" = "npm" ]; then
-          sudo apt-get install -y npm
+      echo -e "${BLUE}Installing missing packages in a single transaction...${CLEAR}"
+      apt_packages=()
+      install_docker=false
+
+      for dep in "${missing_deps[@]}"; do
+        if [ "$dep" = "docker" ]; then
+          apt_packages+=("docker.io")
+          install_docker=true
+        elif [ "$dep" = "golang" ]; then
+          apt_packages+=("golang")
+        elif [ "$dep" = "nodejs" ]; then
+          apt_packages+=("nodejs")
+        elif [ "$dep" = "npm" ]; then
+          apt_packages+=("npm")
         else
-          sudo apt-get install -y "$pkg"
+          apt_packages+=("$dep")
         fi
       done
+
+      sudo apt-get install -y "${apt_packages[@]}"
+
+      if [ "$install_docker" = true ]; then
+        sudo systemctl start docker || true
+        sudo systemctl enable docker || true
+        # Add current user to docker group if not root
+        if [ "$USER" != "root" ]; then
+          sudo usermod -aG docker "$USER" || true
+          echo -e "${YELLOW}Notice: Added user $USER to docker group. You might need to log out and back in for Docker permissions to apply.${CLEAR}"
+        fi
+      fi
     else
       echo -e "${RED}Error: Installer aborted. Please install dependencies manually.${CLEAR}"
       exit 1
