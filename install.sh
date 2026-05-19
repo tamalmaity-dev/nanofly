@@ -40,7 +40,7 @@ if [ ${#missing_deps[@]} -ne 0 ]; then
   
   # Check if we have apt-get (Ubuntu/Debian)
   if command -v apt-get &> /dev/null; then
-    read -p "Would you like to automatically install these dependencies using apt? (y/N) " -n 1 -r
+    read -p "Would you like to automatically install these dependencies using apt? (y/N) " -n 1 -r < /dev/tty
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
       echo -e "${BLUE}Updating system packages...${CLEAR}"
@@ -128,7 +128,7 @@ echo -e "  nohup ./nanofly > nanofly.log 2>&1 &"
 echo -e "${BLUE}==============================================${CLEAR}"
 
 # Ask if they want to run it right now
-read -p "Would you like to start NanoFly now? (y/N) " -n 1 -r
+read -p "Would you like to start NanoFly now? (y/N) " -n 1 -r < /dev/tty
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
   echo -e "${GREEN}Starting NanoFly... (Access it at http://localhost:8080)${CLEAR}"
