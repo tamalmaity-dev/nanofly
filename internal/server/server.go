@@ -18,7 +18,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -716,6 +718,19 @@ func (s *Server) runUpdateLoop() {
 	s.updateMu.Unlock()
 	logMsg("==================================================")
 	logMsg("Update complete! NanoFly has been successfully rebuilt.")
-	logMsg("Please restart the panel service to run the updated binary.")
+	logMsg("Restarting the panel automatically in 3 seconds to apply changes...")
+
+	// Spawn auto-restart in a separate thread so this thread returns, allowing final logs to be delivered to client
+	go func() {
+		time.Sleep(3 * time.Second)
+		execPath, err := os.Executable()
+		if err != nil {
+			logMsg(fmt.Sprintf("Failed to get executable path: %v", err))
+			slog.Error("failed to get executable path for restart", "error", err)
+			return
+		}
+		slog.Info("Restarting NanoFly panel in place...", "executable", execPath)
+		restartInPlace(execPath)
+	}()
 }
 

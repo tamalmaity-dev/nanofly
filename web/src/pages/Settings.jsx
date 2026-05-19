@@ -190,7 +190,20 @@ function UpdatesTab() {
     }
   };
 
-  const checkStatus = async () => {
+  const pollHealthAndReload = async () => {
+    try {
+      const res = await fetch('/health');
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        setTimeout(pollHealthAndReload, 1500);
+      }
+    } catch (e) {
+      setTimeout(pollHealthAndReload, 1500);
+    }
+  };
+
+  const checkStatus = async (isUpdating = false) => {
     try {
       const data = await updateApi.log();
       setUpdateStatus(data.status);
@@ -198,16 +211,24 @@ function UpdatesTab() {
       
       if (data.status === 'pull' || data.status === 'build_front' || data.status === 'build_back') {
         setUpdating(true);
-        setTimeout(checkStatus, 2000);
+        setTimeout(() => checkStatus(true), 2000);
+      } else if (data.status === 'done') {
+        setUpdating(true);
+        setUpdateStatus('restarting');
+        setUpdateLog(prev => prev + `\n[System] Reconnecting to the new panel version...`);
+        setTimeout(pollHealthAndReload, 3500);
       } else {
         setUpdating(false);
-        if (data.status === 'done') {
-          checkUpdates(true);
-        }
       }
     } catch (err) {
-      console.error(err);
-      setUpdating(false);
+      if (isUpdating) {
+        setUpdateStatus('restarting');
+        setUpdateLog(prev => prev + `\n[System] Connection lost. Reconnecting...`);
+        setTimeout(pollHealthAndReload, 2000);
+      } else {
+        console.error(err);
+        setUpdating(false);
+      }
     }
   };
 
@@ -217,7 +238,7 @@ function UpdatesTab() {
     setUpdateLog('Initializing update...\n');
     try {
       await updateApi.apply();
-      setTimeout(checkStatus, 1000);
+      setTimeout(() => checkStatus(true), 1000);
     } catch (err) {
       setUpdateLog(prev => prev + `\nError initiating update: ${err.message}`);
       setUpdating(false);
