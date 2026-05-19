@@ -93,18 +93,25 @@ if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE_GB" ]; then
   sleep 3
 fi
 
-# Detect latest release version
+# Detect latest release version (using redirect — no API rate limits)
 log_info "Fetching latest release version..."
-LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${NANOFLY_REPO}/releases/latest" 2>/dev/null \
-  | grep '"tag_name"' | head -1 | cut -d '"' -f 4) || true
+LATEST_VERSION=$(curl -sI "https://github.com/${NANOFLY_REPO}/releases/latest" 2>/dev/null \
+  | grep -i '^location:' | sed 's|.*/tag/||' | tr -d '[:space:]') || true
 
 if [ -z "$LATEST_VERSION" ]; then
-  # No release found — fall back to building from source
   INSTALL_MODE="source"
   log_warn "No pre-built release found — will build from source"
 else
-  INSTALL_MODE="binary"
-  log_success "Latest release: ${LATEST_VERSION}"
+  # Verify the asset exists by checking the download URL
+  DOWNLOAD_URL="https://github.com/${NANOFLY_REPO}/releases/download/${LATEST_VERSION}/nanofly-${RELEASE_ARCH}.tar.gz"
+  HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" "$DOWNLOAD_URL" 2>/dev/null) || true
+  if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ]; then
+    INSTALL_MODE="binary"
+    log_success "Latest release: ${LATEST_VERSION}"
+  else
+    INSTALL_MODE="source"
+    log_warn "Release ${LATEST_VERSION} found but asset missing for ${RELEASE_ARCH} — building from source"
+  fi
 fi
 
 # System info table
@@ -174,6 +181,7 @@ if [ "$INSTALL_MODE" = "binary" ]; then
     tar -xzf /tmp/nanofly-release.tar.gz -C "$NANOFLY_DIR"
     rm -f /tmp/nanofly-release.tar.gz
     chmod +x "$NANOFLY_DIR/nanofly"
+    echo "$LATEST_VERSION" > "$NANOFLY_DIR/VERSION"
     log_success "NanoFly ${LATEST_VERSION} installed"
   else
     log_warn "Download failed — falling back to source build"
