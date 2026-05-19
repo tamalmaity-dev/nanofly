@@ -78,7 +78,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 	rows, err := m.db.QueryContext(ctx, `
 		SELECT s.id, s.project_id, s.name, s.type, s.status, 
 		       COALESCE(s.port,0), COALESCE(s.updated_at,''), s.created_at,
-		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main')
+		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
+		       COALESCE(s.image,'')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -97,6 +98,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
 			&s.Port, &updatedAt, &createdAt,
 			&s.GitRepoURL, &s.GitBranch,
+			&s.Image,
 		); err != nil {
 			return nil, err
 		}
@@ -117,7 +119,8 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	err := m.db.QueryRowContext(ctx, `
 		SELECT s.id, s.project_id, s.name, s.type, s.status,
 		       COALESCE(s.port,0), s.created_at,
-		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main')
+		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
+		       COALESCE(s.image,'')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -125,6 +128,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
 		&s.Port, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
+		&s.Image,
 	)
 	if err != nil {
 		return nil, err
@@ -151,10 +155,10 @@ type CreateAppReq struct {
 func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, error) {
 	var id string
 	err := m.db.QueryRowContext(ctx, `
-		INSERT INTO services (project_id, name, type, status, port)
-		VALUES (?, ?, 'app', 'idle', ?)
+		INSERT INTO services (project_id, name, type, status, port, image)
+		VALUES (?, ?, 'app', 'idle', ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.Port).Scan(&id)
+	`, req.ProjectID, req.Name, req.Port, req.Image).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating service: %w", err)
 	}
@@ -200,10 +204,10 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 
 	var id string
 	err := m.db.QueryRowContext(ctx, `
-		INSERT INTO services (project_id, name, type, status)
-		VALUES (?, ?, 'database', 'creating')
+		INSERT INTO services (project_id, name, type, status, image)
+		VALUES (?, ?, 'database', 'creating', ?)
 		RETURNING id
-	`, req.ProjectID, req.Name).Scan(&id)
+	`, req.ProjectID, req.Name, req.DBType).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -236,9 +240,8 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 	return m.Get(ctx, id)
 }
 
-// Deploy triggers a new deployment for an app service.
-// It clones the repo (if git source) or pulls the Docker image, then starts the container.
-// Log lines are streamed to a pipe and stored in the deployments table.
+// Deploy triggers a new deployment for an app or database service.
+// For apps, it clones and builds or pulls. For databases, it restarts/re-creates the container.
 func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, error) {
 	svc, err := m.Get(ctx, serviceID)
 	if err != nil {
@@ -277,6 +280,64 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			`, finalStatus, logBuf.String(), now, deployID) //nolint:errcheck
 			m.db.ExecContext(bgCtx, `UPDATE services SET status=? WHERE id=?`, finalStatus, serviceID) //nolint:errcheck
 		}()
+
+		if svc.Type == TypeDatabase {
+			if m.docker == nil {
+				log("❌ Docker is not available. Cannot deploy database.")
+				finalStatus = "error"
+				return
+			}
+			log("💾 Starting database deployment: " + svc.Name)
+			log("🗑️  Cleaning up any existing container...")
+			m.docker.RemoveContainer(bgCtx, "nf-db-"+svc.Name) //nolint:errcheck
+
+			password := ""
+			var existingConn string
+			m.db.QueryRowContext(bgCtx, `SELECT value FROM env_vars WHERE service_id = ? AND key = 'CONNECTION_STRING'`, svc.ID).Scan(&existingConn)
+			if existingConn != "" {
+				if strings.Contains(existingConn, "@") {
+					parts := strings.Split(existingConn, "@")
+					if len(parts) > 0 {
+						uParts := strings.Split(parts[0], "://")
+						userPass := uParts[len(uParts)-1]
+						pParts := strings.Split(userPass, ":")
+						if len(pParts) > 1 {
+							password = pParts[1]
+						}
+					}
+				}
+			}
+			if password == "" {
+				password = docker.RandPassword()
+			}
+			dbName := strings.ReplaceAll(strings.ToLower(svc.Name), "-", "_")
+
+			log("🚀 Launching " + svc.Image + " container...")
+			hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
+				ServiceID: svc.ID,
+				DBType:    svc.Image, // stores dbType in s.Image
+				Name:      svc.Name,
+				Password:  password,
+				DBName:    dbName,
+			})
+			if err != nil {
+				log("❌ Database deployment failed: " + err.Error())
+				finalStatus = "error"
+				return
+			}
+
+			// Store connection string as env var
+			m.db.ExecContext(bgCtx, `
+				INSERT INTO env_vars (service_id, key, value) VALUES (?, 'CONNECTION_STRING', ?)
+				ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
+			`, svc.ID, connStr) //nolint:errcheck
+
+			m.db.ExecContext(bgCtx, `UPDATE services SET port=? WHERE id=?`, hostPort, svc.ID) //nolint:errcheck
+
+			log("✅ Database deployment succeeded! Port: " + fmt.Sprintf("%d", hostPort))
+			finalStatus = "running"
+			return
+		}
 
 		if svc.GitRepoURL != "" {
 			// Git-based deploy
@@ -482,4 +543,62 @@ func (m *Manager) DockerStatus(ctx context.Context, serviceID string) string {
 		return "stopped"
 	}
 	return containers[0].State
+}
+
+// GetContainerLogs returns live container logs for the service.
+func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (string, error) {
+	if m.docker == nil {
+		return "", fmt.Errorf("docker not available")
+	}
+	containers, err := m.docker.ListByLabel(ctx, serviceID)
+	if err != nil {
+		return "", err
+	}
+	if len(containers) == 0 {
+		return "No active container found for this resource. It might be stopped, erroring, or deleted.", nil
+	}
+	return m.docker.Logs(ctx, containers[0].ID, "100")
+}
+
+// UpdateServiceReq defines request parameters to edit service settings.
+type UpdateServiceReq struct {
+	Name       string `json:"name"`
+	Image      string `json:"image"`
+	Port       int    `json:"port"`
+	GitRepoURL string `json:"git_repo_url"`
+	GitBranch  string `json:"git_branch"`
+}
+
+// Update updates the service's details in DB and optional git sources.
+func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
+	_, err := m.db.ExecContext(ctx, `
+		UPDATE services
+		SET name = ?, image = ?, port = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, req.Name, req.Image, req.Port, serviceID)
+	if err != nil {
+		return nil, fmt.Errorf("updating service table: %w", err)
+	}
+
+	// Update git sources if relevant
+	var exists bool
+	_ = m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM git_sources WHERE service_id = ?)`, serviceID).Scan(&exists)
+	if exists {
+		if req.GitRepoURL == "" {
+			_, _ = m.db.ExecContext(ctx, `DELETE FROM git_sources WHERE service_id = ?`, serviceID)
+		} else {
+			_, _ = m.db.ExecContext(ctx, `
+				UPDATE git_sources
+				SET repo_url = ?, branch = ?
+				WHERE service_id = ?
+			`, req.GitRepoURL, req.GitBranch, serviceID)
+		}
+	} else if req.GitRepoURL != "" {
+		_, _ = m.db.ExecContext(ctx, `
+			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret)
+			VALUES (?, ?, ?, ?)
+		`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword())
+	}
+
+	return m.Get(ctx, serviceID)
 }

@@ -416,7 +416,8 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
   const [deploying, setDeploying] = useState(false);
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
 
-  const handleDeploy = async () => {
+  const handleDeploy = async (e) => {
+    e.stopPropagation();
     setDeploying(true);
     try { await onDeploy(svc.id); } finally { setDeploying(false); }
   };
@@ -432,7 +433,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{svc.name}</span>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)' }} />
             <span style={{ fontSize: '0.8rem', color: statusColor[svc.status] || 'var(--text-muted)', textTransform: 'capitalize' }}>{svc.status}</span>
-            {svc.type === 'database' && <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>{svc.type}</span>}
+            {svc.type === 'database' && <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>{svc.image || 'database'}</span>}
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: '0.8125rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
             {svc.git_repo_url && <span><GitBranch size={11} style={{ display: 'inline' }} /> {svc.git_repo_url.replace('https://github.com/', '')}</span>}
@@ -440,14 +441,147 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {svc.type !== 'database' && (
-            <button className="btn btn-primary btn-sm" onClick={handleDeploy} disabled={deploying}>
-              {deploying ? <RefreshCw size={13} className="spin" /> : <Play size={13} />} Deploy
-            </button>
-          )}
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => onDelete(svc.id)}><Trash2 size={13} /></button>
+          <button className="btn btn-primary btn-sm" onClick={handleDeploy} disabled={deploying}>
+            {deploying ? <RefreshCw size={13} className="spin" /> : <Play size={13} />} {svc.type === 'database' ? 'Recreate' : 'Deploy'}
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={(e) => { e.stopPropagation(); onDelete(svc.id); }}><Trash2 size={13} /></button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Container Logs Panel ──────────────────────────────────────────────────────
+function ContainerLogsPanel({ serviceId }) {
+  const [logs, setLogs] = useState('Fetching container logs...');
+
+  const fetchLogs = useCallback(async () => {
+    try {
+      const res = await servicesApi.getLogs(serviceId);
+      setLogs(res.logs || 'No runtime logs found. Container might be stopped or starting.');
+    } catch (err) {
+      setLogs(`Error: ${err.message}`);
+    }
+  }, [serviceId]);
+
+  useEffect(() => {
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 3000);
+    return () => clearInterval(interval);
+  }, [fetchLogs]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Runtime Container Logs</span>
+        <button className="btn btn-ghost btn-sm" onClick={fetchLogs}><RefreshCw size={12} /> Refresh</button>
+      </div>
+      <pre style={{
+        background: '#0d1117',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        padding: '0.75rem',
+        fontSize: '0.8rem',
+        color: '#e2e8f0',
+        overflow: 'auto',
+        maxHeight: 320,
+        fontFamily: 'JetBrains Mono, monospace',
+        whiteSpace: 'pre-wrap',
+      }}>
+        {logs}
+      </pre>
+    </div>
+  );
+}
+
+// ── Settings Panel ────────────────────────────────────────────────────────────
+function SettingsPanel({ service, onUpdate }) {
+  const [name, setName] = useState(service.name);
+  const [image, setImage] = useState(service.image || '');
+  const [port, setPort] = useState(service.port || '');
+  const [gitUrl, setGitUrl] = useState(service.git_repo_url || '');
+  const [branch, setBranch] = useState(service.git_branch || 'main');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    setName(service.name);
+    setImage(service.image || '');
+    setPort(service.port || '');
+    setGitUrl(service.git_repo_url || '');
+    setBranch(service.git_branch || 'main');
+  }, [service]);
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      setError('Name is required');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess(false);
+    try {
+      await servicesApi.update(service.id, {
+        name: name.trim(),
+        image: image.trim(),
+        port: Number(port) || 0,
+        git_repo_url: gitUrl.trim(),
+        git_branch: branch.trim(),
+      });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+      onUpdate();
+    } catch (err) {
+      setError(err.message || 'Failed to save settings');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+      <div className="form-group">
+        <label className="form-label" style={{ fontSize: '0.75rem' }}>Resource Name</label>
+        <input className="form-input form-input-sm" value={name} onChange={e => setName(e.target.value)} />
+      </div>
+
+      {service.type === 'database' ? (
+        <div className="form-group">
+          <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Engine</label>
+          <input className="form-input form-input-sm" value={image} onChange={e => setImage(e.target.value)} placeholder="e.g. postgres, redis, mysql" />
+        </div>
+      ) : (
+        <>
+          {gitUrl ? (
+            <>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Git Repository URL</label>
+                <input className="form-input form-input-sm" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Branch</label>
+                <input className="form-input form-input-sm" value={branch} onChange={e => setBranch(e.target.value)} />
+              </div>
+            </>
+          ) : (
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Docker Image</label>
+              <input className="form-input form-input-sm" value={image} onChange={e => setImage(e.target.value)} />
+            </div>
+          )}
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem' }}>Port</label>
+            <input className="form-input form-input-sm" value={port} onChange={e => setPort(e.target.value)} placeholder="80" />
+          </div>
+        </>
+      )}
+
+      {error && <div style={{ color: 'var(--red)', fontSize: '0.75rem' }}>⚠️ {error}</div>}
+      {success && <div style={{ color: 'var(--green)', fontSize: '0.75rem' }}>✓ Settings saved successfully!</div>}
+
+      <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving} style={{ marginTop: 6, alignSelf: 'flex-end' }}>
+        {saving ? 'Saving...' : 'Save Settings'}
+      </button>
     </div>
   );
 }
@@ -459,7 +593,7 @@ export default function ProjectDetail() {
   const [services, setServices] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [activeTab, setActiveTab] = useState('services');
+  const [activeTab, setActiveTab] = useState('deployments');
   const [activeSvc, setActiveSvc] = useState(null);
 
   const load = useCallback(async () => {
@@ -492,12 +626,13 @@ export default function ProjectDetail() {
     setServices(s => [svc, ...s]);
     setShowModal(false);
     setActiveSvc(svc.id);
-    setActiveTab('services');
+    setActiveTab('deployments');
   };
 
   const apps = services.filter(s => s.type === 'app');
   const dbs  = services.filter(s => s.type === 'database');
   const selectedSvc = services.find(s => s.id === activeSvc);
+  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
 
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
@@ -543,7 +678,7 @@ export default function ProjectDetail() {
               <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Applications</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
                 {apps.map(s => (
-                  <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('services'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
+                  <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                     <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
                   </div>
                 ))}
@@ -556,7 +691,7 @@ export default function ProjectDetail() {
               <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Databases</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {dbs.map(s => (
-                  <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('envvars'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
+                  <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                     <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
                   </div>
                 ))}
@@ -577,21 +712,36 @@ export default function ProjectDetail() {
         {/* Right: detail panel */}
         {activeSvc && selectedSvc && (
           <div className="card" style={{ padding: '1.25rem', height: 'fit-content' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
               <div>
-                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedSvc.name}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{selectedSvc.type}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1rem' }}>{selectedSvc.name}</span>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)' }} />
+                  <span style={{ fontSize: '0.75rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  Type: {selectedSvc.type === 'database' ? `${selectedSvc.image || 'Database'}` : 'Application'}
+                </div>
               </div>
-              <button className="btn btn-ghost" style={{ padding: 4 }} onClick={() => setActiveSvc(null)}><X size={15} /></button>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { handleDeploy(selectedSvc.id); setActiveTab('deployments'); }}>
+                  <Play size={12} style={{ marginRight: 4 }} /> Deploy
+                </button>
+                <button className="btn btn-ghost" style={{ padding: 4 }} onClick={() => setActiveSvc(null)}><X size={15} /></button>
+              </div>
             </div>
 
             <div className="tabs">
-              {selectedSvc.type !== 'database' && <button className={`tab-btn ${activeTab === 'services' ? 'active' : ''}`} onClick={() => setActiveTab('services')}>Deployments</button>}
-              <button className={`tab-btn ${activeTab === 'envvars' ? 'active' : ''}`} onClick={() => setActiveTab('envvars')}><Settings size={12} style={{ marginRight: 4 }} />Env Vars</button>
+              <button className={`tab-btn ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => setActiveTab('deployments')}>Deployments</button>
+              <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>Logs</button>
+              <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}><Settings size={12} style={{ marginRight: 4 }} />Settings</button>
+              <button className={`tab-btn ${activeTab === 'envvars' ? 'active' : ''}`} onClick={() => setActiveTab('envvars')}>Env Vars</button>
             </div>
 
-            {activeTab === 'services' && <DeploymentsPanel serviceId={activeSvc} />}
-            {activeTab === 'envvars'  && <EnvVarsPanel serviceId={activeSvc} />}
+            {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
+            {activeTab === 'logs'        && <ContainerLogsPanel serviceId={activeSvc} />}
+            {activeTab === 'settings'    && <SettingsPanel service={selectedSvc} onUpdate={load} />}
+            {activeTab === 'envvars'     && <EnvVarsPanel serviceId={activeSvc} />}
           </div>
         )}
       </div>

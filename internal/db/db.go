@@ -81,6 +81,7 @@ func (db *DB) migrate() error {
 		name       TEXT NOT NULL,
 		type       TEXT NOT NULL,
 		status     TEXT NOT NULL DEFAULT 'stopped',
+		image      TEXT,
 		port       INTEGER,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -152,6 +153,9 @@ func (db *DB) migrate() error {
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("applying schema: %w", err)
 	}
+
+	// Dynamic migration for existing databases:
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN image TEXT")
 
 	return tx.Commit()
 }

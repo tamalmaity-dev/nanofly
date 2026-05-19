@@ -26,8 +26,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 	// Per-service operations
 	r.Get("/services/{id}", h.Get)
+	r.Put("/services/{id}", h.Update)
 	r.Delete("/services/{id}", h.Delete)
 	r.Post("/services/{id}/deploy", h.Deploy)
+	r.Get("/services/{id}/logs", h.GetContainerLogs)
 	r.Get("/services/{id}/deployments", h.ListDeployments)
 	r.Get("/services/{id}/envvars", h.GetEnvVars)
 	r.Post("/services/{id}/envvars", h.UpsertEnvVar)
@@ -175,4 +177,27 @@ func (h *Handler) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) GetContainerLogs(w http.ResponseWriter, r *http.Request) {
+	logs, err := h.mgr.GetContainerLogs(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"logs": logs})
+}
+
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	var req UpdateServiceReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	svc, err := h.mgr.Update(r.Context(), chi.URLParam(r, "id"), req)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, svc)
 }
