@@ -21,8 +21,16 @@ function colorClass(pct) {
   return '';
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function formatSpeed(kbps) {
+  if (kbps >= 1024) {
+    return `${(kbps / 1024).toFixed(1)} MB/s`;
+  }
+  return `${kbps.toFixed(1)} KB/s`;
+}
+
 // ── Stat Card ──────────────────────────────────────────────────────────────────
-function StatCard({ type, icon: Icon, label, value, unit, sub, pct }) {
+function StatCard({ type, icon: Icon, label, value, unit, sub, pct, cpuPercents }) {
   const fill = Math.min(100, Math.max(0, pct || 0));
   return (
     <div className={`stat-card ${type} fade-in`}>
@@ -42,6 +50,26 @@ function StatCard({ type, icon: Icon, label, value, unit, sub, pct }) {
           style={{ width: `${fill}%` }}
         />
       </div>
+      {type === 'cpu' && cpuPercents && cpuPercents.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '4px 8px',
+          marginTop: '0.75rem',
+          paddingTop: '0.5rem',
+          borderTop: '1px solid var(--border)'
+        }}>
+          {cpuPercents.map((p, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.675rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontFamily: 'monospace', minWidth: 16 }}>C{idx}</span>
+              <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ width: `${p}%`, height: '100%', background: 'var(--accent)' }} />
+              </div>
+              <span style={{ fontFamily: 'monospace', minWidth: 26, textAlign: 'right' }}>{p.toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -54,12 +82,21 @@ function ChartTooltip({ active, payload, label }) {
       background: 'var(--bg-elevated)', border: '1px solid var(--border)',
       borderRadius: 'var(--radius-sm)', padding: '6px 10px', fontSize: '0.8125rem',
     }}>
-      <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
-      {payload.map(p => (
-        <div key={p.dataKey} style={{ color: p.stroke }}>
-          {p.name}: <strong>{p.value?.toFixed(1)}%</strong>
-        </div>
-      ))}
+      <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+      {payload.map(p => {
+        let displayVal = '';
+        if (p.unit === 'KB/s') {
+          displayVal = formatSpeed(p.value);
+        } else {
+          displayVal = `${p.value?.toFixed(1)}%`;
+        }
+        return (
+          <div key={p.name} style={{ color: p.stroke, display: 'flex', gap: 12, justifyContent: 'space-between', marginTop: 2 }}>
+            <span>{p.name}:</span>
+            <strong>{displayVal}</strong>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -67,18 +104,45 @@ function ChartTooltip({ active, payload, label }) {
 // ── Main Component ──────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [metrics, setMetrics]   = useState(null);
-  const [history, setHistory]   = useState([]); // [{t, cpu, ram}]
+  const [history, setHistory]   = useState([]); // [{t, cpu, ram, rx, tx}]
   const [connected, setConnected] = useState(false);
   const wsRef = useRef(null);
+  const lastNetRef = useRef(null);
 
   const handleSnapshot = useCallback((snap) => {
     setMetrics(snap);
     setConnected(true);
     setHistory(prev => {
+      const now = Date.now();
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      
+      let rxSpeed = 0; // KB/s
+      let txSpeed = 0; // KB/s
+      
+      if (lastNetRef.current && snap.network) {
+        const deltaSec = (now - lastNetRef.current.time) / 1000;
+        if (deltaSec > 0) {
+          const rxDelta = (snap.network.bytes_recv || 0) - lastNetRef.current.rx;
+          const txDelta = (snap.network.bytes_sent || 0) - lastNetRef.current.tx;
+          if (rxDelta >= 0) rxSpeed = (rxDelta / 1024) / deltaSec;
+          if (txDelta >= 0) txSpeed = (txDelta / 1024) / deltaSec;
+        }
+      }
+      
+      if (snap.network) {
+        lastNetRef.current = {
+          time: now,
+          rx: snap.network.bytes_recv || 0,
+          tx: snap.network.bytes_sent || 0,
+        };
+      }
+
       const point = {
-        t:   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        t:   timeStr,
         cpu: snap.cpu?.usage_percent || 0,
         ram: snap.memory?.usage_percent || 0,
+        rx:  rxSpeed,
+        tx:  txSpeed,
       };
       const next = [...prev, point];
       return next.length > 30 ? next.slice(-30) : next; // keep last 30 points
@@ -136,6 +200,7 @@ export default function Dashboard() {
           type="cpu" icon={Cpu} label="CPU Usage"
           value={cpu.toFixed(1)} unit="%" pct={cpu}
           sub={`${m?.cpu?.core_count || '—'} cores`}
+          cpuPercents={m?.cpu?.percents}
         />
         <StatCard
           type="memory" icon={MemoryStick} label="Memory"
@@ -206,6 +271,32 @@ export default function Dashboard() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+
+        <div className="chart-card">
+          <div className="chart-title">
+            <Wifi size={14} />
+            Network Traffic History
+          </div>
+          <ResponsiveContainer width="100%" height={140}>
+            <AreaChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
+              <defs>
+                <linearGradient id="gradRx" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gradTx" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="t" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1024 ? `${(v/1024).toFixed(0)}M` : `${v.toFixed(0)}K`} />
+              <Tooltip content={<ChartTooltip />} />
+              <Area type="monotone" dataKey="rx" name="Download (RX)" unit="KB/s" stroke="#10b981" strokeWidth={2} fill="url(#gradRx)" dot={false} />
+              <Area type="monotone" dataKey="tx" name="Upload (TX)" unit="KB/s" stroke="#3b82f6" strokeWidth={2} fill="url(#gradTx)" dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       {/* System Info */}
@@ -216,14 +307,19 @@ export default function Dashboard() {
         </div>
         <div className="sysinfo-grid">
           {[
-            { k: 'Hostname',  v: m?.system?.hostname },
-            { k: 'OS',        v: m?.system?.os },
-            { k: 'Platform',  v: m?.system?.platform },
-            { k: 'Arch',      v: m?.system?.arch },
-            { k: 'Uptime',    v: fmtUptime(m?.system?.uptime_sec) },
-            { k: 'Net ↑',     v: m?.network?.bytes_sent ? `${(m.network.bytes_sent / 1e6).toFixed(1)} MB` : '—' },
-            { k: 'Net ↓',     v: m?.network?.bytes_recv ? `${(m.network.bytes_recv / 1e6).toFixed(1)} MB` : '—' },
-            { k: 'CPU Cores', v: m?.cpu?.core_count },
+            { k: 'Hostname',           v: m?.system?.hostname },
+            { k: 'OS',                 v: m?.system?.os },
+            { k: 'Platform',           v: m?.system?.platform },
+            { k: 'Arch',               v: m?.system?.arch },
+            { k: 'Uptime',             v: fmtUptime(m?.system?.uptime_sec) },
+            { k: 'CPU Load (1m)',      v: m?.cpu?.load_avg_1 !== undefined ? m.cpu.load_avg_1.toFixed(2) : '—' },
+            { k: 'CPU Load (5m)',      v: m?.cpu?.load_avg_5 !== undefined ? m.cpu.load_avg_5.toFixed(2) : '—' },
+            { k: 'CPU Load (15m)',     v: m?.cpu?.load_avg_15 !== undefined ? m.cpu.load_avg_15.toFixed(2) : '—' },
+            { k: 'Running Containers', v: m?.system?.docker_count !== undefined ? m.system.docker_count : '—' },
+            { k: 'Total Processes',    v: m?.system?.process_count || '—' },
+            { k: 'Net Tx (Total)',     v: m?.network?.bytes_sent ? `${(m.network.bytes_sent / 1e6).toFixed(1)} MB` : '—' },
+            { k: 'Net Rx (Total)',     v: m?.network?.bytes_recv ? `${(m.network.bytes_recv / 1e6).toFixed(1)} MB` : '—' },
+            { k: 'CPU Cores',          v: m?.cpu?.core_count },
           ].map(({ k, v }) => (
             <div key={k} className="sysinfo-item">
               <span className="sysinfo-key">{k}</span>
