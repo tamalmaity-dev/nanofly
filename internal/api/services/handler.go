@@ -49,15 +49,21 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name       string   `json:"name"`
-		Image      string   `json:"image"`
-		Port       int      `json:"port"`
-		GitRepoURL string   `json:"git_repo_url"`
-		GitBranch  string   `json:"git_branch"`
-		GitToken   string   `json:"git_token"`
-		GitBuilder string   `json:"git_builder"`
-		LocalPath  string   `json:"local_path"`
-		EnvVars    []EnvVar `json:"env_vars"`
+		Name             string   `json:"name"`
+		Image            string   `json:"image"`
+		Port             int      `json:"port"`
+		GitRepoURL       string   `json:"git_repo_url"`
+		GitBranch        string   `json:"git_branch"`
+		GitToken         string   `json:"git_token"`
+		GitBuilder       string   `json:"git_builder"`
+		LocalPath        string   `json:"local_path"`
+		StartCommand     string   `json:"start_command"`
+		InstallCommand   string   `json:"install_command"`
+		AppDirectory     string   `json:"app_directory"`
+		RunFile          string   `json:"run_file"`
+		RequirementsFile string   `json:"requirements_file"`
+		UseVenv          bool     `json:"use_venv"`
+		EnvVars          []EnvVar `json:"env_vars"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -75,15 +81,21 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	svc, err := h.mgr.CreateApp(r.Context(), CreateAppReq{
-		ProjectID:  chi.URLParam(r, "projectID"),
-		Name:       req.Name,
-		Image:      req.Image,
-		Port:       req.Port,
-		EnvVars:    req.EnvVars,
-		GitRepoURL: req.GitRepoURL,
-		GitBranch:  req.GitBranch,
-		GitToken:   req.GitToken,
-		Builder:    req.GitBuilder,
+		ProjectID:        chi.URLParam(r, "projectID"),
+		Name:             req.Name,
+		Image:            req.Image,
+		Port:             req.Port,
+		EnvVars:          req.EnvVars,
+		GitRepoURL:       req.GitRepoURL,
+		GitBranch:        req.GitBranch,
+		GitToken:         req.GitToken,
+		Builder:          req.GitBuilder,
+		StartCommand:     req.StartCommand,
+		InstallCommand:   req.InstallCommand,
+		AppDirectory:     req.AppDirectory,
+		RunFile:          req.RunFile,
+		RequirementsFile: req.RequirementsFile,
+		UseVenv:          req.UseVenv,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

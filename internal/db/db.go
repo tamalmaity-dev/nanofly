@@ -156,6 +156,12 @@ func (db *DB) migrate() error {
 
 	// Dynamic migration for existing databases:
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN image TEXT")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN start_command TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN install_command TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN app_directory TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN run_file TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN requirements_file TEXT DEFAULT 'requirements.txt'")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN use_venv INTEGER DEFAULT 1")
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN builder TEXT DEFAULT 'auto'")
 
 	return tx.Commit()

@@ -21,7 +21,22 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
   const [subType, setSubType] = useState('docker'); // docker | github
   const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', localPath: '', branch: 'main', token: '', gitBuilder: 'auto' });
+  const [form, setForm] = useState({
+    name: '',
+    image: '',
+    port: '',
+    gitUrl: '',
+    localPath: '',
+    branch: 'main',
+    token: '',
+    gitBuilder: 'auto',
+    appDirectory: '',
+    runFile: '',
+    requirementsFile: 'requirements.txt',
+    useVenv: true,
+    startCommand: '',
+    installCommand: '',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,6 +59,12 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
           git_branch: form.branch.trim() || 'main', 
           git_token: form.token.trim(), 
           git_builder: form.gitBuilder || 'auto',
+          app_directory: form.appDirectory.trim(),
+          run_file: form.runFile.trim(),
+          requirements_file: form.requirementsFile.trim() || 'requirements.txt',
+          use_venv: !!form.useVenv,
+          start_command: form.startCommand.trim(),
+          install_command: form.installCommand.trim(),
           port: Number(form.port) || 0 
         });
       } else {
@@ -347,6 +368,36 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                         <option value="dockerfile">Use existing Dockerfile</option>
                       </select>
                     </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">App Directory</label>
+                        <input className="form-input" placeholder="Blank for folder root, or src/app" value={form.appDirectory} onChange={set('appDirectory')} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Run File</label>
+                        <input className="form-input" placeholder="e.g. ecopulse.py, main.py, server.js" value={form.runFile} onChange={set('runFile')} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">Requirements File</label>
+                        <input className="form-input" placeholder="requirements.txt" value={form.requirementsFile} onChange={set('requirementsFile')} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Start Command Override</label>
+                        <input className="form-input" placeholder="Blank auto-runs the selected file" value={form.startCommand} onChange={set('startCommand')} />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Install Command Override</label>
+                      <input className="form-input" placeholder="Blank installs from requirements file" value={form.installCommand} onChange={set('installCommand')} />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                        <input type="checkbox" checked={form.useVenv} onChange={e => setForm(f => ({ ...f, useVenv: e.target.checked }))} />
+                        Generate Python virtual environment inside the container
+                      </label>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -379,6 +430,36 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                         <option value="static">HTML / Static Website</option>
                         <option value="dockerfile">Use existing Dockerfile</option>
                       </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">App Directory</label>
+                        <input className="form-input" placeholder="Blank for repo root, or backend" value={form.appDirectory} onChange={set('appDirectory')} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Run File</label>
+                        <input className="form-input" placeholder="e.g. main.py, app.py, server.js" value={form.runFile} onChange={set('runFile')} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">Requirements File</label>
+                        <input className="form-input" placeholder="requirements.txt" value={form.requirementsFile} onChange={set('requirementsFile')} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Start Command Override</label>
+                        <input className="form-input" placeholder="Blank auto-runs the selected file" value={form.startCommand} onChange={set('startCommand')} />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Install Command Override</label>
+                      <input className="form-input" placeholder="Blank installs from requirements file" value={form.installCommand} onChange={set('installCommand')} />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                        <input type="checkbox" checked={form.useVenv} onChange={e => setForm(f => ({ ...f, useVenv: e.target.checked }))} />
+                        Generate Python virtual environment inside the container
+                      </label>
                     </div>
                   </>
                 )}
@@ -784,6 +865,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [gitUrl, setGitUrl] = useState(service.git_repo_url || '');
   const [branch, setBranch] = useState(service.git_branch || 'main');
   const [gitBuilder, setGitBuilder] = useState(service.git_builder || 'auto');
+  const [appDirectory, setAppDirectory] = useState(service.app_directory || '');
+  const [runFile, setRunFile] = useState(service.run_file || '');
+  const [requirementsFile, setRequirementsFile] = useState(service.requirements_file || 'requirements.txt');
+  const [useVenv, setUseVenv] = useState(service.use_venv !== false);
+  const [startCommand, setStartCommand] = useState(service.start_command || '');
+  const [installCommand, setInstallCommand] = useState(service.install_command || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -799,6 +886,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setGitUrl(service.git_repo_url || '');
     setBranch(service.git_branch || 'main');
     setGitBuilder(service.git_builder || 'auto');
+    setAppDirectory(service.app_directory || '');
+    setRunFile(service.run_file || '');
+    setRequirementsFile(service.requirements_file || 'requirements.txt');
+    setUseVenv(service.use_venv !== false);
+    setStartCommand(service.start_command || '');
+    setInstallCommand(service.install_command || '');
 
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
     setDomainVal(matched ? matched.domain : '');
@@ -863,6 +956,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         git_repo_url: gitUrl.trim(),
         git_branch: branch.trim(),
         git_builder: gitBuilder,
+        app_directory: appDirectory.trim(),
+        run_file: runFile.trim(),
+        requirements_file: requirementsFile.trim() || 'requirements.txt',
+        use_venv: !!useVenv,
+        start_command: startCommand.trim(),
+        install_command: installCommand.trim(),
       });
 
       // Update domain and direction in domains_v2 if modified
@@ -917,7 +1016,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           {gitUrl ? (
             <>
               <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Git Repository URL</label>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Source URL / Local Folder</label>
                 <input className="form-input form-input-sm" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
               </div>
               <div className="form-group">
@@ -936,6 +1035,37 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   <option value="dockerfile">Use existing Dockerfile</option>
                 </select>
               </div>
+              <div style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                Changing runtime fields affects the next deploy. Use App Directory when the app lives inside a subfolder, and Run File for Python files like ecopulse.py.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>App Directory</label>
+                  <input className="form-input form-input-sm" value={appDirectory} onChange={e => setAppDirectory(e.target.value)} placeholder="Blank for source root" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Run File</label>
+                  <input className="form-input form-input-sm" value={runFile} onChange={e => setRunFile(e.target.value)} placeholder="ecopulse.py" />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Requirements File</label>
+                  <input className="form-input form-input-sm" value={requirementsFile} onChange={e => setRequirementsFile(e.target.value)} placeholder="requirements.txt" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Start Command Override</label>
+                  <input className="form-input form-input-sm" value={startCommand} onChange={e => setStartCommand(e.target.value)} placeholder="python ecopulse.py" />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Install Command Override</label>
+                <input className="form-input form-input-sm" value={installCommand} onChange={e => setInstallCommand(e.target.value)} placeholder="pip install --no-cache-dir -r requirements.txt" />
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
+                Generate Python virtual environment during build
+              </label>
             </>
           ) : (
             <div className="form-group">
@@ -1039,6 +1169,22 @@ export default function ProjectDetail() {
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
 
   const handleDeploy = async (svcId) => {
+    const svc = services.find(s => s.id === svcId);
+    if (svc?.type === 'app') {
+      const existing = domains.find(d => d.service === svc.name && d.project === project?.name);
+      if (!existing) {
+        const host = window.location.hostname.split(':')[0];
+        const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+        try {
+          await domainsApi.create({
+            domain: `${randomStr}.${host}.sslip.io`,
+            service: svc.name,
+            project: project?.name || '',
+            direction: 'both',
+          });
+        } catch (_) {}
+      }
+    }
     await servicesApi.deploy(svcId);
     setActiveTab('deployments');
     setTimeout(load, 500);

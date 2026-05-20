@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Folder, File, FileText, FileCode, Trash2, Save,
-  ArrowLeft, Search, X, FolderPlus, FilePlus, ChevronRight, Copy, Upload
+  ArrowLeft, Search, X, FolderPlus, FilePlus, ChevronRight, Copy, Upload,
+  LayoutGrid, LayoutList, AlertTriangle
 } from 'lucide-react';
 import { filesApi } from '../api/client';
 
@@ -15,6 +16,7 @@ export default function FileManager() {
   const [search, setSearch] = useState('');
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [viewMode, setViewMode] = useState('list');
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
@@ -216,6 +218,11 @@ export default function FileManager() {
     item.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const protectedPath = (() => {
+    const path = (currentPath || '').replace(/\\/g, '/');
+    return ['/', '/bin', '/boot', '/dev', '/etc', '/lib', '/opt/nanofly', '/proc', '/root', '/sbin', '/sys', '/usr', '/var'].some(p => path === p || path.startsWith(`${p}/`));
+  })();
+
   const getFileIcon = (item) => {
     if (item.is_dir) return <Folder size={18} style={{ color: '#eab308' }} />;
     const ext = item.name.split('.').pop().toLowerCase();
@@ -312,6 +319,23 @@ export default function FileManager() {
         {uploadStatus && <span style={{ marginLeft: 'auto', color: uploadStatus.includes('failed') ? 'var(--red)' : 'var(--green)' }}>{uploadStatus}</span>}
       </div>
 
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: '1rem',
+        padding: '0.75rem 1rem',
+        border: protectedPath ? '1px solid rgba(245,158,11,0.32)' : '1px solid var(--border)',
+        borderRadius: 'var(--radius)',
+        background: protectedPath ? 'rgba(245,158,11,0.08)' : 'rgba(79,110,247,0.06)',
+        color: protectedPath ? '#f59e0b' : 'var(--text-secondary)',
+        fontSize: '0.82rem',
+        flexShrink: 0
+      }}>
+        <AlertTriangle size={16} />
+        <span>{protectedPath ? 'This location may contain system files. Editing or deleting here can break NanoFly or the server.' : 'App folders are safer to edit here. Keep a backup before changing production files.'}</span>
+      </div>
+
       {/* Main Split Layout */}
       <div style={{ display: 'flex', gap: '1.25rem', flex: 1, minHeight: 0 }}>
         
@@ -327,7 +351,8 @@ export default function FileManager() {
         }}>
           {/* Search bar */}
           <div className="form-group" style={{ marginBottom: '1rem', flexShrink: 0 }}>
-            <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ position: 'relative', flex: 1 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 className="form-input"
@@ -336,6 +361,15 @@ export default function FileManager() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
+            </div>
+            <div style={{ display: 'flex', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 3 }}>
+              <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 6, color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                <LayoutList size={15} />
+              </button>
+              <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 6, color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                <LayoutGrid size={15} />
+              </button>
+            </div>
             </div>
           </div>
 
@@ -356,7 +390,12 @@ export default function FileManager() {
                 <span style={{ fontSize: '0.875rem' }}>Empty directory or no search matches</span>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{
+                display: viewMode === 'grid' ? 'grid' : 'flex',
+                gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(138px, 1fr))' : undefined,
+                flexDirection: viewMode === 'grid' ? undefined : 'column',
+                gap: viewMode === 'grid' ? 10 : 4
+              }}>
                 {/* Back Link if not at Root */}
                 {getParentPath() && (
                   <div
@@ -393,12 +432,14 @@ export default function FileManager() {
                     }}
                     style={{
                       display: 'flex',
+                      flexDirection: viewMode === 'grid' ? 'column' : 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: '0.625rem 0.75rem',
+                      padding: viewMode === 'grid' ? '0.9rem 0.75rem' : '0.625rem 0.75rem',
                       borderRadius: 'var(--radius)',
                       cursor: 'pointer',
                       fontSize: '0.875rem',
+                      minHeight: viewMode === 'grid' ? 118 : undefined,
                       transition: 'background 0.2s, border-color 0.2s',
                       background: selectedFile?.path === item.path ? 'rgba(79, 110, 247, 0.08)' : 'transparent',
                       border: '1px solid',
@@ -415,20 +456,37 @@ export default function FileManager() {
                       }
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      {getFileIcon(item)}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexDirection: viewMode === 'grid' ? 'column' : 'row',
+                      gap: viewMode === 'grid' ? 8 : 10,
+                      minWidth: 0,
+                      width: viewMode === 'grid' ? '100%' : undefined,
+                      textAlign: viewMode === 'grid' ? 'center' : 'left'
+                    }}>
+                      <span style={{ transform: viewMode === 'grid' ? 'scale(1.45)' : 'none', marginBottom: viewMode === 'grid' ? 4 : 0 }}>{getFileIcon(item)}</span>
                       <span style={{
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         fontWeight: item.is_dir ? 600 : 400,
-                        color: 'var(--text-primary)'
+                        color: 'var(--text-primary)',
+                        maxWidth: '100%'
                       }}>
                         {item.name}
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: viewMode === 'grid' ? 'center' : 'flex-end',
+                      gap: viewMode === 'grid' ? 8 : 16,
+                      flexShrink: 0,
+                      width: viewMode === 'grid' ? '100%' : undefined,
+                      marginTop: viewMode === 'grid' ? 10 : 0
+                    }}>
                       {!item.is_dir && (
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           {item.size_human}

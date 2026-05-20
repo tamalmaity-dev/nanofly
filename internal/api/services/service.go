@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,10 +59,16 @@ type Service struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 
 	// Joined fields
-	GitRepoURL string `json:"git_repo_url,omitempty"`
-	GitBranch  string `json:"git_branch,omitempty"`
-	Builder    string `json:"git_builder,omitempty"`
-	ConnString string `json:"conn_string,omitempty"` // databases only (encrypted stub)
+	GitRepoURL       string `json:"git_repo_url,omitempty"`
+	GitBranch        string `json:"git_branch,omitempty"`
+	Builder          string `json:"git_builder,omitempty"`
+	StartCommand     string `json:"start_command,omitempty"`
+	InstallCommand   string `json:"install_command,omitempty"`
+	AppDirectory     string `json:"app_directory,omitempty"`
+	RunFile          string `json:"run_file,omitempty"`
+	RequirementsFile string `json:"requirements_file,omitempty"`
+	UseVenv          bool   `json:"use_venv"`
+	ConnString       string `json:"conn_string,omitempty"` // databases only (encrypted stub)
 }
 
 // EnvVar is a key=value pair stored encrypted in DB.
@@ -99,7 +106,10 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		SELECT s.id, s.project_id, s.name, s.type, s.status, 
 		       COALESCE(s.port,0), COALESCE(s.updated_at,''), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
-		       COALESCE(s.image,''), COALESCE(g.builder,'auto')
+		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
+		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
+		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
+		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1)
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -118,7 +128,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
 			&s.Port, &updatedAt, &createdAt,
 			&s.GitRepoURL, &s.GitBranch,
-			&s.Image, &s.Builder,
+			&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
+			&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv,
 		); err != nil {
 			return nil, err
 		}
@@ -140,7 +151,10 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		SELECT s.id, s.project_id, s.name, s.type, s.status,
 		       COALESCE(s.port,0), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
-		       COALESCE(s.image,''), COALESCE(g.builder,'auto')
+		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
+		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
+		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
+		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1)
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -148,7 +162,8 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
 		&s.Port, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
-		&s.Image, &s.Builder,
+		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
+		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv,
 	)
 	if err != nil {
 		return nil, err
@@ -166,20 +181,32 @@ type CreateAppReq struct {
 	EnvVars   []EnvVar
 
 	// GitHub source (optional)
-	GitRepoURL string
-	GitBranch  string
-	GitToken   string // PAT for private repos
-	Builder    string // auto, node, go, python, php, static, dockerfile
+	GitRepoURL       string
+	GitBranch        string
+	GitToken         string // PAT for private repos
+	Builder          string // auto, node, go, python, php, static, dockerfile
+	StartCommand     string
+	InstallCommand   string
+	AppDirectory     string
+	RunFile          string
+	RequirementsFile string
+	UseVenv          bool
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
 func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, error) {
 	var id string
 	err := m.db.QueryRowContext(ctx, `
-		INSERT INTO services (project_id, name, type, status, port, image)
-		VALUES (?, ?, 'app', 'idle', ?, ?)
+		INSERT INTO services (
+			project_id, name, type, status, port, image,
+			start_command, install_command, app_directory, run_file, requirements_file, use_venv
+		)
+		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.Port, req.Image).Scan(&id)
+	`, req.ProjectID, req.Name, req.Port, req.Image,
+		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
+		defaultRequirementsFile(req.RequirementsFile), req.UseVenv,
+	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating service: %w", err)
 	}
@@ -314,6 +341,8 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 			m.db.ExecContext(bgCtx, `UPDATE services SET status=? WHERE id=?`, finalStatus, serviceID) //nolint:errcheck
 		}()
+
+		m.logServiceDomains(bgCtx, svc, log)
 
 		if svc.Type == TypeDatabase {
 			if m.docker == nil {
@@ -451,6 +480,30 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 	return m.GetDeployment(ctx, deployID)
 }
 
+func (m *Manager) logServiceDomains(ctx context.Context, svc *Service, log func(string)) {
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT domain, COALESCE(direction,'both')
+		FROM domains_v2
+		WHERE service = ?
+		ORDER BY created_at DESC
+	`, svc.Name)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var domain, direction string
+		if err := rows.Scan(&domain, &direction); err == nil && domain != "" {
+			domains = append(domains, domain+" ("+direction+")")
+		}
+	}
+	if len(domains) > 0 {
+		log("Domains: " + strings.Join(domains, ", "))
+	}
+}
+
 // gitDeploy clones a repo and runs the app inside Docker.
 // gitDeploy clones a repo and runs the app inside Docker.
 func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
@@ -458,6 +511,16 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	os.RemoveAll(repoDir) //nolint:errcheck
 
 	log("📥 Cloning " + svc.GitRepoURL + " (" + svc.GitBranch + ")…")
+
+	if svc.AppDirectory != "" {
+		log("App directory: " + svc.AppDirectory)
+	}
+	if svc.RunFile != "" {
+		log("Run file: " + svc.RunFile)
+	}
+	if svc.RequirementsFile != "" {
+		log("Requirements file: " + svc.RequirementsFile)
+	}
 
 	if strings.HasPrefix(svc.GitRepoURL, "file://") {
 		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
@@ -476,7 +539,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	}
 
 	// Dynamic detection and generation of Dockerfile if none exists
-	if err := detectAndWriteDockerfile(repoDir, svc.Port, svc.Builder, log); err != nil {
+	if err := detectAndWriteDockerfile(repoDir, svc.Port, svc.Builder, svc.StartCommand, svc.InstallCommand, svc.AppDirectory, svc.RunFile, svc.RequirementsFile, svc.UseVenv, log); err != nil {
 		return fmt.Errorf("generating Dockerfile: %w", err)
 	}
 
@@ -584,8 +647,104 @@ func copyDir(src, dst string) error {
 	})
 }
 
+func defaultRequirementsFile(path string) string {
+	path = cleanRelativePath(path)
+	if path == "" {
+		return "requirements.txt"
+	}
+	return path
+}
+
+func cleanRelativePath(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	path = strings.TrimPrefix(path, "/")
+	path = filepath.Clean(path)
+	path = strings.ReplaceAll(path, "\\", "/")
+	if path == "." || strings.HasPrefix(path, "../") || path == ".." {
+		return ""
+	}
+	return path
+}
+
+func dockerShellEscape(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
+func dockerWorkdir(appDirectory string) string {
+	appDirectory = cleanRelativePath(appDirectory)
+	if appDirectory == "" {
+		return "/app"
+	}
+	return "/app/" + appDirectory
+}
+
+func findPythonRunFile(repoDir, appDirectory, runFile string) string {
+	if clean := cleanRelativePath(runFile); clean != "" {
+		return clean
+	}
+
+	searchDir := filepath.Join(repoDir, filepath.FromSlash(cleanRelativePath(appDirectory)))
+	preferred := []string{"app.py", "main.py", "wsgi.py"}
+	for _, name := range preferred {
+		if _, err := os.Stat(filepath.Join(searchDir, name)); err == nil {
+			return name
+		}
+	}
+
+	entries, err := os.ReadDir(searchDir)
+	if err != nil {
+		return "main.py"
+	}
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".py") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		return names[0]
+	}
+	return "main.py"
+}
+
+func pythonDockerfile(repoDir, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool) string {
+	workdir := dockerWorkdir(appDirectory)
+	runFile = findPythonRunFile(repoDir, appDirectory, runFile)
+	requirementsFile = defaultRequirementsFile(requirementsFile)
+
+	cmd := strings.TrimSpace(startCommand)
+	if cmd == "" {
+		cmd = "python " + runFile
+	}
+
+	install := strings.TrimSpace(installCommand)
+	if install == "" {
+		install = fmt.Sprintf(`if [ -f "%s" ]; then pip install --no-cache-dir -r "%s"; else echo "requirements file %s not found, skipping dependency install"; fi`, requirementsFile, requirementsFile, requirementsFile)
+	}
+
+	venvLines := ""
+	if useVenv {
+		venvLines = `RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+`
+	}
+
+	return fmt.Sprintf(`FROM python:3.11-slim
+WORKDIR /app
+COPY . .
+WORKDIR %s
+%sRUN %s
+ENV PORT=%s
+EXPOSE %s
+CMD ["sh", "-c", "%s"]
+`, workdir, venvLines, install, portStr, portStr, dockerShellEscape(cmd))
+}
+
 // detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
-func detectAndWriteDockerfile(repoDir string, svcPort int, builder string, log func(string)) error {
+func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool, log func(string)) error {
 	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
 		log("ℹ️ Found existing Dockerfile in repository, using it.")
@@ -600,20 +759,32 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, builder string, log f
 	// 1. Manual selection triggers:
 	if builder == "node" {
 		log("ℹ️ Using NodeJS runtime template. Generating optimized Dockerfile…")
+		install := strings.TrimSpace(installCommand)
+		if install == "" {
+			install = "npm install --production"
+		}
+		cmd := strings.TrimSpace(startCommand)
+		if cmd == "" {
+			cmd = "npm start"
+		}
 		content := fmt.Sprintf(`FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --production
+RUN %s
 COPY . .
 ENV PORT=%s
 EXPOSE %s
-CMD ["npm", "start"]
-`, portStr, portStr)
+CMD ["sh", "-c", "%s"]
+`, install, portStr, portStr, dockerShellEscape(cmd))
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
 	if builder == "go" {
 		log("ℹ️ Using Go (Golang) runtime template. Generating optimized Dockerfile…")
+		cmd := strings.TrimSpace(startCommand)
+		if cmd == "" {
+			cmd = "./main"
+		}
 		content := fmt.Sprintf(`FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY go.mod* go.sum* ./
@@ -626,29 +797,14 @@ WORKDIR /app
 COPY --from=builder /app/main .
 ENV PORT=%s
 EXPOSE %s
-CMD ["./main"]
-`, portStr, portStr)
+CMD ["sh", "-c", "%s"]
+`, portStr, portStr, dockerShellEscape(cmd))
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
 	if builder == "python" {
 		log("ℹ️ Using Python runtime template. Generating optimized Dockerfile…")
-		mainPy := "main.py"
-		if _, err := os.Stat(filepath.Join(repoDir, "app.py")); err == nil {
-			mainPy = "app.py"
-		} else if _, err := os.Stat(filepath.Join(repoDir, "wsgi.py")); err == nil {
-			mainPy = "wsgi.py"
-		}
-
-		content := fmt.Sprintf(`FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt* ./
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-COPY . .
-ENV PORT=%s
-EXPOSE %s
-CMD ["python", "%s"]
-`, portStr, portStr, mainPy)
+		content := pythonDockerfile(repoDir, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
@@ -682,16 +838,29 @@ EXPOSE %s
 	// NodeJS
 	if _, err := os.Stat(filepath.Join(repoDir, "package.json")); err == nil {
 		log("ℹ️ Detected Node.js runtime. Generating optimized Dockerfile…")
+		install := strings.TrimSpace(installCommand)
+		if install == "" {
+			install = "npm install --production"
+		}
+		cmd := strings.TrimSpace(startCommand)
+		if cmd == "" {
+			cmd = "npm start"
+		}
 		content := fmt.Sprintf(`FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --production
+RUN %s
 COPY . .
 ENV PORT=%s
 EXPOSE %s
-CMD ["npm", "start"]
-`, portStr, portStr)
+CMD ["sh", "-c", "%s"]
+`, install, portStr, portStr, dockerShellEscape(cmd))
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	}
+
+	cmd := strings.TrimSpace(startCommand)
+	if cmd == "" {
+		cmd = "./main"
 	}
 
 	// Go
@@ -709,8 +878,8 @@ WORKDIR /app
 COPY --from=builder /app/main .
 ENV PORT=%s
 EXPOSE %s
-CMD ["./main"]
-`, portStr, portStr)
+CMD ["sh", "-c", "%s"]
+`, portStr, portStr, dockerShellEscape(cmd))
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
@@ -721,22 +890,7 @@ CMD ["./main"]
 	}
 	if hasRequirements || fileExistsWithExtension(repoDir, ".py") {
 		log("ℹ️ Detected Python runtime. Generating optimized Dockerfile…")
-		mainPy := "main.py"
-		if _, err := os.Stat(filepath.Join(repoDir, "app.py")); err == nil {
-			mainPy = "app.py"
-		} else if _, err := os.Stat(filepath.Join(repoDir, "wsgi.py")); err == nil {
-			mainPy = "wsgi.py"
-		}
-
-		content := fmt.Sprintf(`FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt* ./
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-COPY . .
-ENV PORT=%s
-EXPOSE %s
-CMD ["python", "%s"]
-`, portStr, portStr, mainPy)
+		content := pythonDockerfile(repoDir, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
@@ -923,21 +1077,30 @@ func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (strin
 
 // UpdateServiceReq defines request parameters to edit service settings.
 type UpdateServiceReq struct {
-	Name       string `json:"name"`
-	Image      string `json:"image"`
-	Port       int    `json:"port"`
-	GitRepoURL string `json:"git_repo_url"`
-	GitBranch  string `json:"git_branch"`
-	Builder    string `json:"git_builder"`
+	Name             string `json:"name"`
+	Image            string `json:"image"`
+	Port             int    `json:"port"`
+	GitRepoURL       string `json:"git_repo_url"`
+	GitBranch        string `json:"git_branch"`
+	Builder          string `json:"git_builder"`
+	StartCommand     string `json:"start_command"`
+	InstallCommand   string `json:"install_command"`
+	AppDirectory     string `json:"app_directory"`
+	RunFile          string `json:"run_file"`
+	RequirementsFile string `json:"requirements_file"`
+	UseVenv          bool   `json:"use_venv"`
 }
 
 // Update updates the service's details in DB and optional git sources.
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE services
-		SET name = ?, image = ?, port = ?, updated_at = CURRENT_TIMESTAMP
+		SET name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
+		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
+		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, req.Name, req.Image, req.Port, serviceID)
+	`, req.Name, req.Image, req.Port, req.StartCommand, req.InstallCommand,
+		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}
