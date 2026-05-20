@@ -62,7 +62,9 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="sidebar-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className="sidebar-logo-icon">🚀</div>
+          <div className="sidebar-logo-icon">
+            <img src="/logo.png" alt="NanoFly logo" style={{ width: 24, height: 24, objectFit: 'contain' }} />
+          </div>
           <span className="sidebar-logo-text">NanoFly</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 2, marginTop: 4 }}>
