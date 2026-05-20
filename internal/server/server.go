@@ -14,6 +14,8 @@
 package server
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -23,7 +25,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +64,8 @@ type Server struct {
 	updateStatus string // idle | pull | build_front | build_back | done | error
 	updateLog    string
 	updateMu     sync.Mutex
+	backupMu     sync.Mutex
+	backupLast   string
 }
 
 // New builds the server and wires all modules.
@@ -92,6 +98,7 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	// Start the domain reverse proxy on port 80 (non-blocking, best-effort)
 	s.proxySrv = proxy.New(database.DB)
 	go s.proxySrv.Start()
+	go s.backupScheduler()
 
 	return s, nil
 }
@@ -160,9 +167,15 @@ func (s *Server) buildRouter() *chi.Mux {
 		})
 
 		// Panel updates
+		r.Get("/settings", s.handleSettingsGet)
+		r.Put("/settings", s.handleSettingsSave)
 		r.Get("/settings/update/check", s.handleUpdateCheck)
 		r.Post("/settings/update/apply", s.handleUpdateApply)
 		r.Get("/settings/update/log", s.handleUpdateLog)
+		r.Get("/settings/backups", s.handleBackupsList)
+		r.Post("/settings/backups", s.handleBackupCreate)
+		r.Get("/settings/backups/{name}/download", s.handleBackupDownload)
+		r.Delete("/settings/backups/{name}", s.handleBackupDelete)
 	})
 
 	// ── SPA Static File Server ──────────────────────────────────────────────
@@ -726,6 +739,346 @@ func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
 		"status": s.updateStatus,
 		"log":    s.updateLog,
 	})
+}
+
+func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.QueryContext(r.Context(), "SELECT key, value FROM settings")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to load settings")
+		return
+	}
+	defer rows.Close()
+	settings := defaultSettings()
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err == nil {
+			settings[key] = value
+		}
+	}
+	response.Success(w, settings)
+}
+
+func (s *Server) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
+	var settings map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid settings payload")
+		return
+	}
+	if err := s.saveSettings(r.Context(), settings); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	response.Success(w, map[string]string{"status": "saved"})
+}
+
+func defaultSettings() map[string]string {
+	return map[string]string{
+		"panel.name":                  "NanoFly Panel",
+		"panel.url":                   "",
+		"security.session_duration":   "24h",
+		"security.require_https":      "true",
+		"security.rate_limit":         "true",
+		"notifications.smtp_host":     "",
+		"notifications.smtp_port":     "587",
+		"notifications.smtp_user":     "",
+		"notifications.smtp_pass":     "",
+		"notifications.deploy_failed": "true",
+		"notifications.high_cpu":      "false",
+		"notifications.disk_warning":  "true",
+		"notifications.new_login":     "false",
+		"backup.auto_enabled":         "false",
+		"backup.time":                 "02:00",
+		"backup.retention":            "14",
+		"backup.name_prefix":          "nanofly",
+		"backup.description":          "Scheduled NanoFly backup",
+	}
+}
+
+func (s *Server) saveSettings(ctx context.Context, settings map[string]string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for key, value := range settings {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+		`, key, value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Server) setting(ctx context.Context, key string) string {
+	defaults := defaultSettings()
+	value := defaults[key]
+	_ = s.db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	return value
+}
+
+type backupMeta struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	File        string `json:"file"`
+	Size        int64  `json:"size"`
+	SizeHuman   string `json:"size_human"`
+	Status      string `json:"status"`
+	Type        string `json:"type"`
+	Error       string `json:"error,omitempty"`
+	CreatedAt   string `json:"created_at"`
+}
+
+func (s *Server) backupsDir() string {
+	return filepath.Join(s.cfg.DataDir, "backups")
+}
+
+func (s *Server) handleBackupsList(w http.ResponseWriter, r *http.Request) {
+	backups, err := s.listBackups()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to list backups")
+		return
+	}
+	response.Success(w, backups)
+}
+
+func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Type        string `json:"type"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if strings.TrimSpace(req.Name) == "" {
+		req.Name = s.setting(r.Context(), "backup.name_prefix")
+	}
+	if strings.TrimSpace(req.Description) == "" {
+		req.Description = "Manual NanoFly backup"
+	}
+	if req.Type == "" {
+		req.Type = "manual"
+	}
+	meta, err := s.createBackup(r.Context(), req.Name, req.Description, req.Type)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, meta)
+		return
+	}
+	response.Success(w, meta)
+}
+
+func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
+	name := filepath.Base(chi.URLParam(r, "name"))
+	if !strings.HasSuffix(name, ".tar.gz") {
+		name += ".tar.gz"
+	}
+	path := filepath.Join(s.backupsDir(), name)
+	if _, err := os.Stat(path); err != nil {
+		response.Error(w, http.StatusNotFound, "backup not found")
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleBackupDelete(w http.ResponseWriter, r *http.Request) {
+	base := strings.TrimSuffix(filepath.Base(chi.URLParam(r, "name")), ".json")
+	base = strings.TrimSuffix(base, ".tar.gz")
+	if base == "." || base == "" {
+		response.Error(w, http.StatusBadRequest, "invalid backup name")
+		return
+	}
+	_ = os.Remove(filepath.Join(s.backupsDir(), base+".tar.gz"))
+	_ = os.Remove(filepath.Join(s.backupsDir(), base+".json"))
+	response.NoContent(w)
+}
+
+func (s *Server) listBackups() ([]backupMeta, error) {
+	dir := s.backupsDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	backups := []backupMeta{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var meta backupMeta
+		if err := json.Unmarshal(data, &meta); err == nil {
+			if info, err := os.Stat(filepath.Join(dir, meta.File)); err == nil {
+				meta.Size = info.Size()
+				meta.SizeHuman = humanBytesServer(info.Size())
+			}
+			backups = append(backups, meta)
+		}
+	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].CreatedAt > backups[j].CreatedAt })
+	return backups, nil
+}
+
+func (s *Server) createBackup(ctx context.Context, name, description, backupType string) (backupMeta, error) {
+	s.backupMu.Lock()
+	defer s.backupMu.Unlock()
+	safeName := sanitizeBackupName(name)
+	stamp := time.Now().Format("20060102-150405")
+	base := safeName + "-" + stamp
+	if err := os.MkdirAll(s.backupsDir(), 0755); err != nil {
+		return backupMeta{}, err
+	}
+	meta := backupMeta{Name: safeName, Description: description, File: base + ".tar.gz", Status: "success", Type: backupType, CreatedAt: time.Now().Format(time.RFC3339)}
+	path := filepath.Join(s.backupsDir(), meta.File)
+	if err := s.writeBackupArchive(path); err != nil {
+		meta.Status = "failed"
+		meta.Error = err.Error()
+		_ = s.writeBackupMeta(base, meta)
+		return meta, err
+	}
+	if info, err := os.Stat(path); err == nil {
+		meta.Size = info.Size()
+		meta.SizeHuman = humanBytesServer(info.Size())
+	}
+	return meta, s.writeBackupMeta(base, meta)
+}
+
+func (s *Server) writeBackupMeta(base string, meta backupMeta) error {
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.backupsDir(), base+".json"), data, 0644)
+}
+
+func (s *Server) writeBackupArchive(dest string) error {
+	file, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	gz := gzip.NewWriter(file)
+	defer gz.Close()
+	tw := tar.NewWriter(gz)
+	defer tw.Close()
+	root, err := filepath.Abs(s.cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	backupRoot, _ := filepath.Abs(s.backupsDir())
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		abs, _ := filepath.Abs(path)
+		if abs == backupRoot || strings.HasPrefix(abs, backupRoot+string(os.PathSeparator)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(filepath.Join("nanofly-data", rel))
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(tw, src)
+		closeErr := src.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+}
+
+func (s *Server) backupScheduler() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx := context.Background()
+		if s.setting(ctx, "backup.auto_enabled") != "true" {
+			continue
+		}
+		when := s.setting(ctx, "backup.time")
+		now := time.Now()
+		if now.Format("15:04") != when {
+			continue
+		}
+		key := now.Format("2006-01-02") + " " + when
+		if s.backupLast == key {
+			continue
+		}
+		s.backupLast = key
+		_, _ = s.createBackup(ctx, s.setting(ctx, "backup.name_prefix"), s.setting(ctx, "backup.description"), "scheduled")
+		s.pruneBackups(ctx)
+	}
+}
+
+func (s *Server) pruneBackups(ctx context.Context) {
+	retention := 14
+	fmt.Sscanf(s.setting(ctx, "backup.retention"), "%d", &retention)
+	if retention <= 0 {
+		return
+	}
+	backups, err := s.listBackups()
+	if err != nil || len(backups) <= retention {
+		return
+	}
+	for _, backup := range backups[retention:] {
+		base := strings.TrimSuffix(backup.File, ".tar.gz")
+		_ = os.Remove(filepath.Join(s.backupsDir(), backup.File))
+		_ = os.Remove(filepath.Join(s.backupsDir(), base+".json"))
+	}
+}
+
+func sanitizeBackupName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	replacer := strings.NewReplacer(" ", "-", "/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", `"`, "", "<", "", ">", "", "|", "-")
+	name = replacer.Replace(name)
+	name = strings.Trim(name, "-.")
+	if name == "" {
+		return "nanofly"
+	}
+	return name
+}
+
+func humanBytesServer(b int64) string {
+	const kb = 1024
+	const mb = 1024 * kb
+	const gb = 1024 * mb
+	switch {
+	case b >= gb:
+		return fmt.Sprintf("%.2f GB", float64(b)/gb)
+	case b >= mb:
+		return fmt.Sprintf("%.2f MB", float64(b)/mb)
+	case b >= kb:
+		return fmt.Sprintf("%.2f KB", float64(b)/kb)
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
 }
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {

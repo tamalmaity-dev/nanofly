@@ -145,6 +145,18 @@ export const filesApi = {
 };
 
 // Panel Update Management
+export const settingsApi = {
+  get:  ()     => get('/settings'),
+  save: (body) => put('/settings', body),
+};
+
+export const backupsApi = {
+  list:     ()     => get('/settings/backups'),
+  create:   (body) => post('/settings/backups', body),
+  delete:   (name) => del(`/settings/backups/${encodeURIComponent(name)}`),
+  download: (name) => `/api/v1/settings/backups/${encodeURIComponent(name)}/download`,
+};
+
 export const updateApi = {
   check: () => get('/settings/update/check'),
   apply: () => post('/settings/update/apply'),

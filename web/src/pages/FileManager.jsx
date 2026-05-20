@@ -7,7 +7,7 @@ import {
 import { filesApi } from '../api/client';
 
 export default function FileManager() {
-  const [currentPath, setCurrentPath] = useState('');
+  const [currentPath, setCurrentPath] = useState('/');
   const [rootPath, setRootPath] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
