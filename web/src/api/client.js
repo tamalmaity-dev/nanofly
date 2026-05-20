@@ -19,6 +19,22 @@ async function request(method, path, body) {
   return res.json();
 }
 
+async function uploadRequest(path, formData) {
+  const token = localStorage.getItem('nanofly_token');
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || err.message || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 const get  = (path)        => request('GET',    path);
 const post = (path, body)  => request('POST',   path, body);
 const put  = (path, body)  => request('PUT',    path, body);
@@ -122,6 +138,7 @@ export const filesApi = {
   view:   (path)          => get(`/files/view?path=${encodeURIComponent(path || '')}`),
   save:   (path, content) => post('/files/save', { path, content }),
   create: (path, isDir)   => post('/files/create', { path, is_dir: isDir }),
+  upload: (formData)      => uploadRequest('/files/upload', formData),
   delete: (path)          => del(`/files/delete?path=${encodeURIComponent(path || '')}`),
 };
 

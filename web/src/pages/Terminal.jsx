@@ -21,7 +21,7 @@ export default function Terminal() {
       headers: { Authorization: `Bearer ${localStorage.getItem('nanofly_token')}` }
     })
       .then(r => r.json())
-      .then(d => setOsInfo(d?.data))
+      .then(d => setOsInfo(d?.data || d))
       .catch(() => {});
 
     // ── 2. Create xterm instance ──────────────────────────────────────────
@@ -151,7 +151,7 @@ export default function Terminal() {
           <div className="terminal-dot" style={{ background: '#ffbd2e' }} />
           <div className="terminal-dot" style={{ background: '#27c93f' }} />
           <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginLeft: 8 }}>
-            root@nanofly ~
+            {osInfo?.home || '~'}
           </span>
           {status === 'connecting' && (
             <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)' }}>

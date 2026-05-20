@@ -1,17 +1,22 @@
 // web/src/pages/FileManager.jsx — File Manager dashboard interface
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Folder, File, FileText, FileCode, Plus, Trash2, Save,
-  ArrowLeft, Edit3, Search, X, FolderPlus, FilePlus, ChevronRight
+  Folder, File, FileText, FileCode, Trash2, Save,
+  ArrowLeft, Search, X, FolderPlus, FilePlus, ChevronRight, Copy, Upload
 } from 'lucide-react';
 import { filesApi } from '../api/client';
 
 export default function FileManager() {
   const [currentPath, setCurrentPath] = useState('');
+  const [rootPath, setRootPath] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
 
   // Selected file details
   const [selectedFile, setSelectedFile] = useState(null); // { path: string, content: string, originalContent: string }
@@ -36,6 +41,7 @@ export default function FileManager() {
       const res = await filesApi.list(path);
       if (res) {
         setItems(res.items || []);
+        setRootPath(res.root_path || '');
         setCurrentPath(res.current_path || '');
       }
     } catch (err) {
@@ -119,24 +125,77 @@ export default function FileManager() {
     }
   };
 
+  const copyPath = async (path, e) => {
+    e?.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(path || '');
+      setUploadStatus('Path copied');
+      setTimeout(() => setUploadStatus(''), 1600);
+    } catch {
+      setUploadStatus('Copy failed');
+    }
+  };
+
+  const handleUpload = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    setUploadLoading(true);
+    setUploadStatus('');
+    setError('');
+
+    const formData = new FormData();
+    formData.append('path', currentPath || rootPath || '');
+    files.forEach(file => {
+      formData.append('files', file, file.webkitRelativePath || file.name);
+    });
+
+    try {
+      const res = await filesApi.upload(formData);
+      const count = res?.count || files.length;
+      setUploadStatus(`${count} item${count === 1 ? '' : 's'} uploaded`);
+      loadDirectory(currentPath);
+    } catch (err) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setUploadLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (folderInputRef.current) folderInputRef.current.value = '';
+    }
+  };
+
   // Breadcrumbs parsing
   const getBreadcrumbs = () => {
-    if (!currentPath) return [{ name: 'Root', path: '' }];
-    // Normalize path separators
-    const normalized = currentPath.replace(/\\/g, '/');
-    const parts = normalized.split('/').filter(Boolean);
-    const crumbs = [{ name: 'Root', path: '' }];
-    let accum = '';
-    parts.forEach((part, idx) => {
-      // For Windows drive letters, preserve absolute root path correctly
-      if (idx === 0 && part.endsWith(':')) {
-        accum = part + '/';
-      } else {
-        accum = accum ? `${accum}/${part}` : part;
-      }
+    const root = (rootPath || currentPath || '').replace(/\\/g, '/');
+    const current = (currentPath || root).replace(/\\/g, '/');
+    const crumbs = [{ name: 'Root', path: root }];
+    if (!root || current === root) return crumbs;
+
+    if (current.startsWith(`${root}/`)) {
+      let accum = root;
+      current.slice(root.length + 1).split('/').filter(Boolean).forEach(part => {
+        accum = `${accum}/${part}`;
+        crumbs.push({ name: part, path: accum });
+      });
+      return crumbs;
+    }
+
+    let accum = current.startsWith('/') ? '' : '';
+    current.split('/').filter(Boolean).forEach(part => {
+      accum = accum ? `${accum}/${part}` : current.startsWith('/') ? `/${part}` : part;
       crumbs.push({ name: part, path: accum });
     });
     return crumbs;
+  };
+
+  const getParentPath = () => {
+    const current = (currentPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const root = (rootPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!current || current === root) return '';
+    const idx = current.lastIndexOf('/');
+    if (idx <= 0) return root || '';
+    const parent = current.substring(0, idx);
+    return root && parent.length < root.length ? root : parent;
   };
 
   const filteredItems = items.filter(item =>
@@ -167,7 +226,15 @@ export default function FileManager() {
           <p className="page-subtitle">Inspect, edit, and manage files on your NanoFly server</p>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
+          <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
+          <button className="btn btn-secondary btn-sm" disabled={uploadLoading} onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Upload size={14} /> Upload Files
+          </button>
+          <button className="btn btn-secondary btn-sm" disabled={uploadLoading} onClick={() => folderInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Upload size={14} /> Upload Folder
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateModal('folder')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <FolderPlus size={14} /> New Folder
           </button>
@@ -209,6 +276,26 @@ export default function FileManager() {
             </span>
           </div>
         ))}
+        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', padding: '4px 8px' }} onClick={(e) => copyPath(currentPath || rootPath, e)}>
+          <Copy size={13} /> Copy Path
+        </button>
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: '1rem',
+        color: 'var(--text-muted)',
+        fontSize: '0.78rem',
+        flexShrink: 0,
+        minWidth: 0
+      }}>
+        <span style={{ flexShrink: 0 }}>Location</span>
+        <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+          {currentPath || rootPath || 'Loading...'}
+        </code>
+        {uploadStatus && <span style={{ marginLeft: 'auto', color: uploadStatus.includes('failed') ? 'var(--red)' : 'var(--green)' }}>{uploadStatus}</span>}
       </div>
 
       {/* Main Split Layout */}
@@ -257,17 +344,9 @@ export default function FileManager() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {/* Back Link if not at Root */}
-                {currentPath && (
+                {getParentPath() && (
                   <div
-                    onClick={() => {
-                      const normalized = currentPath.replace(/\\/g, '/');
-                      const idx = normalized.lastIndexOf('/');
-                      if (idx === -1) {
-                        setCurrentPath('');
-                      } else {
-                        setCurrentPath(normalized.substring(0, idx));
-                      }
-                    }}
+                    onClick={() => setCurrentPath(getParentPath())}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -343,6 +422,14 @@ export default function FileManager() {
                       )}
                       <button
                         className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--text-muted)', padding: 4 }}
+                        onClick={(e) => copyPath(item.path, e)}
+                        title="Copy path"
+                      >
+                        <Copy size={14} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
                         style={{ color: 'var(--red)', padding: 4 }}
                         onClick={(e) => handleDeleteItem(item, e)}
                       >
@@ -386,6 +473,15 @@ export default function FileManager() {
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     Size: {selectedFile.size} · {isModified ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Modified</span> : 'Saved'}
                   </span>
+                </div>
+
+                <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <code style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 520 }}>
+                    {selectedFile.path}
+                  </code>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: 3 }} onClick={(e) => copyPath(selectedFile.path, e)} title="Copy file path">
+                    <Copy size={13} />
+                  </button>
                 </div>
 
                 <div style={{ display: 'flex', gap: 8 }}>

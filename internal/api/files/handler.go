@@ -4,10 +4,12 @@ package files
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -45,9 +47,12 @@ type Handler struct {
 }
 
 func NewHandler() *Handler {
-	base, err := os.Getwd()
+	base, err := os.UserHomeDir()
 	if err != nil {
-		base = "."
+		base, err = os.Getwd()
+		if err != nil {
+			base = "."
+		}
 	}
 	return &Handler{baseDir: base}
 }
@@ -57,6 +62,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/view", h.View)
 	r.Post("/save", h.Save)
 	r.Post("/create", h.Create)
+	r.Post("/upload", h.Upload)
 	r.Delete("/delete", h.Delete)
 }
 
@@ -132,6 +138,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	response.Success(w, map[string]interface{}{
 		"current_path": resolved,
+		"root_path":    h.baseDir,
 		"items":        items,
 	})
 }
@@ -210,6 +217,66 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Success(w, map[string]string{"status": "created"})
+}
+
+// POST /api/v1/files/upload
+func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid upload: "+err.Error())
+		return
+	}
+
+	destination := h.resolvePath(r.FormValue("path"))
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		response.Error(w, http.StatusBadRequest, "no files uploaded")
+		return
+	}
+
+	uploaded := 0
+	for _, header := range files {
+		rel := header.Filename
+		if rel == "" {
+			continue
+		}
+		rel = filepath.Clean(strings.ReplaceAll(rel, "\\", "/"))
+		if filepath.IsAbs(rel) || strings.HasPrefix(rel, "..") {
+			response.Error(w, http.StatusBadRequest, "invalid upload path")
+			return
+		}
+
+		target := filepath.Join(destination, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to create upload directory: "+err.Error())
+			return
+		}
+
+		src, err := header.Open()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to open uploaded file: "+err.Error())
+			return
+		}
+		dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			src.Close() //nolint:errcheck
+			response.Error(w, http.StatusInternalServerError, "failed to create uploaded file: "+err.Error())
+			return
+		}
+		_, copyErr := io.Copy(dst, src)
+		closeErr := dst.Close()
+		src.Close() //nolint:errcheck
+		if copyErr != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to save uploaded file: "+copyErr.Error())
+			return
+		}
+		if closeErr != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to close uploaded file: "+closeErr.Error())
+			return
+		}
+		uploaded++
+	}
+
+	response.Success(w, map[string]any{"status": "uploaded", "count": uploaded})
 }
 
 // DELETE /api/v1/files/delete?path=...

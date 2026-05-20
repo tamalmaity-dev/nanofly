@@ -459,10 +459,12 @@ func (s *Server) handleTerminalStatus(w http.ResponseWriter, r *http.Request) {
 	if runtime.GOOS == "windows" {
 		shell = "powershell.exe"
 	}
+	home, _ := os.UserHomeDir()
 	response.Success(w, map[string]any{
 		"available": runtime.GOOS != "windows",
 		"shell":     shell,
 		"os":        runtime.GOOS,
+		"home":      home,
 	})
 }
 
@@ -475,7 +477,6 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"status": "deployment triggered"})
 }
-
 
 // ── Setup Wizard ──────────────────────────────────────────────────────────────
 
@@ -581,7 +582,7 @@ func (s *Server) Stop(ctx context.Context) error {
 // ── Panel Updates ─────────────────────────────────────────────────────────────
 
 const (
-	githubRepo     = "tamalmaity-dev/nanofly"
+	githubRepo = "tamalmaity-dev/nanofly"
 	// Use /releases (list) instead of /releases/latest so pre-release builds
 	// (e.g. v0.3.0-beta) are also visible. We pick the first result which is
 	// always the most-recently published release.
@@ -950,4 +951,3 @@ func (s *Server) runUpdateLoop() {
 		}
 	}()
 }
-

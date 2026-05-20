@@ -47,6 +47,9 @@ func WS(w http.ResponseWriter, r *http.Request) {
 
 	cmd := exec.Command(shell)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cmd.Dir = home
+	}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
