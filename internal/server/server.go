@@ -581,26 +581,64 @@ func (s *Server) Stop(ctx context.Context) error {
 // ── Panel Updates ─────────────────────────────────────────────────────────────
 
 const (
-	githubRepo    = "tamalmaity-dev/nanofly"
-	githubRelease = "https://api.github.com/repos/" + githubRepo + "/releases/latest"
+	githubRepo     = "tamalmaity-dev/nanofly"
+	// Use /releases (list) instead of /releases/latest so pre-release builds
+	// (e.g. v0.3.0-beta) are also visible. We pick the first result which is
+	// always the most-recently published release.
+	githubReleases = "https://api.github.com/repos/" + githubRepo + "/releases?per_page=1"
 )
 
 type ghReleaseJSON struct {
-	TagName string `json:"tag_name"`
-	Body    string `json:"body"`
-	Assets  []struct {
+	TagName    string `json:"tag_name"`
+	Body       string `json:"body"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
 	PublishedAt string `json:"published_at"`
 }
 
+// parseSemver turns "v0.3.0-beta" → [0, 3, 0] (ignores pre-release suffix for ordering).
+func parseSemver(v string) [3]int {
+	v = strings.TrimPrefix(v, "v")
+	// Strip pre-release suffix (anything after "-")
+	if idx := strings.IndexByte(v, '-'); idx >= 0 {
+		v = v[:idx]
+	}
+	var major, minor, patch int
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) > 0 {
+		fmt.Sscanf(parts[0], "%d", &major)
+	}
+	if len(parts) > 1 {
+		fmt.Sscanf(parts[1], "%d", &minor)
+	}
+	if len(parts) > 2 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	return [3]int{major, minor, patch}
+}
+
+// semverGt returns true when a > b numerically.
+func semverGt(a, b string) bool {
+	av, bv := parseSemver(a), parseSemver(b)
+	for i := 0; i < 3; i++ {
+		if av[i] > bv[i] {
+			return true
+		}
+		if av[i] < bv[i] {
+			return false
+		}
+	}
+	return false
+}
+
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	// Determine current version from build-time or from a version file
 	currentVersion := s.getCurrentVersion()
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequestWithContext(r.Context(), "GET", githubRelease, nil)
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", githubReleases, nil)
 	req.Header.Set("User-Agent", "NanoFly-Update-Checker")
 
 	resp, err := client.Do(req)
@@ -625,20 +663,30 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var release ghReleaseJSON
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		response.Error(w, http.StatusInternalServerError, "failed to decode GitHub response")
+	// GitHub returns a JSON array; we requested only 1 entry.
+	var releases []ghReleaseJSON
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil || len(releases) == 0 {
+		response.Success(w, map[string]any{
+			"current_version": currentVersion,
+			"latest_version":  currentVersion,
+			"has_update":      false,
+			"message":         "No releases found on GitHub",
+		})
 		return
 	}
 
-	hasUpdate := release.TagName != "" && release.TagName != currentVersion
+	latest := releases[0]
+
+	// has_update = latest tag is semantically newer than what we're running.
+	hasUpdate := latest.TagName != "" && semverGt(latest.TagName, currentVersion)
 
 	response.Success(w, map[string]any{
 		"current_version": currentVersion,
-		"latest_version":  release.TagName,
+		"latest_version":  latest.TagName,
 		"has_update":      hasUpdate,
-		"message":         release.Body,
-		"published_at":    release.PublishedAt,
+		"prerelease":      latest.Prerelease,
+		"message":         latest.Body,
+		"published_at":    latest.PublishedAt,
 	})
 }
 
@@ -718,7 +766,7 @@ func (s *Server) runUpdateLoop() {
 	setStatus("downloading")
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	req, _ := http.NewRequest("GET", githubRelease, nil)
+	req, _ := http.NewRequest("GET", githubReleases, nil)
 	req.Header.Set("User-Agent", "NanoFly-Updater")
 
 	resp, err := client.Do(req)
@@ -733,11 +781,12 @@ func (s *Server) runUpdateLoop() {
 		return
 	}
 
-	var release ghReleaseJSON
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var releaseList []ghReleaseJSON
+	if err := json.NewDecoder(resp.Body).Decode(&releaseList); err != nil || len(releaseList) == 0 {
 		fail(fmt.Sprintf("Failed to parse release data: %v", err))
 		return
 	}
+	release := releaseList[0]
 
 	logMsg(fmt.Sprintf("Latest release: %s", release.TagName))
 
