@@ -471,6 +471,31 @@ code, pre {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+}
+
+.net-pill {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.net-pill + .net-pill { margin-left: 0; }
+.net-pill.rx { color: var(--green); background: rgba(34,197,94,0.08); }
+.net-pill.tx { color: var(--blue); background: rgba(59,130,246,0.08); }
+
+.sysinfo-grid {
+  align-items: stretch;
+}
+
+.sysinfo-item {
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.018);
+  border: 1px solid rgba(255,255,255,0.035);
+  border-radius: var(--radius-sm);
 }
 
 /* ── Live Dot ────────────────────────────────────────────────────────────── */

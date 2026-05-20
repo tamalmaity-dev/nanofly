@@ -34,9 +34,9 @@ export default function FileManager() {
     setError('');
     try {
       const res = await filesApi.list(path);
-      if (res?.data) {
-        setItems(res.data.items || []);
-        setCurrentPath(res.data.current_path || '');
+      if (res) {
+        setItems(res.items || []);
+        setCurrentPath(res.current_path || '');
       }
     } catch (err) {
       setError(err.message || 'Failed to read directory');
@@ -50,12 +50,12 @@ export default function FileManager() {
     setEditorLoading(true);
     try {
       const res = await filesApi.view(item.path);
-      if (res?.data) {
+      if (res) {
         setSelectedFile({
           path: item.path,
           name: item.name,
-          content: res.data.content,
-          originalContent: res.data.content,
+          content: res.content,
+          originalContent: res.content,
           size: item.size_human
         });
       }

@@ -49,13 +49,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string   `json:"name"`
-		Image       string   `json:"image"`
-		Port        int      `json:"port"`
-		GitRepoURL  string   `json:"git_repo_url"`
-		GitBranch   string   `json:"git_branch"`
-		GitToken    string   `json:"git_token"`
-		EnvVars     []EnvVar `json:"env_vars"`
+		Name       string   `json:"name"`
+		Image      string   `json:"image"`
+		Port       int      `json:"port"`
+		GitRepoURL string   `json:"git_repo_url"`
+		GitBranch  string   `json:"git_branch"`
+		GitToken   string   `json:"git_token"`
+		GitBuilder string   `json:"git_builder"`
+		LocalPath  string   `json:"local_path"`
+		EnvVars    []EnvVar `json:"env_vars"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -68,6 +70,9 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	if req.GitBranch == "" {
 		req.GitBranch = "main"
 	}
+	if req.LocalPath != "" {
+		req.GitRepoURL = "file://" + req.LocalPath
+	}
 
 	svc, err := h.mgr.CreateApp(r.Context(), CreateAppReq{
 		ProjectID:  chi.URLParam(r, "projectID"),
@@ -78,6 +83,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		GitRepoURL: req.GitRepoURL,
 		GitBranch:  req.GitBranch,
 		GitToken:   req.GitToken,
+		Builder:    req.GitBuilder,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

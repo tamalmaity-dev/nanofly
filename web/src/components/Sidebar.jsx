@@ -28,18 +28,19 @@ export default function Sidebar() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
   const [currentVersion, setCurrentVersion] = useState('');
+  const [confirmSignout, setConfirmSignout] = useState(false);
 
   useEffect(() => {
     const checkUpdate = async () => {
       try {
         const res = await updateApi.check();
-        if (res?.data) {
-          if (res.data.current_version) {
-            setCurrentVersion(res.data.current_version);
+        if (res) {
+          if (res.current_version) {
+            setCurrentVersion(res.current_version);
           }
-          if (res.data.has_update) {
+          if (res.has_update) {
             setHasUpdate(true);
-            setLatestVersion(res.data.latest_version || '');
+            setLatestVersion(res.latest_version || '');
           } else {
             setHasUpdate(false);
           }
@@ -66,7 +67,7 @@ export default function Sidebar() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 2, marginTop: 4 }}>
           <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-            {currentVersion || 'v0.2.9-beta'}
+            {currentVersion || 'dev'}
           </span>
           <span style={{
             fontSize: '0.6rem',
@@ -194,11 +195,31 @@ export default function Sidebar() {
           </span>
         </div>
 
-        <button className="nav-item" style={{ color: 'var(--red)', width: '100%' }} onClick={handleLogout}>
+        <button className="nav-item" style={{ color: 'var(--red)', width: '100%' }} onClick={() => setConfirmSignout(true)}>
           <LogOut size={16} />
           Sign Out
         </button>
       </div>
+
+      {confirmSignout && (
+        <div className="modal-overlay fade-in" onClick={() => setConfirmSignout(false)}>
+          <div className="modal-content fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <div className="modal-header">
+              <h3 className="modal-title">Sign out?</h3>
+            </div>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              Your current panel session will be closed on this device.
+            </p>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setConfirmSignout(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleLogout}>
+                <LogOut size={16} />
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

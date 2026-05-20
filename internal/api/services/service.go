@@ -58,10 +58,10 @@ type Service struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 
 	// Joined fields
-	GitRepoURL  string `json:"git_repo_url,omitempty"`
-	GitBranch   string `json:"git_branch,omitempty"`
-	Builder     string `json:"git_builder,omitempty"`
-	ConnString  string `json:"conn_string,omitempty"` // databases only (encrypted stub)
+	GitRepoURL string `json:"git_repo_url,omitempty"`
+	GitBranch  string `json:"git_branch,omitempty"`
+	Builder    string `json:"git_builder,omitempty"`
+	ConnString string `json:"conn_string,omitempty"` // databases only (encrypted stub)
 }
 
 // EnvVar is a key=value pair stored encrypted in DB.
@@ -159,17 +159,17 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 
 // CreateAppReq defines what's needed to create an App service.
 type CreateAppReq struct {
-	ProjectID   string
-	Name        string
-	Image       string   // Docker image (e.g. nginx:alpine)
-	Port        int
-	EnvVars     []EnvVar
+	ProjectID string
+	Name      string
+	Image     string // Docker image (e.g. nginx:alpine)
+	Port      int
+	EnvVars   []EnvVar
 
 	// GitHub source (optional)
-	GitRepoURL  string
-	GitBranch   string
-	GitToken    string // PAT for private repos
-	Builder     string // auto, node, go, python, php, static, dockerfile
+	GitRepoURL string
+	GitBranch  string
+	GitToken   string // PAT for private repos
+	Builder    string // auto, node, go, python, php, static, dockerfile
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -459,12 +459,20 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 
 	log("📥 Cloning " + svc.GitRepoURL + " (" + svc.GitBranch + ")…")
 
-	cloneURL := svc.GitRepoURL
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir)
-	out, err := cmd.CombinedOutput()
-	log(string(out))
-	if err != nil {
-		return fmt.Errorf("git clone: %w", err)
+	if strings.HasPrefix(svc.GitRepoURL, "file://") {
+		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
+		log("Using local folder " + localPath)
+		if err := copyDir(localPath, repoDir); err != nil {
+			return fmt.Errorf("copy local folder: %w", err)
+		}
+	} else {
+		cloneURL := svc.GitRepoURL
+		cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir)
+		out, err := cmd.CombinedOutput()
+		log(string(out))
+		if err != nil {
+			return fmt.Errorf("git clone: %w", err)
+		}
 	}
 
 	// Dynamic detection and generation of Dockerfile if none exists
@@ -531,6 +539,51 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	return nil
 }
 
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil || rel == "." {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(target, 0755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+		if err != nil {
+			in.Close() //nolint:errcheck
+			return err
+		}
+		_, copyErr := io.Copy(out, in)
+		closeErr := out.Close()
+		in.Close() //nolint:errcheck
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+}
+
 // detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
 func detectAndWriteDockerfile(repoDir string, svcPort int, builder string, log func(string)) error {
 	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
@@ -586,7 +639,7 @@ CMD ["./main"]
 		} else if _, err := os.Stat(filepath.Join(repoDir, "wsgi.py")); err == nil {
 			mainPy = "wsgi.py"
 		}
-		
+
 		content := fmt.Sprintf(`FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt* ./
@@ -674,7 +727,7 @@ CMD ["./main"]
 		} else if _, err := os.Stat(filepath.Join(repoDir, "wsgi.py")); err == nil {
 			mainPy = "wsgi.py"
 		}
-		
+
 		content := fmt.Sprintf(`FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt* ./

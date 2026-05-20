@@ -159,11 +159,11 @@ export default function Dashboard() {
 
     // Check for updates
     updateApi.check().then(res => {
-      if (res?.data?.has_update) {
+      if (res?.has_update) {
         setUpdateInfo({
           hasUpdate: true,
-          latestVersion: res.data.latest_version,
-          currentVersion: res.data.current_version,
+          latestVersion: res.latest_version,
+          currentVersion: res.current_version,
         });
       }
     }).catch(() => {});
@@ -189,6 +189,9 @@ export default function Dashboard() {
   const ram  = m?.memory?.usage_percent || 0;
   const disk = m?.disk?.usage_percent  || 0;
   const temp = m?.temperature?.[0]?.temperature || null;
+  const latestPoint = history[history.length - 1] || {};
+  const rxNow = latestPoint.rx || 0;
+  const txNow = latestPoint.tx || 0;
 
   return (
     <div className="page-content fade-in">
@@ -346,6 +349,8 @@ export default function Dashboard() {
           <div className="chart-title">
             <Wifi size={14} />
             Network Traffic History
+            <span className="net-pill rx">RX {formatSpeed(rxNow)}</span>
+            <span className="net-pill tx">TX {formatSpeed(txNow)}</span>
           </div>
           <ResponsiveContainer width="100%" height={140}>
             <AreaChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
@@ -381,6 +386,8 @@ export default function Dashboard() {
             { k: 'OS',                 v: m?.system?.os },
             { k: 'Platform',           v: m?.system?.platform },
             { k: 'Arch',               v: m?.system?.arch },
+            { k: 'RX Current',         v: formatSpeed(rxNow) },
+            { k: 'TX Current',         v: formatSpeed(txNow) },
             { k: 'Uptime',             v: fmtUptime(m?.system?.uptime_sec) },
             { k: 'CPU Load (1m)',      v: m?.cpu?.load_avg_1 !== undefined ? m.cpu.load_avg_1.toFixed(2) : '—' },
             { k: 'CPU Load (5m)',      v: m?.cpu?.load_avg_5 !== undefined ? m.cpu.load_avg_5.toFixed(2) : '—' },

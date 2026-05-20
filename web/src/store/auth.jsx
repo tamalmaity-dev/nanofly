@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
     authApi.me()
       .then(setUser)
       .catch(() => {
-        localStorage.removeItem('nf_token'); // token expired/invalid
+        localStorage.removeItem('nanofly_token'); // token expired/invalid
       })
       .finally(() => setLoading(false));
   }, []);
@@ -27,8 +27,8 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('nanofly_token');
     authApi.logout().catch(() => {});
+    localStorage.removeItem('nanofly_token');
     setUser(null);
   };
 

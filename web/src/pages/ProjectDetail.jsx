@@ -21,7 +21,7 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
   const [subType, setSubType] = useState('docker'); // docker | github
   const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', branch: 'main', token: '', gitBuilder: 'auto' });
+  const [form, setForm] = useState({ name: '', image: '', port: '', gitUrl: '', localPath: '', branch: 'main', token: '', gitBuilder: 'auto' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,15 +29,18 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
 
   const submit = async () => {
     if (!form.name.trim()) { setError('Name is required'); return; }
+    if (subType === 'local' && !form.localPath.trim()) { setError('Server folder path is required'); return; }
+    if (subType === 'github' && !form.gitUrl.trim()) { setError('Repository URL is required'); return; }
     setLoading(true); setError('');
     try {
       let svc;
       if (type === 'database') {
         svc = await servicesApi.createDB(projectId, { name: form.name.trim(), db_type: dbType });
-      } else if (subType === 'github') {
+      } else if (subType === 'github' || subType === 'local') {
         svc = await servicesApi.createApp(projectId, { 
           name: form.name.trim(), 
-          git_repo_url: form.gitUrl.trim(), 
+          git_repo_url: subType === 'github' ? form.gitUrl.trim() : '',
+          local_path: subType === 'local' ? form.localPath.trim() : '',
           git_branch: form.branch.trim() || 'main', 
           git_token: form.token.trim(), 
           git_builder: form.gitBuilder || 'auto',
@@ -86,6 +89,7 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
         name: resource.defaultName || '',
         image: resource.defaultImage || '',
         port: resource.defaultPort || '',
+        gitBuilder: resource.defaultBuilder || f.gitBuilder || 'auto',
       }));
     } else {
       setType('database');
@@ -109,6 +113,49 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
       desc: 'Deploy any kind of public repositories from the supported git providers.',
       icon: '🌐',
       defaultName: 'public-app'
+    },
+    {
+      id: 'local-folder',
+      type: 'app',
+      subType: 'local',
+      title: 'Local Folder',
+      desc: 'Map any server folder and build it with auto-detected Node, Python, Go, PHP, static, or Dockerfile templates.',
+      icon: 'Folder',
+      defaultName: 'local-app',
+      defaultBuilder: 'auto'
+    },
+    {
+      id: 'wordpress',
+      type: 'app',
+      subType: 'docker',
+      title: 'WordPress',
+      desc: 'One-click WordPress container. Add a database resource and environment variables for production use.',
+      icon: 'WP',
+      defaultName: 'wordpress',
+      defaultImage: 'wordpress:php8.2-apache',
+      defaultPort: '8080'
+    },
+    {
+      id: 'python-template',
+      type: 'app',
+      subType: 'local',
+      title: 'Python Template',
+      desc: 'Run a Python folder with generated slim Dockerfile support.',
+      icon: 'Py',
+      defaultName: 'python-app',
+      defaultPort: '8000',
+      defaultBuilder: 'python'
+    },
+    {
+      id: 'node-template',
+      type: 'app',
+      subType: 'local',
+      title: 'Node.js Template',
+      desc: 'Run a Node.js folder with generated Alpine Dockerfile support.',
+      icon: 'JS',
+      defaultName: 'node-app',
+      defaultPort: '3000',
+      defaultBuilder: 'node'
     },
     {
       id: 'git-private-app',
@@ -254,7 +301,7 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                   <span style={{ fontSize: '1.1rem' }}>⚙️</span>
                   <div>
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      Configuring {subType === 'github' ? 'Git Application' : 'Docker Application'}
+                      Configuring {subType === 'github' ? 'Git Application' : subType === 'local' ? 'Local Folder Application' : 'Docker Application'}
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                       Setup the name and deployment parameters for the container.
@@ -276,6 +323,29 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     <div className="form-group">
                       <label className="form-label">Host Port (Optional)</label>
                       <input className="form-input" placeholder="e.g. 80 or empty for random" value={form.port} onChange={set('port')} />
+                    </div>
+                  </>
+                ) : subType === 'local' ? (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Server Folder Path *</label>
+                      <input className="form-input" placeholder="/opt/apps/my-python-app" value={form.localPath} onChange={set('localPath')} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Exposed Container Port</label>
+                      <input className="form-input" placeholder="e.g. 3000 or 8000" value={form.port} onChange={set('port')} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Build Type / Runtime</label>
+                      <select className="form-input" value={form.gitBuilder} onChange={set('gitBuilder')}>
+                        <option value="auto">Auto-detect (Recommended)</option>
+                        <option value="node">Node.js</option>
+                        <option value="go">Go (Golang)</option>
+                        <option value="python">Python</option>
+                        <option value="php">PHP</option>
+                        <option value="static">HTML / Static Website</option>
+                        <option value="dockerfile">Use existing Dockerfile</option>
+                      </select>
                     </div>
                   </>
                 ) : (

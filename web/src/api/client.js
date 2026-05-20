@@ -29,6 +29,7 @@ export const authApi = {
   login:   (email, password) => post('/auth/login',   { email, password }),
   me:      ()                => get('/auth/me'),
   refresh: ()                => get('/auth/refresh'),
+  logout:  ()                => post('/auth/logout'),
 };
 
 // Setup
