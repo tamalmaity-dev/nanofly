@@ -115,6 +115,15 @@ export function connectMetricsWS(onMessage, onClose) {
   return ws;
 }
 
+// Files (File Manager)
+export const filesApi = {
+  list:   (path)          => get(`/files/list?path=${encodeURIComponent(path || '')}`),
+  view:   (path)          => get(`/files/view?path=${encodeURIComponent(path || '')}`),
+  save:   (path, content) => post('/files/save', { path, content }),
+  create: (path, isDir)   => post('/files/create', { path, is_dir: isDir }),
+  delete: (path)          => del(`/files/delete?path=${encodeURIComponent(path || '')}`),
+};
+
 // Panel Update Management
 export const updateApi = {
   check: () => get('/settings/update/check'),

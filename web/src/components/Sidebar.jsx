@@ -4,13 +4,14 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import {
   LayoutDashboard, FolderOpen, Database, Globe, Terminal,
-  Settings, LogOut, Server, Activity, ArrowUpCircle
+  Settings, LogOut, Server, Activity, ArrowUpCircle, Files
 } from 'lucide-react';
 import { updateApi } from '../api/client';
 
 const NAV = [
   { label: 'Overview',    icon: LayoutDashboard, to: '/'           },
   { label: 'Projects',    icon: FolderOpen,       to: '/projects'   },
+  { label: 'File Manager',icon: Files,            to: '/files'      },
   { label: 'Databases',   icon: Database,          to: '/databases'  },
   { label: 'Domains',     icon: Globe,             to: '/domains'    },
   { label: 'Terminal',    icon: Terminal,           to: '/terminal'   },

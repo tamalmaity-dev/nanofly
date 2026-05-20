@@ -34,6 +34,7 @@ import (
 	"github.com/nanofly/nanofly/internal/api/activity"
 	"github.com/nanofly/nanofly/internal/api/docker"
 	"github.com/nanofly/nanofly/internal/api/domains"
+	"github.com/nanofly/nanofly/internal/api/files"
 	"github.com/nanofly/nanofly/internal/api/projects"
 	"github.com/nanofly/nanofly/internal/api/services"
 	"github.com/nanofly/nanofly/internal/api/systemd"
@@ -151,6 +152,12 @@ func (s *Server) buildRouter() *chi.Mux {
 		// Activity log
 		activityHandler := activity.NewHandler(s.db.DB)
 		activityHandler.RegisterRoutes(r)
+
+		// File Manager
+		fileHandler := files.NewHandler()
+		r.Route("/files", func(r chi.Router) {
+			fileHandler.RegisterRoutes(r)
+		})
 
 		// Panel updates
 		r.Get("/settings/update/check", s.handleUpdateCheck)

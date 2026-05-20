@@ -16,6 +16,7 @@ import Terminal     from './pages/Terminal';
 import Services     from './pages/Services';
 import ActivityLog  from './pages/Activity';
 import Settings     from './pages/Settings';
+import FileManager   from './pages/FileManager';
 
 // ── Shell layout ──────────────────────────────────────────────────────────────
 function Shell() {
@@ -82,6 +83,7 @@ function AppRoutes() {
             <Route path="/databases"     element={<Databases />} />
             <Route path="/domains"       element={<Domains />} />
             <Route path="/terminal"      element={<Terminal />} />
+            <Route path="/files"         element={<FileManager />} />
             <Route path="/services"      element={<Services />} />
             <Route path="/activity"      element={<ActivityLog />} />
             <Route path="/settings"      element={<Settings />} />
