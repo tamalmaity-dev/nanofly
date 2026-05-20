@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -47,11 +48,15 @@ type Handler struct {
 }
 
 func NewHandler() *Handler {
-	base, err := os.UserHomeDir()
-	if err != nil {
-		base, err = os.Getwd()
+	base := string(os.PathSeparator)
+	if runtime.GOOS == "windows" {
+		var err error
+		base, err = os.UserHomeDir()
 		if err != nil {
-			base = "."
+			base, err = os.Getwd()
+			if err != nil {
+				base = "."
+			}
 		}
 	}
 	return &Handler{baseDir: base}

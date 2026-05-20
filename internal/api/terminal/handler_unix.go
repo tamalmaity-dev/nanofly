@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -39,17 +40,27 @@ func WS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Use bash if available, fall back to sh
+	target := r.URL.Query().Get("target")
+	containerID := r.URL.Query().Get("container")
+
 	shell := "/bin/bash"
 	if _, err := os.Stat(shell); os.IsNotExist(err) {
 		shell = "/bin/sh"
 	}
 
-	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		cmd.Dir = home
+	var cmd *exec.Cmd
+	if target == "container" && containerID != "" {
+		cmd = exec.Command("docker", "exec", "-it", containerID, "/bin/sh")
+	} else {
+		cmd = exec.Command(shell)
+		cmd.Dir = "/"
+		cmd.Env = append(os.Environ(),
+			"TERM=xterm-256color",
+			"NANOFLY_TERM_TARGET=host-root",
+			`PS1=\[\033[1;32m\]\u@\h\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$ `,
+		)
 	}
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -59,6 +70,10 @@ func WS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ptmx.Close()
 	defer cmd.Process.Kill() //nolint:errcheck
+
+	if target != "container" {
+		_, _ = ptmx.Write([]byte("cd /\nclear\n"))
+	}
 
 	// PTY → WebSocket
 	go func() {
@@ -92,4 +107,29 @@ func WS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func Containers() []map[string]string {
+	out, err := exec.Command("docker", "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}").Output()
+	if err != nil {
+		return []map[string]string{}
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	containers := make([]map[string]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 4)
+		for len(parts) < 4 {
+			parts = append(parts, "")
+		}
+		containers = append(containers, map[string]string{
+			"id":     parts[0],
+			"name":   parts[1],
+			"image":  parts[2],
+			"status": parts[3],
+		})
+	}
+	return containers
 }

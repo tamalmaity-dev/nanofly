@@ -112,10 +112,12 @@ export const metricsApi = {
 };
 
 // Terminal WebSocket URL (for xterm.js)
-export const terminalWsUrl = () => {
+export const terminalWsUrl = (target = 'host', container = '') => {
   const token = localStorage.getItem('nanofly_token');
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${window.location.host}/api/v1/terminal/ws?token=${token}`;
+  const params = new URLSearchParams({ token: token || '', target });
+  if (container) params.set('container', container);
+  return `${proto}://${window.location.host}/api/v1/terminal/ws?${params.toString()}`;
 };
 
 // Metrics WebSocket — connects and calls onMessage with each JSON snapshot.

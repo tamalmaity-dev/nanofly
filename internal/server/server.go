@@ -459,12 +459,12 @@ func (s *Server) handleTerminalStatus(w http.ResponseWriter, r *http.Request) {
 	if runtime.GOOS == "windows" {
 		shell = "powershell.exe"
 	}
-	home, _ := os.UserHomeDir()
 	response.Success(w, map[string]any{
-		"available": runtime.GOOS != "windows",
-		"shell":     shell,
-		"os":        runtime.GOOS,
-		"home":      home,
+		"available":  runtime.GOOS != "windows",
+		"shell":      shell,
+		"os":         runtime.GOOS,
+		"home":       "/",
+		"containers": terminal.Containers(),
 	})
 }
 

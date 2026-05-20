@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalWsUrl } from '../api/client';
-import { Maximize2, Minimize2, TerminalSquare, Wifi, WifiOff } from 'lucide-react';
+import { Box, Maximize2, Minimize2, Server, TerminalSquare, Wifi, WifiOff } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 
 export default function Terminal() {
@@ -14,6 +14,7 @@ export default function Terminal() {
   const [status, setStatus]       = useState('connecting'); // connecting | open | closed | error
   const [fullscreen, setFullscreen] = useState(false);
   const [osInfo, setOsInfo]       = useState(null);
+  const [target, setTarget]       = useState({ type: 'host', container: '' });
 
   useEffect(() => {
     // ── 1. Check terminal status from server ──────────────────────────────
@@ -27,16 +28,26 @@ export default function Terminal() {
     // ── 2. Create xterm instance ──────────────────────────────────────────
     const term = new XTerm({
       theme: {
-        background: '#0d1117',
-        foreground: '#e2e8f0',
-        cursor:     '#22c55e',
-        black:      '#1e2538',
-        green:      '#22c55e',
-        blue:       '#4f6ef7',
-        yellow:     '#eab308',
-        red:        '#ef4444',
-        brightBlack: '#374151',
-        brightWhite: '#f8fafc',
+        background: '#070b12',
+        foreground: '#d7e3f4',
+        cursor: '#22f7a8',
+        selectionBackground: '#2d4a74',
+        black: '#0b1020',
+        red: '#ff5c7a',
+        green: '#22f7a8',
+        yellow: '#ffd166',
+        blue: '#5b8cff',
+        magenta: '#c084fc',
+        cyan: '#38d9ff',
+        white: '#d7e3f4',
+        brightBlack: '#556070',
+        brightRed: '#ff7b93',
+        brightGreen: '#69f0bd',
+        brightYellow: '#ffe08a',
+        brightBlue: '#82a8ff',
+        brightMagenta: '#d8b4fe',
+        brightCyan: '#7de7ff',
+        brightWhite: '#ffffff',
       },
       fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
       fontSize: 14,
@@ -56,7 +67,7 @@ export default function Terminal() {
     fitRef.current   = fit;
 
     // ── 3. Open WebSocket ─────────────────────────────────────────────────
-    const wsUrl = terminalWsUrl();
+    const wsUrl = terminalWsUrl(target.type, target.container);
     const ws    = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
@@ -100,7 +111,7 @@ export default function Terminal() {
       ws.close();
       term.dispose();
     };
-  }, []);
+  }, [target]);
 
   // Re-fit when fullscreen toggles
   useEffect(() => {
@@ -108,6 +119,8 @@ export default function Terminal() {
   }, [fullscreen]);
 
   const reconnect = () => window.location.reload();
+  const containers = osInfo?.containers || [];
+  const activeContainer = containers.find(c => c.id === target.container);
 
   const StatusIcon = status === 'open' ? Wifi : WifiOff;
   const statusColor = { open: '#22c55e', connecting: '#eab308', closed: '#ef4444', error: '#ef4444' }[status];
@@ -138,6 +151,25 @@ export default function Terminal() {
           {status === 'closed' || status === 'error' ? (
             <button className="btn btn-ghost btn-sm" onClick={reconnect}>Reconnect</button>
           ) : null}
+          <select
+            className="form-input terminal-target-select"
+            value={target.type === 'container' ? `container:${target.container}` : 'host'}
+            onChange={e => {
+              const value = e.target.value;
+              if (value === 'host') {
+                setTarget({ type: 'host', container: '' });
+              } else {
+                setTarget({ type: 'container', container: value.replace('container:', '') });
+              }
+            }}
+          >
+            <option value="host">Host Root Terminal</option>
+            {containers.map(c => (
+              <option key={c.id} value={`container:${c.id}`}>
+                {c.name || c.id} ({c.id})
+              </option>
+            ))}
+          </select>
           <button className="btn btn-ghost" onClick={() => setFullscreen(f => !f)}>
             {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
@@ -150,8 +182,11 @@ export default function Terminal() {
           <div className="terminal-dot" style={{ background: '#ff5f56' }} />
           <div className="terminal-dot" style={{ background: '#ffbd2e' }} />
           <div className="terminal-dot" style={{ background: '#27c93f' }} />
-          <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginLeft: 8 }}>
-            {osInfo?.home || '~'}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', color: 'var(--text-secondary)', marginLeft: 8 }}>
+            {target.type === 'container' ? <Box size={13} /> : <Server size={13} />}
+            {target.type === 'container'
+              ? `${activeContainer?.name || 'container'} (${target.container})`
+              : 'Host Root /'}
           </span>
           {status === 'connecting' && (
             <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
