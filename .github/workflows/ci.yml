@@ -15,7 +15,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  # ─── Frontend lint + build ────────────────────────────────────────────────────
+  # ─── Frontend lint + build check  ──────────────────────────────────────────────────────
   frontend:
     name: Frontend Build Check
     runs-on: ubuntu-latest
@@ -37,10 +37,33 @@ jobs:
         working-directory: web
         run: npm run build
 
-  # ─── Backend vet + build ──────────────────────────────────────────────────────
+  # ─── Backend cross-compile check (all platforms) ──────────────────────────────
   backend:
-    name: Backend Build Check
+    name: Backend — ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux/amd64
+            goos: linux
+            goarch: amd64
+          - name: linux/arm64
+            goos: linux
+            goarch: arm64
+          - name: linux/armv7
+            goos: linux
+            goarch: arm
+            goarm: "7"
+          - name: darwin/amd64
+            goos: darwin
+            goarch: amd64
+          - name: darwin/arm64
+            goos: darwin
+            goarch: arm64
+          - name: windows/amd64
+            goos: windows
+            goarch: amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -56,18 +79,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Build (linux/amd64)
+      - name: Build
         env:
-          GOOS: linux
-          GOARCH: amd64
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
         run: |
-          VERSION="$(cat VERSION 2>/dev/null || echo dev)"
-          go build -ldflags="-s -w -X main.Version=${VERSION}" -o /dev/null ./cmd/nanofly
-
-      - name: Build (linux/arm64)
-        env:
-          GOOS: linux
-          GOARCH: arm64
-        run: |
-          VERSION="$(cat VERSION 2>/dev/null || echo dev)"
+          VERSION="$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo dev)"
+          EXT=""
+          [ "${{ matrix.goos }}" = "windows" ] && EXT=".exe"
           go build -ldflags="-s -w -X main.Version=${VERSION}" -o /dev/null ./cmd/nanofly

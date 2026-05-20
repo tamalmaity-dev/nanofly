@@ -1,6 +1,7 @@
 name: Release
 
-# Triggered when you push a version tag: git tag v0.3.0-beta && git push origin v0.3.0-beta
+# Triggered when you push a version tag:
+#   git tag v0.3.0 && git push origin v0.3.0
 on:
   push:
     tags:
@@ -13,7 +14,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  # ─── 1. Build the React frontend ──────────────────────────────────────────────
+  # ─── 1. Build the React frontend once (shared across all platforms) ────────────
   build-frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
@@ -43,28 +44,49 @@ jobs:
           path: web/dist
           retention-days: 1
 
-  # ─── 2. Build Go binaries for each target platform ────────────────────────────
-  build-backend:
+  # ─── 2. Linux + macOS builds (run on ubuntu/macos runners) ────────────────────
+  build-unix:
     name: Build ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs: build-frontend
     strategy:
       fail-fast: false
       matrix:
         include:
+          # ── Linux targets (cross-compiled on ubuntu) ──────────────────────────
           - name: linux-amd64
+            runner: ubuntu-latest
             goos: linux
             goarch: amd64
             suffix: linux-amd64
+            ext: ""
           - name: linux-arm64
+            runner: ubuntu-latest
             goos: linux
             goarch: arm64
             suffix: linux-arm64
+            ext: ""
           - name: linux-armv7
+            runner: ubuntu-latest
             goos: linux
             goarch: arm
-            goarm: 7
+            goarm: "7"
             suffix: linux-armv7
+            ext: ""
+          # ── macOS Intel (amd64) ───────────────────────────────────────────────
+          - name: macos-amd64
+            runner: macos-13
+            goos: darwin
+            goarch: amd64
+            suffix: macos-amd64
+            ext: ""
+          # ── macOS Apple Silicon (arm64 / M1-M4) ───────────────────────────────
+          - name: macos-arm64
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            suffix: macos-arm64
+            ext: ""
 
     steps:
       - name: Checkout
@@ -98,7 +120,7 @@ jobs:
             -o nanofly \
             ./cmd/nanofly
 
-      - name: Package release tarball
+      - name: Package tarball
         run: |
           VERSION="${{ github.ref_name }}"
           OUTDIR="release-${{ matrix.suffix }}"
@@ -106,7 +128,6 @@ jobs:
 
           cp nanofly "${OUTDIR}/"
           cp -r web/dist "${OUTDIR}/web/dist"
-          # Write the VERSION file into the tarball so running instances know their version
           echo "${VERSION}" > "${OUTDIR}/VERSION"
           [ -f nanofly.example.yaml ] && cp nanofly.example.yaml "${OUTDIR}/" || true
           [ -f install.sh ]           && cp install.sh           "${OUTDIR}/" || true
@@ -121,5 +142,66 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: nanofly-${{ matrix.suffix }}.tar.gz
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
+
+  # ─── 3. Windows build (runs on Windows runner, outputs .zip) ──────────────────
+  build-windows:
+    name: Build windows-amd64
+    runs-on: windows-latest
+    needs: build-frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist
+
+      - name: Tidy modules
+        run: go mod tidy
+
+      - name: Build binary
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          $VERSION = "${{ github.ref_name }}"
+          go build `
+            -ldflags="-s -w -X main.Version=$VERSION" `
+            -trimpath `
+            -o nanofly.exe `
+            ./cmd/nanofly
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.ref_name }}"
+          $OUTDIR  = "release-windows-amd64"
+          New-Item -ItemType Directory -Force -Path "$OUTDIR/web" | Out-Null
+
+          Copy-Item nanofly.exe "$OUTDIR/"
+          Copy-Item -Recurse web/dist "$OUTDIR/web/dist"
+          Set-Content -Path "$OUTDIR/VERSION" -Value $VERSION -NoNewline
+          if (Test-Path nanofly.example.yaml) { Copy-Item nanofly.example.yaml "$OUTDIR/" }
+          if (Test-Path LICENSE)              { Copy-Item LICENSE               "$OUTDIR/" }
+          if (Test-Path README.md)            { Copy-Item README.md             "$OUTDIR/" }
+
+          Compress-Archive -Path "$OUTDIR/*" -DestinationPath "nanofly-windows-amd64.zip" -Force
+          Write-Host "Packaged: nanofly-windows-amd64.zip"
+          (Get-Item "nanofly-windows-amd64.zip").Length / 1MB | ForEach-Object { Write-Host ("{0:N1} MB" -f $_) }
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nanofly-windows-amd64.zip
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
