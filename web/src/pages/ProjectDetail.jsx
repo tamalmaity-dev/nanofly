@@ -15,7 +15,7 @@ const DB_VERSIONS = {
 };
 
 // ── Add Service Modal ─────────────────────────────────────────────────────────
-function AddServiceModal({ projectId, onClose, onCreated }) {
+function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
@@ -50,6 +50,27 @@ function AddServiceModal({ projectId, onClose, onCreated }) {
           port: Number(form.port) || 0 
         });
       }
+
+      // Auto-register a sslip.io domain for app services
+      if (svc && type !== 'database') {
+        const svcData = svc.data || svc;
+        const port = Number(form.port) || 0;
+        const host = window.location.hostname;
+        const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+        const autoDomain = `${randomStr}.${host}.sslip.io`;
+        try {
+          await domainsApi.create({
+            domain: autoDomain,
+            service: svcData.name || form.name.trim(),
+            project: projectName || '',
+            direction: 'both',
+          });
+        } catch (_) { /* domain already exists or conflict, skip */ }
+
+        // Auto-trigger first deploy
+        try { await servicesApi.deploy(svcData.id); } catch (_) {}
+      }
+
       onCreated(svc);
     } catch (e) { setError(e.message || 'Failed to create resource'); }
     setLoading(false);
@@ -412,34 +433,139 @@ function EnvVarsPanel({ serviceId }) {
 function DeploymentsPanel({ serviceId }) {
   const [deps, setDeps] = useState([]);
   const [open, setOpen] = useState(null);
+  const logRef = useCallback(node => {
+    if (node) node.scrollTop = node.scrollHeight;
+  }, []);
+
+  const fetchDeps = useCallback(() => {
+    servicesApi.deployments(serviceId).then(d => {
+      setDeps(d || []);
+      // Auto-open the latest deployment
+      if (d && d.length > 0 && open === null) setOpen(d[0].id);
+    }).catch(() => {});
+  }, [serviceId, open]);
 
   useEffect(() => {
-    servicesApi.deployments(serviceId).then(setDeps).catch(() => {});
-    const t = setInterval(() => servicesApi.deployments(serviceId).then(setDeps).catch(() => {}), 3000);
-    return () => clearInterval(t);
+    fetchDeps();
+    // Poll faster (1.5s) if something is building
+    const interval = setInterval(() => {
+      servicesApi.deployments(serviceId).then(d => {
+        setDeps(d || []);
+      }).catch(() => {});
+    }, 1500);
+    return () => clearInterval(interval);
   }, [serviceId]);
 
-  const statusColor = { running: 'var(--green)', building: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)' };
+  const isBuilding = deps.some(d => d.status === 'building' || d.status === 'deploying');
+
+  const statusColor = {
+    running:   'var(--green)',
+    completed: 'var(--green)',
+    building:  'var(--yellow)',
+    deploying: 'var(--yellow)',
+    error:     'var(--red)',
+    idle:      'var(--text-muted)',
+  };
+
+  const statusLabel = {
+    running:   '✅ Running',
+    completed: '✅ Completed',
+    building:  '🔨 Building...',
+    deploying: '🚀 Deploying...',
+    error:     '❌ Failed',
+    idle:      '💤 Idle',
+  };
 
   return (
     <div>
-      {deps.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-          No deployments yet. Click <strong>Deploy</strong> to start.
+      {isBuilding && (
+        <div style={{
+          background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.3)',
+          borderRadius: 8,
+          padding: '0.6rem 1rem',
+          marginBottom: '0.75rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          fontSize: '0.85rem',
+          color: '#f59e0b',
+        }}>
+          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>⚙️</span>
+          <strong>Build in progress</strong> — logs are updating live below…
         </div>
       )}
+
+      {deps.length === 0 && (
+        <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+          No deployments yet. Click <strong>Redeploy</strong> to start.
+        </div>
+      )}
+
       {deps.map(d => (
-        <div key={d.id} className="card" style={{ marginBottom: '0.75rem', padding: '1rem', cursor: 'pointer' }} onClick={() => setOpen(open === d.id ? null : d.id)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[d.status] || 'var(--text-muted)', flexShrink: 0 }} />
-            <span style={{ color: 'var(--text-primary)', fontWeight: 500, flex: 1 }}>{d.status}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{new Date(d.started_at).toLocaleString()}</span>
-            <ChevronRight size={14} color="var(--text-muted)" style={{ transform: open === d.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+        <div key={d.id} className="card" style={{ marginBottom: '0.75rem', padding: 0, overflow: 'hidden', border: open === d.id ? '1px solid var(--accent)' : '1px solid var(--border)' }}>
+          {/* Deployment header */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.75rem 1rem', cursor: 'pointer', background: 'var(--bg-card)' }}
+            onClick={() => setOpen(open === d.id ? null : d.id)}
+          >
+            <span style={{
+              width: 9, height: 9, borderRadius: '50%',
+              background: statusColor[d.status] || 'var(--text-muted)',
+              flexShrink: 0,
+              boxShadow: (d.status === 'building' || d.status === 'deploying') ? `0 0 6px ${statusColor[d.status]}` : 'none',
+            }} />
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600, flex: 1 }}>
+              {statusLabel[d.status] || d.status}
+            </span>
+            {d.commit_sha && (
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.75rem', color: 'var(--accent)', background: 'rgba(79,110,247,0.1)', padding: '2px 6px', borderRadius: 4 }}>
+                {d.commit_sha.slice(0, 7)}
+              </span>
+            )}
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+              {new Date(d.started_at).toLocaleString()}
+            </span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 11, transform: open === d.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>▶</span>
           </div>
-          {open === d.id && d.log && (
-            <pre style={{ marginTop: '0.75rem', background: '#0d1117', borderRadius: 8, padding: '0.75rem', fontSize: '0.8rem', color: '#e2e8f0', overflow: 'auto', maxHeight: 300, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'pre-wrap' }}>
-              {d.log}
-            </pre>
+
+          {/* Build log */}
+          {open === d.id && (
+            <div style={{ borderTop: '1px solid var(--border)' }}>
+              {d.log ? (
+                <pre
+                  ref={logRef}
+                  style={{
+                    margin: 0,
+                    background: '#0a0d14',
+                    padding: '1rem',
+                    fontSize: '0.78rem',
+                    color: '#a8d8a8',
+                    overflow: 'auto',
+                    maxHeight: 380,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {d.log.split('\n').map((line, i) => {
+                    let color = '#a8d8a8';
+                    if (line.includes('❌') || line.includes('Error') || line.includes('error') || line.includes('failed')) color = '#ff6b6b';
+                    else if (line.includes('✅') || line.includes('succeeded') || line.includes('complete')) color = '#51cf66';
+                    else if (line.includes('⚠') || line.includes('warn')) color = '#ffd43b';
+                    else if (line.includes('📥') || line.includes('📦') || line.includes('🔨') || line.includes('🚀')) color = '#74c0fc';
+                    return <span key={i} style={{ color, display: 'block' }}>{line}</span>;
+                  })}
+                  {(d.status === 'building' || d.status === 'deploying') && (
+                    <span style={{ color: '#f59e0b', display: 'block', marginTop: 4 }}>▌ Building...</span>
+                  )}
+                </pre>
+              ) : (
+                <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center' }}>
+                  {(d.status === 'building' || d.status === 'deploying') ? '⚙️ Starting build, logs will appear shortly...' : 'No log output.'}
+                </div>
+              )}
+            </div>
           )}
         </div>
       ))}
@@ -1061,7 +1187,7 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      {showModal && <AddServiceModal projectId={id} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
+      {showModal && <AddServiceModal projectId={id} projectName={project?.name} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
     </div>
   );
 }

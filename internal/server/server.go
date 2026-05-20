@@ -42,6 +42,7 @@ import (
 	"github.com/nanofly/nanofly/internal/config"
 	"github.com/nanofly/nanofly/internal/db"
 	"github.com/nanofly/nanofly/internal/metrics"
+	"github.com/nanofly/nanofly/internal/proxy"
 	"github.com/nanofly/nanofly/internal/response"
 )
 
@@ -51,6 +52,7 @@ type Server struct {
 	db           *db.DB
 	router       *chi.Mux
 	httpSrv      *http.Server
+	proxySrv     *proxy.Server
 	authSvc      *auth.Service
 	dockerMgr    *docker.Manager
 	serviceMgr   *services.Manager
@@ -85,6 +87,10 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
+
+	// Start the domain reverse proxy on port 80 (non-blocking, best-effort)
+	s.proxySrv = proxy.New(database.DB)
+	go s.proxySrv.Start()
 
 	return s, nil
 }
@@ -559,6 +565,9 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the server.
 func (s *Server) Stop(ctx context.Context) error {
+	if s.proxySrv != nil {
+		s.proxySrv.Stop(ctx)
+	}
 	return s.httpSrv.Shutdown(ctx)
 }
 

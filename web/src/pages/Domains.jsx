@@ -81,6 +81,7 @@ function AddDomainModal({ onClose, onAdded }) {
   );
 }
 
+// domain management page
 export default function Domains() {
   const [showModal, setShowModal] = useState(false);
   const [domains, setDomains]     = useState([]);
@@ -102,6 +103,8 @@ export default function Domains() {
 
   useEffect(() => { fetchDomains(); }, [fetchDomains]);
 
+
+  // delete domain
   const handleDelete = async (id) => {
     if (!confirm('Delete this domain?')) return;
     setDeleting(id);
@@ -118,10 +121,19 @@ export default function Domains() {
   const handleVerify = async (id) => {
     try {
       const res = await domainsApi.verify(id);
-      if (res.data?.verified) {
-        alert(`✅ DNS verified! Domain points to this server.`);
+      // The backend returns the payload directly (not wrapped in .data)
+      const verified = res?.verified ?? res?.data?.verified;
+      const domainIPs = res?.domain_ips ?? res?.data?.domain_ips;
+      const serverIPs = res?.server_ips ?? res?.data?.server_ips;
+      const errorMsg  = res?.error ?? res?.data?.error;
+      if (verified) {
+        alert(`✅ DNS verified! Domain is correctly pointing to this server.`);
+      } else if (errorMsg) {
+        alert(`❌ DNS lookup failed: ${errorMsg}\n\nMake sure the domain resolves properly. For sslip.io domains this should be automatic.`);
       } else {
-        alert(`❌ DNS not verified.\n\nDomain IPs: ${res.data?.domain_ips?.join(', ')}\nServer IPs: ${res.data?.server_ips?.join(', ')}\n\nUpdate your DNS A record to point to this server.`);
+        const dips = domainIPs?.join(', ') || 'none';
+        const sips = serverIPs?.join(', ') || 'none';
+        alert(`❌ DNS not verified.\n\nDomain resolves to: ${dips}\nServer IPs: ${sips}\n\nUpdate your DNS A record to point to this server.`);
       }
       await fetchDomains();
     } catch (err) {
