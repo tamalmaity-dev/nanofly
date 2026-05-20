@@ -1,0 +1,73 @@
+name: CI
+
+# Runs on every push to main and on every pull request
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  pull_request:
+    branches: [ main ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  # ─── Frontend lint + build ────────────────────────────────────────────────────
+  frontend:
+    name: Frontend Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+  # ─── Backend vet + build ──────────────────────────────────────────────────────
+  backend:
+    name: Backend Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Tidy
+        run: go mod tidy
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build (linux/amd64)
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          VERSION="$(cat VERSION 2>/dev/null || echo dev)"
+          go build -ldflags="-s -w -X main.Version=${VERSION}" -o /dev/null ./cmd/nanofly
+
+      - name: Build (linux/arm64)
+        env:
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          VERSION="$(cat VERSION 2>/dev/null || echo dev)"
+          go build -ldflags="-s -w -X main.Version=${VERSION}" -o /dev/null ./cmd/nanofly

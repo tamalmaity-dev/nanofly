@@ -45,6 +45,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Pass build-time version to the server layer so the API returns it correctly.
+	server.BuildVersion = Version
+
 	go func() {
 		slog.Info("NanoFly ready", "url", cfg.BaseURL())
 		if err := srv.Start(); err != nil {

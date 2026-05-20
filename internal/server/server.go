@@ -642,22 +642,32 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BuildVersion is set at startup by main via server.BuildVersion = Version.
+// This lets -ldflags="-X main.Version=..." flow through to the server layer.
+var BuildVersion string
+
 func (s *Server) getCurrentVersion() string {
-	// Check for a version file first (written by installer)
-	if data, err := os.ReadFile("VERSION"); err == nil {
-		return strings.TrimSpace(string(data))
+	// 1. Build-time ldflags version (highest priority — set by GitHub Actions)
+	if BuildVersion != "" && BuildVersion != "dev" {
+		return BuildVersion
 	}
-	// Try git tag
+	// 2. Check for a VERSION file (written by installer or committed to repo)
+	if data, err := os.ReadFile("VERSION"); err == nil {
+		if v := strings.TrimSpace(string(data)); v != "" {
+			return v
+		}
+	}
+	// 3. Try exact git tag
 	cmd := exec.Command("git", "describe", "--tags", "--exact-match")
 	if out, err := cmd.Output(); err == nil {
 		return strings.TrimSpace(string(out))
 	}
-	// Fall back to git short SHA
+	// 4. Fall back to git short SHA so it's always meaningful
 	cmd = exec.Command("git", "rev-parse", "--short", "HEAD")
 	if out, err := cmd.Output(); err == nil {
-		return strings.TrimSpace(string(out))
+		return "dev-" + strings.TrimSpace(string(out))
 	}
-	return "unknown"
+	return "dev"
 }
 
 func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
