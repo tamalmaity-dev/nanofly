@@ -232,6 +232,126 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {/* Network Interfaces */}
+      {m?.network?.interfaces && m.network.interfaces.length > 0 && (
+        <div className="card" style={{ marginTop: '1rem' }}>
+          <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: '1.25rem' }}>
+            <Wifi size={14} />
+            Network Interfaces and Connections
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+            {m.network.interfaces.map(ifi => {
+              const isUp = ifi.flags?.includes('up');
+              const isLoopback = ifi.flags?.includes('loopback');
+              
+              return (
+                <div key={ifi.name} style={{
+                  padding: '1.25rem',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}>
+                  {/* Status Indicator Bar */}
+                  <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 4,
+                    background: isUp ? 'var(--green)' : 'var(--text-muted)',
+                  }} />
+
+                  {/* Header info */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>{ifi.name}</strong>
+                      {isLoopback && (
+                        <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 4, fontWeight: 500 }}>
+                          loopback
+                        </span>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: isUp ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                      color: isUp ? 'var(--green)' : 'var(--text-muted)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: isUp ? 'var(--green)' : 'var(--text-muted)' }} />
+                      {isUp ? 'Active' : 'Down'}
+                    </span>
+                  </div>
+
+                  {/* IP Addresses */}
+                  <div style={{ paddingLeft: 6 }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>IP Addresses</div>
+                    {ifi.ips && ifi.ips.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {ifi.ips.map(ip => (
+                          <code key={ip} style={{ fontSize: '0.8rem', color: 'var(--accent)', background: 'rgba(79,110,247,0.05)', padding: '2px 6px', borderRadius: 4, width: 'fit-content', fontFamily: 'monospace' }}>
+                            {ip}
+                          </code>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No IPs assigned</span>
+                    )}
+                  </div>
+
+                  {/* Network stats (Bytes / Packets) */}
+                  <div style={{
+                    marginLeft: 6,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '0.5rem',
+                    background: 'rgba(255,255,255,0.02)',
+                    padding: '0.6rem',
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid rgba(255,255,255,0.03)'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Received (RX)</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+                        {ifi.bytes_recv ? (ifi.bytes_recv / 1e6).toFixed(1) : '0.0'} MB
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                        {ifi.packets_recv || 0} pkts
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Transmitted (TX)</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+                        {ifi.bytes_sent ? (ifi.bytes_sent / 1e6).toFixed(1) : '0.0'} MB
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                        {ifi.packets_sent || 0} pkts
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Metadata: MAC & MTU */}
+                  <div style={{ marginLeft: 6, display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '0.5rem' }}>
+                    <span>MAC: <strong style={{ color: 'var(--text-secondary)' }}>{ifi.mac || '—'}</strong></span>
+                    <span>MTU: <strong style={{ color: 'var(--text-secondary)' }}>{ifi.mtu || '—'}</strong></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

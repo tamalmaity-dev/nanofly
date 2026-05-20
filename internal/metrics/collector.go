@@ -3,6 +3,7 @@ package metrics
 
 import (
 	"fmt"
+	stdnet "net"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -14,7 +15,7 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/shirou/gopsutil/v3/net"
+	psnet "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -61,9 +62,22 @@ type TempSensor struct {
 	Temperature float64 `json:"temperature"`
 }
 
+type NetInterface struct {
+	Name        string   `json:"name"`
+	IPs         []string `json:"ips"`
+	MAC         string   `json:"mac"`
+	Flags       []string `json:"flags"`
+	MTU         int      `json:"mtu"`
+	BytesSent   uint64   `json:"bytes_sent"`
+	BytesRecv   uint64   `json:"bytes_recv"`
+	PacketsSent uint64   `json:"packets_sent"`
+	PacketsRecv uint64   `json:"packets_recv"`
+}
+
 type NetStats struct {
-	BytesSent uint64 `json:"bytes_sent"`
-	BytesRecv uint64 `json:"bytes_recv"`
+	BytesSent  uint64         `json:"bytes_sent"`
+	BytesRecv  uint64         `json:"bytes_recv"`
+	Interfaces []NetInterface `json:"interfaces"`
 }
 
 type SystemInfo struct {
@@ -146,12 +160,84 @@ func Collect() (*Snapshot, error) {
 	}
 
 	// ── Network ──────────────────────────────────────────────────────────────
-	netStats, err := net.IOCounters(false)
-	if err == nil && len(netStats) > 0 {
-		snap.Network = NetStats{
-			BytesSent: netStats[0].BytesSent,
-			BytesRecv: netStats[0].BytesRecv,
+	var interfaces []NetInterface
+	ioCounters, ioErr := psnet.IOCounters(true)
+	countersMap := make(map[string]psnet.IOCountersStat)
+	if ioErr == nil {
+		for _, c := range ioCounters {
+			countersMap[c.Name] = c
 		}
+	}
+
+	overallCounters, _ := psnet.IOCounters(false)
+	var totalSent, totalRecv uint64
+	if len(overallCounters) > 0 {
+		totalSent = overallCounters[0].BytesSent
+		totalRecv = overallCounters[0].BytesRecv
+	}
+
+	sysInterfaces, sysErr := stdnet.Interfaces()
+	if sysErr == nil {
+		for _, ifi := range sysInterfaces {
+			var flags []string
+			if (ifi.Flags & stdnet.FlagUp) != 0 {
+				flags = append(flags, "up")
+			}
+			if (ifi.Flags & stdnet.FlagLoopback) != 0 {
+				flags = append(flags, "loopback")
+			}
+			if (ifi.Flags & stdnet.FlagMulticast) != 0 {
+				flags = append(flags, "multicast")
+			}
+			if (ifi.Flags & stdnet.FlagPointToPoint) != 0 {
+				flags = append(flags, "point-to-point")
+			}
+			if (ifi.Flags & stdnet.FlagBroadcast) != 0 {
+				flags = append(flags, "broadcast")
+			}
+
+			var ips []string
+			addrs, addrErr := ifi.Addrs()
+			if addrErr == nil {
+				for _, addr := range addrs {
+					ips = append(ips, addr.String())
+				}
+			}
+
+			// Don't show interface if it has no IP and is DOWN (e.g. inactive virtual)
+			if len(ips) == 0 && (ifi.Flags&stdnet.FlagUp) == 0 {
+				continue
+			}
+
+			sent := uint64(0)
+			recv := uint64(0)
+			packetsSent := uint64(0)
+			packetsRecv := uint64(0)
+			if c, ok := countersMap[ifi.Name]; ok {
+				sent = c.BytesSent
+				recv = c.BytesRecv
+				packetsSent = c.PacketsSent
+				packetsRecv = c.PacketsRecv
+			}
+
+			interfaces = append(interfaces, NetInterface{
+				Name:        ifi.Name,
+				IPs:         ips,
+				MAC:         ifi.HardwareAddr.String(),
+				Flags:       flags,
+				MTU:         ifi.MTU,
+				BytesSent:   sent,
+				BytesRecv:   recv,
+				PacketsSent: packetsSent,
+				PacketsRecv: packetsRecv,
+			})
+		}
+	}
+
+	snap.Network = NetStats{
+		BytesSent:  totalSent,
+		BytesRecv:  totalRecv,
+		Interfaces: interfaces,
 	}
 
 	// ── System Info ──────────────────────────────────────────────────────────
