@@ -27,14 +27,22 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
+  const [currentVersion, setCurrentVersion] = useState('');
 
   useEffect(() => {
     const checkUpdate = async () => {
       try {
         const res = await updateApi.check();
-        if (res?.data?.has_update) {
-          setHasUpdate(true);
-          setLatestVersion(res.data.latest_version || '');
+        if (res?.data) {
+          if (res.data.current_version) {
+            setCurrentVersion(res.data.current_version);
+          }
+          if (res.data.has_update) {
+            setHasUpdate(true);
+            setLatestVersion(res.data.latest_version || '');
+          } else {
+            setHasUpdate(false);
+          }
         }
       } catch { /* ignore */ }
     };
@@ -51,9 +59,28 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       {/* Logo */}
-      <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">🚀</div>
-        <span className="sidebar-logo-text">NanoFly</span>
+      <div className="sidebar-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="sidebar-logo-icon">🚀</div>
+          <span className="sidebar-logo-text">NanoFly</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 2, marginTop: 4 }}>
+          <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+            {currentVersion || 'v0.2.9-beta'}
+          </span>
+          <span style={{
+            fontSize: '0.6rem',
+            fontWeight: 700,
+            background: 'rgba(234, 179, 8, 0.1)',
+            color: '#eab308',
+            padding: '1px 5px',
+            borderRadius: '4px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em'
+          }}>
+            Beta
+          </span>
+        </div>
       </div>
 
       {/* Navigation */}

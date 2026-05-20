@@ -1,8 +1,9 @@
 // src/pages/Dashboard.jsx — Live server overview with real metrics
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Cpu, MemoryStick, HardDrive, Thermometer, Wifi, Clock, Server } from 'lucide-react';
+import { Cpu, MemoryStick, HardDrive, Thermometer, Wifi, Clock, Server, ArrowUpCircle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { connectMetricsWS, metricsApi } from '../api/client';
+import { useNavigate } from 'react-router-dom';
+import { connectMetricsWS, metricsApi, updateApi } from '../api/client';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtUptime(seconds) {
@@ -103,9 +104,12 @@ function ChartTooltip({ active, payload, label }) {
 
 // ── Main Component ──────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [metrics, setMetrics]   = useState(null);
   const [history, setHistory]   = useState([]); // [{t, cpu, ram, rx, tx}]
   const [connected, setConnected] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
   const wsRef = useRef(null);
   const lastNetRef = useRef(null);
 
@@ -153,6 +157,17 @@ export default function Dashboard() {
     // Try to get an immediate snapshot first so the UI isn't blank
     metricsApi.snapshot().then(handleSnapshot).catch(() => {});
 
+    // Check for updates
+    updateApi.check().then(res => {
+      if (res?.data?.has_update) {
+        setUpdateInfo({
+          hasUpdate: true,
+          latestVersion: res.data.latest_version,
+          currentVersion: res.data.current_version,
+        });
+      }
+    }).catch(() => {});
+
     // Then open WebSocket for live updates
     const connect = () => {
       wsRef.current = connectMetricsWS(
@@ -193,6 +208,61 @@ export default function Dashboard() {
           </span>
         </div>
       </div>
+
+      {/* Update Banner */}
+      {updateInfo?.hasUpdate && !updateDismissed && (
+        <div className="fade-in" style={{
+          background: 'linear-gradient(135deg, rgba(79, 110, 247, 0.15) 0%, rgba(124, 143, 249, 0.05) 100%)',
+          border: '1px solid rgba(79, 110, 247, 0.25)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '1rem 1.25rem',
+          marginBottom: '1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 36, height: 36,
+              background: 'rgba(79, 110, 247, 0.2)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--accent)',
+              flexShrink: 0
+            }}>
+              <ArrowUpCircle size={20} className="pulse" />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                New Update Available!
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                NanoFly is running <strong style={{ color: 'var(--text-secondary)' }}>{updateInfo.currentVersion}</strong>. Upgrading to <strong style={{ color: 'var(--accent)' }}>{updateInfo.latestVersion}</strong> is recommended.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => navigate('/settings')}
+              style={{ padding: '6px 16px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              Update Now
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setUpdateDismissed(true)}
+              style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="stats-grid">

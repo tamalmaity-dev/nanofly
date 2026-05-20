@@ -542,7 +542,7 @@ func (s *Server) handleSetupInit(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, map[string]any{
 		"status":  "ok",
-		"version": "0.1.0",
+		"version": s.getCurrentVersion(),
 		"name":    "NanoFly",
 	})
 }
