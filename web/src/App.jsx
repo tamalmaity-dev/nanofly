@@ -46,10 +46,16 @@ function SetupGuard({ children }) {
   const location              = useLocation();
 
   useEffect(() => {
+    // If we've already checked setup status and found setup is complete, or
+    // if setup is still needed but we're already on the /setup page, don't re-check.
+    if (checked && (!needSetup || location.pathname === '/setup')) {
+      return;
+    }
+
     setupApi.status()
       .then(res  => { setNeed(!res.setup_complete); setChecked(true); })
       .catch(()  => setChecked(true));
-  }, []);
+  }, [location.pathname, checked, needSetup]);
 
   if (!checked || loading) return <FullPageSpinner />;
   if (needSetup && location.pathname !== '/setup') return <Navigate to="/setup" replace />;
