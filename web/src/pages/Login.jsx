@@ -1,8 +1,8 @@
 // src/pages/Login.jsx — Login page
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
-import { authApi } from '../api/client';
+import { authApi, setupApi } from '../api/client';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -12,6 +12,17 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError]     = useState('');
   const [loading, setLoading] = useState(false);
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    setupApi.status()
+      .then(res => {
+        if (res && res.version) {
+          setVersion(res.version);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -32,33 +43,51 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card fade-in">
 
-        <div className="auth-logo">
-          <div className="auth-logo-icon">🚀</div>
-          <span className="auth-logo-name">NanoFly</span>
+        <div className="auth-logo" style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '2rem' }}>
+          <img
+            src="/logo.png"
+            alt="NanoFly Logo"
+            style={{
+              width: '52px',
+              height: '52px',
+              borderRadius: '12px',
+              objectFit: 'contain',
+              flexShrink: 0
+            }}
+          />
+          <span className="auth-logo-name" style={{
+            fontSize: '1.75rem',
+            fontWeight: '800',
+            letterSpacing: '-0.02em',
+            background: 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            margin: 0
+          }}>NanoFly</span>
         </div>
 
-        <h1 className="auth-title">Welcome back</h1>
-        <p className="auth-subtitle">Sign in to your panel</p>
+        {error && (
+          <div className="alert alert-error" style={{ marginBottom: '1.5rem', borderRadius: 'var(--radius)' }}>
+            {error}
+          </div>
+        )}
 
-        {error && <div className="auth-error" style={{ marginBottom: '1rem' }}>{error}</div>}
-
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div className="form-group">
-            <label className="form-label">Email Address</label>
+            <label id="label-email" className="form-label" htmlFor="login-email">Email Address</label>
             <input
               id="login-email"
               className="form-input"
               type="email"
-              placeholder="you@example.com"
+              placeholder="admin@nanofly.io"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              autoFocus
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label id="label-password" className="form-label" htmlFor="login-password">Password</label>
             <input
               id="login-password"
               className="form-input"
@@ -85,7 +114,7 @@ export default function Login() {
         </form>
 
         <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-          NanoFly Panel · <span style={{ color: 'var(--accent)' }}>v0.1.0</span>
+          NanoFly Panel · <span style={{ color: 'var(--accent)' }}>{version || 'v0.3.6-beta'}</span>
         </p>
       </div>
     </div>

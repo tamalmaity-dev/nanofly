@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,10 @@ type Service struct {
 	RequirementsFile string `json:"requirements_file,omitempty"`
 	UseVenv          bool   `json:"use_venv"`
 	ConnString       string `json:"conn_string,omitempty"` // databases only (encrypted stub)
+
+	// Real-time resource metrics (populated in memory)
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemoryUsage string  `json:"memory_usage"`
 }
 
 // EnvVar is a key=value pair stored encrypted in DB.
@@ -100,6 +105,35 @@ func New(database *db.DB, dockerMgr *docker.Manager) *Manager {
 	return &Manager{db: database, docker: dockerMgr}
 }
 
+type ContainerStats struct {
+	CPUPercent  float64
+	MemoryUsage string
+}
+
+func getContainerStats() map[string]ContainerStats {
+	stats := make(map[string]ContainerStats)
+	cmd := exec.Command("docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}")
+	out, err := cmd.Output()
+	if err != nil {
+		return stats
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		parts := strings.Split(line, "\t")
+		if len(parts) >= 3 {
+			name := strings.TrimSpace(parts[0])
+			cpuStr := strings.TrimSuffix(strings.TrimSpace(parts[1]), "%")
+			memUsage := strings.TrimSpace(parts[2])
+			cpuVal, _ := strconv.ParseFloat(cpuStr, 64)
+			stats[name] = ContainerStats{
+				CPUPercent:  cpuVal,
+				MemoryUsage: memUsage,
+			}
+		}
+	}
+	return stats
+}
+
 // List returns all services for a project.
 func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error) {
 	rows, err := m.db.QueryContext(ctx, `
@@ -120,6 +154,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 	}
 	defer rows.Close()
 
+	containerStats := getContainerStats()
+
 	var svcs []Service
 	for rows.Next() {
 		var s Service
@@ -135,6 +171,21 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		}
 		s.CreatedAt = parseSqliteTime(createdAt)
 		s.Type = ServiceType(string(s.Type))
+
+		// Map stats
+		cName := ""
+		if s.Type == TypeDatabase {
+			cName = "nf-db-" + s.Name
+		} else {
+			cName = "nf-app-" + s.Name
+		}
+		if st, ok := containerStats[cName]; ok {
+			s.CPUPercent = st.CPUPercent
+			s.MemoryUsage = st.MemoryUsage
+		} else {
+			s.MemoryUsage = "0 B"
+		}
+
 		svcs = append(svcs, s)
 	}
 	if svcs == nil {
@@ -169,6 +220,23 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		return nil, err
 	}
 	s.CreatedAt = parseSqliteTime(createdAt)
+	s.Type = ServiceType(string(s.Type))
+
+	// Map stats
+	containerStats := getContainerStats()
+	cName := ""
+	if s.Type == TypeDatabase {
+		cName = "nf-db-" + s.Name
+	} else {
+		cName = "nf-app-" + s.Name
+	}
+	if st, ok := containerStats[cName]; ok {
+		s.CPUPercent = st.CPUPercent
+		s.MemoryUsage = st.MemoryUsage
+	} else {
+		s.MemoryUsage = "0 B"
+	}
+
 	return &s, nil
 }
 

@@ -299,6 +299,34 @@ export default function Dashboard() {
             </span>
           </div>
         )}
+        <div className="stat-card net fade-in">
+          <div className="stat-header">
+            <span className="stat-label">Network Bandwidth</span>
+            <div className="stat-icon net" style={{ background: 'rgba(79,110,247,0.1)', color: 'var(--primary)', width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Wifi size={18} /></div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ color: 'var(--green)' }}>↓</span> Download
+              </span>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {formatSpeed(rxNow)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ color: 'var(--blue)' }}>↑</span> Upload
+              </span>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {formatSpeed(txNow)}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8, fontSize: '0.6875rem', color: 'var(--text-muted)', justifyContent: 'space-between' }}>
+            <span>Total Rx: {m?.network?.bytes_recv ? `${(m.network.bytes_recv / 1e9).toFixed(2)} GB` : '—'}</span>
+            <span>Total Tx: {m?.network?.bytes_sent ? `${(m.network.bytes_sent / 1e9).toFixed(2)} GB` : '—'}</span>
+          </div>
+        </div>
       </div>
 
       {/* Live Charts */}
@@ -375,34 +403,68 @@ export default function Dashboard() {
       </div>
 
       {/* System Info */}
-      <div className="card" style={{ marginTop: '1rem' }}>
-        <div className="section-title">
+      <div className="card" style={{ marginTop: '1rem', padding: '1.25rem' }}>
+        <div className="section-title" style={{ marginBottom: '1.25rem' }}>
           <Server size={14} />
           System Information
         </div>
-        <div className="sysinfo-grid">
-          {[
-            { k: 'Hostname',           v: m?.system?.hostname },
-            { k: 'OS',                 v: m?.system?.os },
-            { k: 'Platform',           v: m?.system?.platform },
-            { k: 'Arch',               v: m?.system?.arch },
-            { k: 'RX Current',         v: formatSpeed(rxNow) },
-            { k: 'TX Current',         v: formatSpeed(txNow) },
-            { k: 'Uptime',             v: fmtUptime(m?.system?.uptime_sec) },
-            { k: 'CPU Load (1m)',      v: m?.cpu?.load_avg_1 !== undefined ? m.cpu.load_avg_1.toFixed(2) : '—' },
-            { k: 'CPU Load (5m)',      v: m?.cpu?.load_avg_5 !== undefined ? m.cpu.load_avg_5.toFixed(2) : '—' },
-            { k: 'CPU Load (15m)',     v: m?.cpu?.load_avg_15 !== undefined ? m.cpu.load_avg_15.toFixed(2) : '—' },
-            { k: 'Running Containers', v: m?.system?.docker_count !== undefined ? m.system.docker_count : '—' },
-            { k: 'Total Processes',    v: m?.system?.process_count || '—' },
-            { k: 'Net Tx (Total)',     v: m?.network?.bytes_sent ? `${(m.network.bytes_sent / 1e6).toFixed(1)} MB` : '—' },
-            { k: 'Net Rx (Total)',     v: m?.network?.bytes_recv ? `${(m.network.bytes_recv / 1e6).toFixed(1)} MB` : '—' },
-            { k: 'CPU Cores',          v: m?.cpu?.core_count },
-          ].map(({ k, v }) => (
-            <div key={k} className="sysinfo-item">
-              <span className="sysinfo-key">{k}</span>
-              <span className="sysinfo-val">{v || '—'}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem' }}>
+          {/* Host metadata */}
+          <div>
+            <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary)', marginBottom: '0.75rem', fontWeight: 600 }}>Host Metadata</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { k: 'Hostname',           v: m?.system?.hostname },
+                { k: 'OS',                 v: m?.system?.os },
+                { k: 'Platform',           v: m?.system?.platform },
+                { k: 'Arch',               v: m?.system?.arch },
+                { k: 'Uptime',             v: fmtUptime(m?.system?.uptime_sec) },
+              ].map(({ k, v }) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{v || '—'}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+
+          {/* Performance & Processes */}
+          <div>
+            <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary)', marginBottom: '0.75rem', fontWeight: 600 }}>Performance & Processes</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { k: 'CPU Cores',          v: m?.cpu?.core_count },
+                { k: 'CPU Load (1m)',      v: m?.cpu?.load_avg_1 !== undefined ? m.cpu.load_avg_1.toFixed(2) : '—' },
+                { k: 'CPU Load (5m)',      v: m?.cpu?.load_avg_5 !== undefined ? m.cpu.load_avg_5.toFixed(2) : '—' },
+                { k: 'CPU Load (15m)',     v: m?.cpu?.load_avg_15 !== undefined ? m.cpu.load_avg_15.toFixed(2) : '—' },
+                { k: 'Total Processes',    v: m?.system?.process_count || '—' },
+                { k: 'Running Containers', v: m?.system?.docker_count !== undefined ? m.system.docker_count : '—' },
+              ].map(({ k, v }) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{v || '—'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Network Overview */}
+          <div>
+            <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--primary)', marginBottom: '0.75rem', fontWeight: 600 }}>Bandwidth & Data</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { k: 'Current RX Speed',   v: formatSpeed(rxNow) },
+                { k: 'Current TX Speed',   v: formatSpeed(txNow) },
+                { k: 'Total RX (Received)',v: m?.network?.bytes_recv ? `${(m.network.bytes_recv / 1e9).toFixed(2)} GB` : '—' },
+                { k: 'Total TX (Sent)',    v: m?.network?.bytes_sent ? `${(m.network.bytes_sent / 1e9).toFixed(2)} GB` : '—' },
+              ].map(({ k, v }) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{v || '—'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

@@ -35,12 +35,30 @@ export default function Setup() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card fade-in" style={{ maxWidth: 480 }}>
+      <div className="auth-card fade-in" style={{ maxWidth: step === 2 ? 680 : 450, transition: 'max-width 0.3s ease' }}>
 
         {/* Logo */}
-        <div className="auth-logo">
-          <div className="auth-logo-icon">🚀</div>
-          <span className="auth-logo-name">NanoFly</span>
+        <div className="auth-logo" style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '2rem' }}>
+          <img
+            src="/logo.png"
+            alt="NanoFly Logo"
+            style={{
+              width: '52px',
+              height: '52px',
+              borderRadius: '12px',
+              objectFit: 'contain',
+              flexShrink: 0
+            }}
+          />
+          <span className="auth-logo-name" style={{
+            fontSize: '1.75rem',
+            fontWeight: '800',
+            letterSpacing: '-0.02em',
+            background: 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            margin: 0
+          }}>NanoFly</span>
         </div>
 
         {/* Steps */}
@@ -92,51 +110,78 @@ export default function Setup() {
             <h2 className="auth-title">Create Admin Account</h2>
             <p className="auth-subtitle">This is the owner account for your NanoFly panel.</p>
 
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: 'var(--radius-md)',
+              padding: '12px 14px',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              fontSize: '0.8125rem',
+              color: '#f87171',
+              lineHeight: 1.4
+            }}>
+              <span style={{ fontSize: '1rem', marginTop: -1 }}>⚠️</span>
+              <div>
+                <strong style={{ color: '#ef4444', display: 'block', marginBottom: 2 }}>Crucial Security Notice</strong>
+                Make sure to write down your password or save it securely. NanoFly stores passwords using secure cryptographic hashes; if you lose it, it is impossible to recover.
+              </div>
+            </div>
+
             {error && <div className="auth-error">{error}</div>}
 
             <form className="auth-form" onSubmit={handleCreate}>
-              <div className="form-group">
-                <label className="form-label">Your Name</label>
-                <input
-                  className="form-input"
-                  placeholder="e.g. Alex"
-                  value={form.name}
-                  onChange={set('name')}
-                  autoFocus
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email Address</label>
-                <input
-                  className="form-input"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={form.email}
-                  onChange={set('email')}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Password</label>
-                <input
-                  className="form-input"
-                  type="password"
-                  placeholder="At least 8 characters"
-                  value={form.password}
-                  onChange={set('password')}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Confirm Password</label>
-                <input
-                  className="form-input"
-                  type="password"
-                  placeholder="Repeat your password"
-                  value={form.confirm}
-                  onChange={set('confirm')}
-                  required
-                />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Your Name</label>
+                    <input
+                      className="form-input"
+                      placeholder="e.g. Alex"
+                      value={form.name}
+                      onChange={set('name')}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Email Address</label>
+                    <input
+                      className="form-input"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={form.email}
+                      onChange={set('email')}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Password</label>
+                    <input
+                      className="form-input"
+                      type="password"
+                      placeholder="At least 8 characters"
+                      value={form.password}
+                      onChange={set('password')}
+                      required
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Confirm Password</label>
+                    <input
+                      className="form-input"
+                      type="password"
+                      placeholder="Repeat your password"
+                      value={form.confirm}
+                      onChange={set('confirm')}
+                      required
+                    />
+                  </div>
+                </div>
               </div>
 
               <button className="btn btn-primary btn-full btn-lg" type="submit" disabled={loading}>

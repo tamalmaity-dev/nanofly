@@ -1,5 +1,6 @@
 // src/components/Sidebar.jsx — Navigation sidebar with update indicator
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import {
@@ -60,14 +61,42 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       {/* Logo */}
-      <div className="sidebar-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className="sidebar-logo-icon">
-            <img src="/logo.png" alt="NanoFly logo" style={{ width: 24, height: 24, objectFit: 'contain' }} />
-          </div>
-          <span className="sidebar-logo-text">NanoFly</span>
+      <div
+        className="sidebar-logo"
+        onClick={() => navigate('/settings#updates')}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 6,
+          padding: '1.25rem 1.25rem 1rem',
+          borderBottom: '1px solid var(--border)',
+          cursor: 'pointer'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img
+            src="/logo.png"
+            alt="NanoFly Logo"
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              objectFit: 'contain',
+              flexShrink: 0
+            }}
+          />
+          <span className="sidebar-logo-text" style={{
+            fontSize: '1.25rem',
+            fontWeight: '800',
+            letterSpacing: '-0.02em',
+            background: 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            margin: 0
+          }}>NanoFly</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 2, marginTop: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
           <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             {currentVersion || 'dev'}
           </span>
@@ -115,7 +144,7 @@ export default function Sidebar() {
 
         {/* Settings with update badge */}
         <NavLink
-          to="/settings"
+          to={hasUpdate ? "/settings#updates" : "/settings"}
           className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
         >
           <Settings className="nav-icon" size={18} />
@@ -141,7 +170,7 @@ export default function Sidebar() {
       {/* Update toast */}
       {hasUpdate && (
         <div
-          onClick={() => navigate('/settings')}
+          onClick={() => navigate('/settings#updates')}
           style={{
             margin: '0 0.75rem 0.5rem',
             padding: '0.625rem 0.875rem',
@@ -203,7 +232,7 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {confirmSignout && (
+      {confirmSignout && createPortal(
         <div className="modal-overlay fade-in" onClick={() => setConfirmSignout(false)}>
           <div className="modal-content fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-header">
@@ -220,7 +249,8 @@ export default function Sidebar() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </aside>
   );

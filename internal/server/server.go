@@ -506,7 +506,10 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "database error")
 		return
 	}
-	response.Success(w, map[string]bool{"setup_complete": !isFirst})
+	response.Success(w, map[string]any{
+		"setup_complete": !isFirst,
+		"version":        s.getCurrentVersion(),
+	})
 }
 
 // POST /api/setup/init — create the first admin account (only once)
@@ -596,10 +599,9 @@ func (s *Server) Stop(ctx context.Context) error {
 
 const (
 	githubRepo = "tamalmaity-dev/nanofly"
-	// Use /releases (list) instead of /releases/latest so pre-release builds
-	// (e.g. v0.3.0-beta) are also visible. We pick the first result which is
-	// always the most-recently published release.
-	githubReleases = "https://api.github.com/repos/" + githubRepo + "/releases?per_page=1"
+	// Use /releases (list) and fetch the latest 10 releases to evaluate both
+	// stable and pre-release options depending on the running environment.
+	githubReleases = "https://api.github.com/repos/" + githubRepo + "/releases?per_page=10"
 )
 
 type ghReleaseJSON struct {
@@ -613,13 +615,53 @@ type ghReleaseJSON struct {
 	PublishedAt string `json:"published_at"`
 }
 
-// parseSemver turns "v0.3.0-beta" → [0, 3, 0] (ignores pre-release suffix for ordering).
-func parseSemver(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
-	// Strip pre-release suffix (anything after "-")
-	if idx := strings.IndexByte(v, '-'); idx >= 0 {
-		v = v[:idx]
+// semverCompare compares two version strings.
+// Returns 1 if a > b, -1 if a < b, and 0 if a == b.
+func semverCompare(a, b string) int {
+	a = strings.TrimPrefix(a, "v")
+	b = strings.TrimPrefix(b, "v")
+
+	partsA := strings.SplitN(a, "-", 2)
+	partsB := strings.SplitN(b, "-", 2)
+
+	verA := parseSemverNums(partsA[0])
+	verB := parseSemverNums(partsB[0])
+
+	for i := 0; i < 3; i++ {
+		if verA[i] > verB[i] {
+			return 1
+		}
+		if verA[i] < verB[i] {
+			return -1
+		}
 	}
+
+	// Compare pre-release tags (a version with pre-release tag is older than the same version without it)
+	hasPreA := len(partsA) > 1
+	hasPreB := len(partsB) > 1
+
+	if !hasPreA && hasPreB {
+		// a is stable, b is pre-release (e.g. v0.3.1 vs v0.3.1-beta) -> stable is newer
+		return 1
+	}
+	if hasPreA && !hasPreB {
+		// a is pre-release, b is stable -> stable is newer
+		return -1
+	}
+	if hasPreA && hasPreB {
+		// both are pre-releases -> do alphabetical comparison
+		if partsA[1] > partsB[1] {
+			return 1
+		}
+		if partsA[1] < partsB[1] {
+			return -1
+		}
+	}
+
+	return 0
+}
+
+func parseSemverNums(v string) [3]int {
 	var major, minor, patch int
 	parts := strings.SplitN(v, ".", 3)
 	if len(parts) > 0 {
@@ -636,16 +678,7 @@ func parseSemver(v string) [3]int {
 
 // semverGt returns true when a > b numerically.
 func semverGt(a, b string) bool {
-	av, bv := parseSemver(a), parseSemver(b)
-	for i := 0; i < 3; i++ {
-		if av[i] > bv[i] {
-			return true
-		}
-		if av[i] < bv[i] {
-			return false
-		}
-	}
-	return false
+	return semverCompare(a, b) > 0
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
@@ -677,7 +710,6 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// GitHub returns a JSON array; we requested only 1 entry.
 	var releases []ghReleaseJSON
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil || len(releases) == 0 {
 		response.Success(w, map[string]any{
@@ -689,18 +721,36 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	latest := releases[0]
+	// Detect if running a pre-release version
+	isCurrentPre := strings.Contains(currentVersion, "-")
 
-	// has_update = latest tag is semantically newer than what we're running.
-	hasUpdate := latest.TagName != "" && semverGt(latest.TagName, currentVersion)
+	var targetRelease *ghReleaseJSON
+	if isCurrentPre {
+		// Beta channel: Target the absolute latest release from GitHub
+		targetRelease = &releases[0]
+	} else {
+		// Stable channel: Find the first non-prerelease from GitHub
+		for i := range releases {
+			if !releases[i].Prerelease {
+				targetRelease = &releases[i]
+				break
+			}
+		}
+		// Fallback to latest overall if no stable release is found in list
+		if targetRelease == nil {
+			targetRelease = &releases[0]
+		}
+	}
+
+	hasUpdate := targetRelease.TagName != "" && semverGt(targetRelease.TagName, currentVersion)
 
 	response.Success(w, map[string]any{
 		"current_version": currentVersion,
-		"latest_version":  latest.TagName,
+		"latest_version":  targetRelease.TagName,
 		"has_update":      hasUpdate,
-		"prerelease":      latest.Prerelease,
-		"message":         latest.Body,
-		"published_at":    latest.PublishedAt,
+		"prerelease":      targetRelease.Prerelease,
+		"message":         targetRelease.Body,
+		"published_at":    targetRelease.PublishedAt,
 	})
 }
 

@@ -88,8 +88,11 @@ func humanBytes(b int64) string {
 		KB = 1024
 		MB = 1024 * KB
 		GB = 1024 * MB
+		TB = 1024 * GB
 	)
 	switch {
+	case b >= TB:
+		return fmt.Sprintf("%.2f TB", float64(b)/float64(TB))
 	case b >= GB:
 		return fmt.Sprintf("%.2f GB", float64(b)/float64(GB))
 	case b >= MB:

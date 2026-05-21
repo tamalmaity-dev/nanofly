@@ -235,6 +235,103 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
   );
 }
 
+function UpdateProgressSteps({ status, log }) {
+  const steps = [
+    { key: 'downloading', label: 'Downloading Update', desc: 'Fetching target release archives from GitHub.' },
+    { key: 'extracting',  label: 'Extracting Files',    desc: 'Decompressing package contents locally.' },
+    { key: 'installing',  label: 'Installing Assets',   desc: 'Replacing system binaries and running database checks.' },
+    { key: 'restarting',  label: 'Restarting Service',  desc: 'Re-initializing the NanoFly application daemon.' }
+  ];
+
+  const getStepState = (stepKey, index) => {
+    const statusOrder = ['idle', 'downloading', 'extracting', 'installing', 'restarting', 'done'];
+    const currentIndex = statusOrder.indexOf(status);
+    const stepIndex = statusOrder.indexOf(stepKey);
+
+    if (status === 'error' && currentIndex <= stepIndex) {
+      return 'error';
+    }
+    if (status === 'done') {
+      return 'completed';
+    }
+    if (stepKey === status) {
+      return 'active';
+    }
+    if (currentIndex > stepIndex) {
+      return 'completed';
+    }
+    return 'pending';
+  };
+
+  return (
+    <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Update Progress</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+        {steps.map((s, idx) => {
+          const state = getStepState(s.key, idx);
+          return (
+            <div key={s.key} style={{ display: 'flex', gap: 14, opacity: state === 'pending' ? 0.45 : 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: state === 'completed' ? 'var(--green)' :
+                              state === 'active' ? 'var(--accent)' :
+                              state === 'error' ? 'var(--red)' : 'var(--bg-base)',
+                  border: `1.5px solid ${state === 'pending' ? 'var(--border)' : 'transparent'}`,
+                  color: '#fff',
+                  fontSize: '0.75rem',
+                  fontWeight: 600
+                }}>
+                  {state === 'completed' ? '✓' :
+                   state === 'active' ? '●' :
+                   state === 'error' ? '!' : idx + 1}
+                </div>
+                {idx < steps.length - 1 && (
+                  <div style={{
+                    width: 1.5,
+                    height: '1.5rem',
+                    background: state === 'completed' ? 'var(--green)' : 'var(--border)',
+                    marginTop: 4,
+                    marginBottom: 4
+                  }} />
+                )}
+              </div>
+              <div style={{ flex: 1, paddingTop: 2 }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: state === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                  {s.label}
+                  {state === 'active' && <span className="spinner" style={{ display: 'inline-block', marginLeft: 8, width: 10, height: 10, borderWidth: 1.5, borderTopColor: 'var(--accent)' }} />}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{s.desc}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {log && (
+        <pre style={{
+          background: '#0d1117',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)',
+          padding: '1rem',
+          color: '#c9d1d9',
+          fontSize: '0.8rem',
+          maxHeight: 200,
+          overflowY: 'auto',
+          whiteSpace: 'pre-wrap',
+          fontFamily: 'monospace'
+        }}>
+          {log}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function UpdatesTab() {
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -303,32 +400,86 @@ function UpdatesTab() {
             <RefreshCw size={14} className={checking ? 'spin' : ''} /> Check
           </button>
         </div>
+
         {info?.has_update && !updating && (
-          <div className="card" style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.15)', marginBottom: '1.5rem', padding: '1.25rem' }}>
-            <AlertCircle size={18} style={{ color: 'var(--accent)', marginRight: 8 }} />
-            <span style={{ color: 'var(--text-secondary)' }}>{info.message || 'A new update is available.'}</span>
-            <button className="btn btn-primary btn-sm" onClick={applyUpdate} disabled={updating} style={{ marginLeft: 12 }}>
-              <RefreshCw size={12} /> Install
-            </button>
+          <div className="card" style={{
+            background: 'linear-gradient(135deg, rgba(79, 110, 247, 0.08) 0%, rgba(165, 180, 252, 0.03) 100%)',
+            border: '1px solid rgba(79, 110, 247, 0.25)',
+            borderRadius: 'var(--radius-lg)',
+            marginBottom: '1.5rem',
+            padding: '1.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertCircle size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>New Version Available!</div>
+              <span className="badge badge-blue" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>
+                {info.prerelease ? 'Beta' : 'Stable'}
+              </span>
+            </div>
+            
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              A new update is available for NanoFly. We recommend updating to keep your panel secure and up-to-date with the latest features.
+            </div>
+
+            <div style={{ display: 'flex', gap: 16, background: 'var(--bg-base)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', maxWidth: 'fit-content' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Target Release</span>
+                <div style={{ fontSize: '0.875rem', fontWeight: 600, fontFamily: 'monospace', color: 'var(--accent)' }}>{info.latest_version}</div>
+              </div>
+              <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Published Date</span>
+                <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{info.published_at ? new Date(info.published_at).toLocaleDateString() : 'N/A'}</div>
+              </div>
+            </div>
+
+            {info.message && (
+              <div style={{ marginTop: '0.25rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>Release Notes:</div>
+                <div style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  padding: '0.75rem 1rem',
+                  borderRadius: 'var(--radius)',
+                  maxHeight: 150,
+                  overflowY: 'auto',
+                  whiteSpace: 'pre-wrap'
+                }}>{info.message}</div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 12, marginTop: '0.5rem' }}>
+              <button className="btn btn-primary" onClick={applyUpdate} disabled={updating}>
+                <RefreshCw size={14} /> Start Automatic Update
+              </button>
+            </div>
           </div>
         )}
+
         {!info?.has_update && info && !updating && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '1rem 0', color: 'var(--green)', fontSize: '0.9rem' }}>
             <CheckCircle2 size={16} /> Up to date
           </div>
         )}
       </div>
+
       {(updating || updateStatus === 'error') && (
-        <pre style={{ background: '#0d1117', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem', color: '#c9d1d9', fontSize: '0.8rem', maxHeight: 300, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-          {updateLog || 'Waiting for update process...'}
-        </pre>
+        <UpdateProgressSteps status={updateStatus} log={updateLog} />
       )}
     </div>
   );
 }
 
 export default function Settings() {
-  const [tab, setTab] = useState('general');
+  const [tab, setTab] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash && TABS.some(t => t.id === hash)) return hash;
+    return 'general';
+  });
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -337,6 +488,15 @@ export default function Settings() {
 
   useEffect(() => {
     settingsApi.get().then(setSettings).finally(() => setLoading(false));
+
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && TABS.some(t => t.id === hash)) {
+        setTab(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
   const setSetting = (key, value) => {
