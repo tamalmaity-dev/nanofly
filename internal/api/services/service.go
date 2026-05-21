@@ -110,9 +110,14 @@ type ContainerStats struct {
 	MemoryUsage string
 }
 
-func getContainerStats() map[string]ContainerStats {
+func getContainerStats(ctx context.Context) map[string]ContainerStats {
 	stats := make(map[string]ContainerStats)
-	cmd := exec.Command("docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}")
+	
+	// Query stats with a short timeout to prevent blocking indefinitely if Docker is slow or offline
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}")
 	out, err := cmd.Output()
 	if err != nil {
 		return stats
@@ -154,7 +159,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 	}
 	defer rows.Close()
 
-	containerStats := getContainerStats()
+	containerStats := getContainerStats(ctx)
 
 	var svcs []Service
 	for rows.Next() {
@@ -223,7 +228,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	s.Type = ServiceType(string(s.Type))
 
 	// Map stats
-	containerStats := getContainerStats()
+	containerStats := getContainerStats(ctx)
 	cName := ""
 	if s.Type == TypeDatabase {
 		cName = "nf-db-" + s.Name

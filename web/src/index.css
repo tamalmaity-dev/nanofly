@@ -224,6 +224,15 @@ code, pre {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-logo:hover img {
+  transform: scale(1.05);
+  box-shadow: 0 0 16px rgba(79, 110, 247, 0.45);
+}
+
+.sidebar-logo img {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .sidebar-logo-icon {
   width: 32px; height: 32px;
   border-radius: var(--radius-sm);
@@ -593,14 +602,29 @@ code, pre {
 
 /* ── Spinner ─────────────────────────────────────────────────────────────── */
 .spinner {
-  width: 18px; height: 18px;
-  border: 2px solid rgba(255,255,255,0.2);
-  border-top-color: #fff;
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(79, 110, 247, 0.15);
+  border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  animation: spin 0.8s cubic-bezier(0.4, 0.15, 0.3, 0.85) infinite;
   flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Centered larger spinner for page loading screens */
+.page-content > .spinner {
+  width: 36px;
+  height: 36px;
+  border-width: 3.5px;
+  margin: 10rem auto;
+  display: block;
+}
+
+.btn-primary .spinner {
+  border-top-color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
 
 /* ── Page Header ─────────────────────────────────────────────────────────── */
 .page-header {

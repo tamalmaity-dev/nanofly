@@ -721,11 +721,19 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Detect if running a pre-release version
-	isCurrentPre := strings.Contains(currentVersion, "-")
+	// Detect update channel preference (stable or beta)
+	channel := s.setting(r.Context(), "updates.channel")
+	if channel == "" {
+		if strings.Contains(currentVersion, "-") {
+			channel = "beta"
+		} else {
+			channel = "stable"
+		}
+	}
+	isBetaChannel := channel == "beta"
 
 	var targetRelease *ghReleaseJSON
-	if isCurrentPre {
+	if isBetaChannel {
 		// Beta channel: Target the absolute latest release from GitHub
 		targetRelease = &releases[0]
 	} else {
@@ -841,6 +849,7 @@ func defaultSettings() map[string]string {
 		"backup.retention":            "14",
 		"backup.name_prefix":          "nanofly",
 		"backup.description":          "Scheduled NanoFly backup",
+		"updates.channel":             "stable",
 	}
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick } from 'lucide-react';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders } from 'lucide-react';
 
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13'],
@@ -276,8 +276,19 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     }}
                     className="hover-glow"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: '1.25rem' }}>{r.icon}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <div style={{ 
+                        width: '32px', 
+                        height: '32px', 
+                        borderRadius: '6px', 
+                        background: 'var(--bg-base)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <ResourceIcon type={r.id} size={18} />
+                      </div>
                       <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{r.title}</span>
                     </div>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</p>
@@ -304,8 +315,19 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     }}
                     className="hover-glow"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: '1.25rem' }}>{r.icon}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <div style={{ 
+                        width: '32px', 
+                        height: '32px', 
+                        borderRadius: '6px', 
+                        background: 'var(--bg-base)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <ResourceIcon type={r.dbType} size={18} />
+                      </div>
                       <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{r.title}</span>
                     </div>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</p>
@@ -742,7 +764,8 @@ function ServiceLogo({ type, name, image, builder, size = 18 }) {
     else if (imgLower.includes('dragonfly')) logoKey = 'dragonfly';
     else logoKey = 'database';
   } else {
-    if (builderLower.includes('node') || nameLower.includes('node')) logoKey = 'node';
+    if (imgLower.includes('wordpress') || nameLower.includes('wordpress')) logoKey = 'wordpress';
+    else if (builderLower.includes('node') || nameLower.includes('node')) logoKey = 'node';
     else if (builderLower.includes('python') || nameLower.includes('python')) logoKey = 'python';
     else if (builderLower.includes('go') || nameLower.includes('go')) logoKey = 'go';
     else if (builderLower.includes('php') || nameLower.includes('php')) logoKey = 'php';
@@ -855,9 +878,41 @@ function ServiceLogo({ type, name, image, builder, size = 18 }) {
           <rect x="58" y="0" width="12" height="12" fill="#2496ED" rx="2" />
         </svg>
       );
+    case 'wordpress':
+      return (
+        <svg viewBox="0 0 128 128" width={size} height={size}>
+          <circle cx="64" cy="64" r="58" fill="#21759B" />
+          <path fill="#FFF" d="M64 12C35.3 12 12 35.3 12 64s23.3 52 52 52 52-23.3 52-52S92.7 12 64 12zm0 10c8.2 0 15.8 2.3 22.3 6.3l-16 43.7L57.2 38.6c1.8-1 3.8-1.6 6.8-1.6 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1h-12c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2.4 0 3.7.8 5 4.3l10 27.6-13.6 37L35.7 45.4c1-.4 2-.6 3.3-.6 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1h-8.8c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2.2 0 3.2.4 4.5 4.2l12 36-9 24.6C29.3 98.4 22 82 22 64c0-23.2 18.8-42 42-42zm3 90C45.3 102 29 84.8 29 64.6c0-1.8.2-3.6.5-5.3l23 63C55.4 102.3 59 102 67 102zm7.6-32.3c2.4-7.3 4.2-14.7 6.4-22.3.8-2.6 1.4-4 2.8-4 1 0 1.6.4 1.6 1s-.4 1-1 2.8c-1.6 5.3-3.2 10.6-5 16l8.8 24.7C99.2 102.8 106 84.2 106 64c0-19.4-13-35.8-31-40.6l23.5 64.5c2-6 3.6-12 5-18 1-3.6 1.6-5 3.3-5 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1h-8.8c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2 0 2.8.4 3.7 3.4l-7.3 22-8.3-25.4c1.2-3 2-3 3.6-3 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1H67c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2 0 2.7.2 3.8 3.3l12 36.7-7.8 21.8z" />
+        </svg>
+      );
     default:
       return type === 'database' ? <Database size={size} color="var(--accent)" /> : <Package size={size} color="var(--accent)" />;
   }
+}
+
+// ── Resource Icon Component ──────────────────────────────────────────────────
+function ResourceIcon({ type, size = 18 }) {
+  if (type === 'postgres') return <ServiceLogo type="database" image="postgres" size={size} />;
+  if (type === 'mysql') return <ServiceLogo type="database" image="mysql" size={size} />;
+  if (type === 'mariadb') return <ServiceLogo type="database" image="mariadb" size={size} />;
+  if (type === 'redis') return <ServiceLogo type="database" image="redis" size={size} />;
+  if (type === 'keydb') return <ServiceLogo type="database" image="keydb" size={size} />;
+  if (type === 'dragonfly') return <ServiceLogo type="database" image="dragonfly" size={size} />;
+  if (type === 'mongo') return <ServiceLogo type="database" image="mongo" size={size} />;
+  if (type === 'clickhouse') return <ServiceLogo type="database" image="clickhouse" size={size} />;
+
+  if (type === 'git-public') return <Globe size={size} color="var(--accent)" />;
+  if (type === 'local-folder') return <Folder size={size} color="var(--accent)" />;
+  if (type === 'wordpress') return <ServiceLogo type="app" image="wordpress" size={size} />;
+  if (type === 'python-template') return <ServiceLogo type="app" builder="python" size={size} />;
+  if (type === 'node-template') return <ServiceLogo type="app" builder="node" size={size} />;
+  if (type === 'git-private-app') return <Key size={size} color="var(--accent)" />;
+  if (type === 'git-private-key') return <Lock size={size} color="var(--accent)" />;
+  if (type === 'dockerfile') return <FileCode size={size} color="var(--accent)" />;
+  if (type === 'docker-compose') return <Sliders size={size} color="var(--accent)" />;
+  if (type === 'docker-image') return <ServiceLogo type="app" image="docker" size={size} />;
+
+  return <Package size={size} color="var(--accent)" />;
 }
 
 // ── Service Card ──────────────────────────────────────────────────────────────

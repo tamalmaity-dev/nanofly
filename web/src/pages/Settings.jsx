@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../store/auth';
 import {
   AlertCircle, Archive, Bell, CheckCircle2, Download, Key, RefreshCw,
-  Save, Shield, Trash2, User
+  Save, Shield, Trash2, User, Check
 } from 'lucide-react';
 import { backupsApi, settingsApi, updateApi } from '../api/client';
 
@@ -285,10 +285,12 @@ function UpdateProgressSteps({ status, log }) {
                   border: `1.5px solid ${state === 'pending' ? 'var(--border)' : 'transparent'}`,
                   color: '#fff',
                   fontSize: '0.75rem',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  boxShadow: state === 'active' ? '0 0 0 3px rgba(79, 110, 247, 0.25)' : 'none',
+                  transition: 'all 0.3s ease'
                 }}>
-                  {state === 'completed' ? '✓' :
-                   state === 'active' ? '●' :
+                  {state === 'completed' ? <Check size={12} strokeWidth={3} /> :
+                   state === 'active' ? <div className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5, borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.2)' }} /> :
                    state === 'error' ? '!' : idx + 1}
                 </div>
                 {idx < steps.length - 1 && (
@@ -304,7 +306,6 @@ function UpdateProgressSteps({ status, log }) {
               <div style={{ flex: 1, paddingTop: 2 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: state === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                   {s.label}
-                  {state === 'active' && <span className="spinner" style={{ display: 'inline-block', marginLeft: 8, width: 10, height: 10, borderWidth: 1.5, borderTopColor: 'var(--accent)' }} />}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{s.desc}</div>
               </div>
@@ -313,26 +314,29 @@ function UpdateProgressSteps({ status, log }) {
         })}
       </div>
       {log && (
-        <pre style={{
-          background: '#0d1117',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius)',
-          padding: '1rem',
-          color: '#c9d1d9',
-          fontSize: '0.8rem',
-          maxHeight: 200,
-          overflowY: 'auto',
-          whiteSpace: 'pre-wrap',
-          fontFamily: 'monospace'
-        }}>
-          {log}
-        </pre>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Update Logs</div>
+          <pre style={{
+            background: '#0d1117',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: '1rem',
+            color: '#c9d1d9',
+            fontSize: '0.8rem',
+            maxHeight: 200,
+            overflowY: 'auto',
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'monospace'
+          }}>
+            {log}
+          </pre>
+        </div>
       )}
     </div>
   );
 }
 
-function UpdatesTab() {
+function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [info, setInfo] = useState(null);
@@ -391,6 +395,23 @@ function UpdatesTab() {
 
   return (
     <div className="fade-in">
+      <div className="settings-section">
+        <div className="settings-section-title">Update Channel</div>
+        <Field label="Release Channel" desc="Stable receives fully tested versions. Beta receives pre-releases.">
+          <select 
+            className="form-input" 
+            style={{ maxWidth: 180 }} 
+            value={settings['updates.channel'] || 'stable'} 
+            onChange={e => setSetting('updates.channel', e.target.value)}
+            disabled={updating}
+          >
+            <option value="stable">Stable</option>
+            <option value="beta">Beta Channel</option>
+          </select>
+        </Field>
+        <SaveBar saving={saving} saved={saved} onSave={onSave} />
+      </div>
+
       <div className="settings-section">
         <div className="settings-section-title">NanoFly System Updates</div>
         <div className="settings-row" style={{ alignItems: 'flex-start' }}>
@@ -544,7 +565,7 @@ export default function Settings() {
       {tab === 'notifications' && <NotificationsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
       {tab === 'api' && <ApiKeysTab />}
       {tab === 'backups' && <BackupsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
-      {tab === 'updates' && <UpdatesTab />}
+      {tab === 'updates' && <UpdatesTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
     </div>
   );
 }
