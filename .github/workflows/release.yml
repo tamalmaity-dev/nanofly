@@ -73,13 +73,6 @@ jobs:
             goarm: "7"
             suffix: linux-armv7
             ext: ""
-          # ── macOS Intel (amd64) ───────────────────────────────────────────────
-          - name: macos-amd64
-            runner: macos-13
-            goos: darwin
-            goarch: amd64
-            suffix: macos-amd64
-            ext: ""
           # ── macOS Apple Silicon (arm64 / M1-M4) ───────────────────────────────
           - name: macos-arm64
             runner: macos-latest
