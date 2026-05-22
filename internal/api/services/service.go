@@ -578,8 +578,12 @@ func (m *Manager) logServiceDomains(ctx context.Context, svc *Service, log func(
 }
 
 // gitDeploy clones a repo and runs the app inside Docker.
-// gitDeploy clones a repo and runs the app inside Docker.
 func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
+	if strings.HasPrefix(svc.GitRepoURL, "file://") {
+		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
+		return m.localDeploy(ctx, svc, localPath, log)
+	}
+
 	repoDir := filepath.Join(os.TempDir(), "nanofly-"+svc.ID)
 	os.RemoveAll(repoDir) //nolint:errcheck
 
@@ -595,20 +599,12 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		log("Requirements file: " + svc.RequirementsFile)
 	}
 
-	if strings.HasPrefix(svc.GitRepoURL, "file://") {
-		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
-		log("Using local folder " + localPath)
-		if err := copyDir(localPath, repoDir); err != nil {
-			return fmt.Errorf("copy local folder: %w", err)
-		}
-	} else {
-		cloneURL := svc.GitRepoURL
-		cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir)
-		out, err := cmd.CombinedOutput()
-		log(string(out))
-		if err != nil {
-			return fmt.Errorf("git clone: %w", err)
-		}
+	cloneURL := svc.GitRepoURL
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir)
+	out, err := cmd.CombinedOutput()
+	log(string(out))
+	if err != nil {
+		return fmt.Errorf("git clone: %w", err)
 	}
 
 	// Dynamic detection and generation of Dockerfile if none exists
@@ -783,7 +779,7 @@ func findPythonRunFile(repoDir, appDirectory, runFile string) string {
 	return "main.py"
 }
 
-func pythonDockerfile(repoDir, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool) string {
+func pythonDockerfile(repoDir, baseImage, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool) string {
 	workdir := dockerWorkdir(appDirectory)
 	runFile = findPythonRunFile(repoDir, appDirectory, runFile)
 	requirementsFile = defaultRequirementsFile(requirementsFile)
@@ -805,7 +801,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 `
 	}
 
-	return fmt.Sprintf(`FROM python:3.11-slim
+	return fmt.Sprintf(`FROM %s
 WORKDIR /app
 COPY . .
 WORKDIR %s
@@ -813,7 +809,7 @@ WORKDIR %s
 ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
-`, workdir, venvLines, install, portStr, portStr, dockerShellEscape(cmd))
+`, baseImage, workdir, venvLines, install, portStr, portStr, dockerShellEscape(cmd))
 }
 
 // detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
@@ -829,9 +825,37 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand
 		portStr = fmt.Sprintf("%d", svcPort)
 	}
 
+	bType := builder
+	baseImage := ""
+	if strings.HasPrefix(builder, "node:") || builder == "node" {
+		bType = "node"
+		baseImage = builder
+		if baseImage == "node" {
+			baseImage = "node:20-alpine"
+		}
+	} else if strings.HasPrefix(builder, "python:") || builder == "python" {
+		bType = "python"
+		baseImage = builder
+		if baseImage == "python" {
+			baseImage = "python:3.11-slim"
+		}
+	} else if strings.HasPrefix(builder, "golang:") || builder == "go" {
+		bType = "go"
+		baseImage = builder
+		if baseImage == "go" {
+			baseImage = "golang:1.22-alpine"
+		}
+	} else if strings.HasPrefix(builder, "php:") || builder == "php" {
+		bType = "php"
+		baseImage = builder
+		if baseImage == "php" {
+			baseImage = "php:8.2-apache"
+		}
+	}
+
 	// 1. Manual selection triggers:
-	if builder == "node" {
-		log("ℹ️ Using NodeJS runtime template. Generating optimized Dockerfile…")
+	if bType == "node" {
+		log("ℹ️ Using NodeJS runtime template (" + baseImage + "). Generating optimized Dockerfile…")
 		install := strings.TrimSpace(installCommand)
 		if install == "" {
 			install = "npm install --production"
@@ -840,7 +864,7 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand
 		if cmd == "" {
 			cmd = "npm start"
 		}
-		content := fmt.Sprintf(`FROM node:20-alpine
+		content := fmt.Sprintf(`FROM %s
 WORKDIR /app
 COPY package*.json ./
 RUN %s
@@ -848,17 +872,17 @@ COPY . .
 ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
-`, install, portStr, portStr, dockerShellEscape(cmd))
+`, baseImage, install, portStr, portStr, dockerShellEscape(cmd))
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	if builder == "go" {
-		log("ℹ️ Using Go (Golang) runtime template. Generating optimized Dockerfile…")
+	if bType == "go" {
+		log("ℹ️ Using Go (Golang) runtime template (" + baseImage + "). Generating optimized Dockerfile…")
 		cmd := strings.TrimSpace(startCommand)
 		if cmd == "" {
 			cmd = "./main"
 		}
-		content := fmt.Sprintf(`FROM golang:1.22-alpine AS builder
+		content := fmt.Sprintf(`FROM %s AS builder
 WORKDIR /app
 COPY go.mod* go.sum* ./
 RUN if [ -f go.mod ]; then go mod download; fi
@@ -871,24 +895,24 @@ COPY --from=builder /app/main .
 ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
-`, portStr, portStr, dockerShellEscape(cmd))
+`, baseImage, portStr, portStr, dockerShellEscape(cmd))
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	if builder == "python" {
-		log("ℹ️ Using Python runtime template. Generating optimized Dockerfile…")
-		content := pythonDockerfile(repoDir, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
+	if bType == "python" {
+		log("ℹ️ Using Python runtime template (" + baseImage + "). Generating optimized Dockerfile…")
+		content := pythonDockerfile(repoDir, baseImage, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
-	if builder == "php" {
-		log("ℹ️ Using PHP runtime template. Generating optimized Dockerfile…")
-		content := fmt.Sprintf(`FROM php:8.2-apache
+	if bType == "php" {
+		log("ℹ️ Using PHP runtime template (" + baseImage + "). Generating optimized Dockerfile…")
+		content := fmt.Sprintf(`FROM %s
 COPY . /var/www/html/
 RUN a2enmod rewrite || true
 RUN echo "Listen %s" > /etc/apache2/ports.conf && sed -i 's/<VirtualHost \\\*:80>/<VirtualHost *:%s>/g' /etc/apache2/sites-available/000-default.conf
 EXPOSE %s
-`, portStr, portStr, portStr)
+`, baseImage, portStr, portStr, portStr)
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
@@ -963,7 +987,7 @@ CMD ["sh", "-c", "%s"]
 	}
 	if hasRequirements || fileExistsWithExtension(repoDir, ".py") {
 		log("ℹ️ Detected Python runtime. Generating optimized Dockerfile…")
-		content := pythonDockerfile(repoDir, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
+		content := pythonDockerfile(repoDir, "python:3.11-slim", portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
 		return os.WriteFile(dockerfilePath, []byte(content), 0644)
 	}
 
@@ -1237,4 +1261,255 @@ func (m *Manager) Restart(ctx context.Context, serviceID string) error {
 	}
 	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='running' WHERE id=?`, serviceID)
 	return err
+}
+
+func detectLocalBuilder(localPath, requestedBuilder string) string {
+	if requestedBuilder != "" && requestedBuilder != "auto" {
+		return requestedBuilder
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "package.json")); err == nil {
+		return "node"
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "go.mod")); err == nil {
+		return "go"
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "requirements.txt")); err == nil {
+		return "python"
+	}
+	// Check for any .py file in directory
+	files, err := os.ReadDir(localPath)
+	if err == nil {
+		for _, f := range files {
+			if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".py") {
+				return "python"
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "index.php")); err == nil {
+		return "php"
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "index.html")); err == nil {
+		return "static"
+	}
+	return "static"
+}
+
+func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath string, log func(string)) error {
+	log("📁 Starting local folder deployment: " + localPath)
+	if err := os.MkdirAll(localPath, 0755); err != nil {
+		return fmt.Errorf("creating local path: %w", err)
+	}
+
+	bType := detectLocalBuilder(localPath, svc.Builder)
+	log("🔍 Detected local build type: " + bType)
+
+	if bType == "dockerfile" {
+		dockerfilePath := filepath.Join(localPath, "Dockerfile")
+		if _, err := os.Stat(dockerfilePath); err != nil {
+			return fmt.Errorf("no Dockerfile found in local folder path")
+		}
+
+		log("🔨 Building Docker image from local Dockerfile…")
+		imageTag := "nf-" + svc.Name + ":latest"
+		buildCmd := exec.CommandContext(ctx, "docker", "build", "-t", imageTag, localPath)
+		buildOut, err := buildCmd.CombinedOutput()
+		log(string(buildOut))
+		if err != nil {
+			return fmt.Errorf("docker build: %w", err)
+		}
+
+		log("🚀 Starting container…")
+		runArgs := []string{"run", "-d", "--restart=unless-stopped",
+			"--name", "nf-app-" + svc.Name,
+			"-l", "nanofly.service=" + svc.ID,
+		}
+
+		var envSlice []string
+		rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=?`, svc.ID)
+		if err == nil && rows != nil {
+			for rows.Next() {
+				var k, v string
+				if err := rows.Scan(&k, &v); err == nil {
+					envSlice = append(envSlice, k+"="+v)
+				}
+			}
+			rows.Close()
+		}
+
+		for _, env := range envSlice {
+			runArgs = append(runArgs, "-e", env)
+		}
+
+		if svc.Port > 0 {
+			runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", svc.Port, svc.Port))
+			hasPortEnv := false
+			for _, env := range envSlice {
+				if strings.HasPrefix(strings.ToUpper(env), "PORT=") {
+					hasPortEnv = true
+					break
+				}
+			}
+			if !hasPortEnv {
+				runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", svc.Port))
+			}
+		}
+
+		runArgs = append(runArgs, imageTag)
+
+		exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
+		runCmd := exec.CommandContext(ctx, "docker", runArgs...)
+		runOut, err := runCmd.CombinedOutput()
+		log(string(runOut))
+		if err != nil {
+			return fmt.Errorf("docker run: %w", err)
+		}
+		return nil
+	}
+
+	resolvedType := bType
+	baseImage := ""
+	if strings.HasPrefix(bType, "node:") || bType == "node" {
+		resolvedType = "node"
+		baseImage = bType
+		if baseImage == "node" {
+			baseImage = "node:20-alpine"
+		}
+	} else if strings.HasPrefix(bType, "python:") || bType == "python" {
+		resolvedType = "python"
+		baseImage = bType
+		if baseImage == "python" {
+			baseImage = "python:3.11-slim"
+		}
+	} else if strings.HasPrefix(bType, "golang:") || bType == "go" {
+		resolvedType = "go"
+		baseImage = bType
+		if baseImage == "go" {
+			baseImage = "golang:1.22-alpine"
+		}
+	} else if strings.HasPrefix(bType, "php:") || bType == "php" {
+		resolvedType = "php"
+		baseImage = bType
+		if baseImage == "php" {
+			baseImage = "php:8.2-apache"
+		}
+	} else if bType == "static" {
+		resolvedType = "static"
+		baseImage = "nginx:alpine"
+	}
+
+	var runCmdArgs []string
+
+	switch resolvedType {
+	case "node":
+		installCmd := strings.TrimSpace(svc.InstallCommand)
+		if installCmd == "" {
+			installCmd = "npm install --production"
+		}
+		startCmd := strings.TrimSpace(svc.StartCommand)
+		if startCmd == "" {
+			startCmd = "npm start"
+		}
+		runCmdArgs = []string{"sh", "-c", installCmd + " && " + startCmd}
+
+	case "go":
+		startCmd := strings.TrimSpace(svc.StartCommand)
+		if startCmd == "" {
+			startCmd = "./main"
+		}
+		runCmdArgs = []string{"sh", "-c", "go build -o main . && " + startCmd}
+
+	case "python":
+		var cmdParts []string
+		if svc.UseVenv {
+			cmdParts = append(cmdParts, "if [ ! -d .venv ]; then python -m venv .venv; fi", ". .venv/bin/activate")
+		}
+
+		installCmd := strings.TrimSpace(svc.InstallCommand)
+		if installCmd == "" {
+			reqFile := defaultRequirementsFile(svc.RequirementsFile)
+			installCmd = fmt.Sprintf(`if [ -f "%s" ]; then pip install --no-cache-dir -r "%s"; else echo "requirements file %s not found, skipping dependency install"; fi`, reqFile, reqFile, reqFile)
+		}
+		cmdParts = append(cmdParts, installCmd)
+
+		startCmd := strings.TrimSpace(svc.StartCommand)
+		if startCmd == "" {
+			runF := findPythonRunFile(localPath, svc.AppDirectory, svc.RunFile)
+			startCmd = "python " + runF
+		}
+		cmdParts = append(cmdParts, startCmd)
+
+		runCmdArgs = []string{"sh", "-c", strings.Join(cmdParts, " && ")}
+
+	case "php":
+		// php has no compilation/run commands inside Apache container by default
+
+	case "static":
+		// static uses nginx
+	}
+
+	targetDir := "/app"
+	if resolvedType == "php" {
+		targetDir = "/var/www/html"
+	} else if resolvedType == "static" {
+		targetDir = "/usr/share/nginx/html"
+	}
+
+	log("🚀 Deploying local app via volume mount: " + localPath + " -> " + targetDir)
+
+	runArgs := []string{"run", "-d", "--restart=unless-stopped",
+		"--name", "nf-app-" + svc.Name,
+		"-l", "nanofly.service=" + svc.ID,
+		"-v", localPath + ":" + targetDir,
+		"-w", targetDir,
+	}
+
+	var envSlice []string
+	rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=?`, svc.ID)
+	if err == nil && rows != nil {
+		for rows.Next() {
+			var k, v string
+			if err := rows.Scan(&k, &v); err == nil {
+				envSlice = append(envSlice, k+"="+v)
+			}
+		}
+		rows.Close()
+	}
+
+	for _, env := range envSlice {
+		runArgs = append(runArgs, "-e", env)
+	}
+
+	hasPortEnv := false
+	for _, env := range envSlice {
+		if strings.HasPrefix(strings.ToUpper(env), "PORT=") {
+			hasPortEnv = true
+			break
+		}
+	}
+
+	if svc.Port > 0 {
+		containerPort := svc.Port
+		if resolvedType == "php" || resolvedType == "static" {
+			containerPort = 80
+		}
+		runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", svc.Port, containerPort))
+		if !hasPortEnv {
+			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", containerPort))
+		}
+	}
+
+	runArgs = append(runArgs, baseImage)
+	if len(runCmdArgs) > 0 {
+		runArgs = append(runArgs, runCmdArgs...)
+	}
+
+	exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
+	runCmd := exec.CommandContext(ctx, "docker", runArgs...)
+	runOut, err := runCmd.CombinedOutput()
+	log(string(runOut))
+	if err != nil {
+		return fmt.Errorf("docker run: %w", err)
+	}
+
+	return nil
 }

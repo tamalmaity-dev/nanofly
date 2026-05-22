@@ -1,22 +1,483 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { servicesApi, projectsApi, domainsApi } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders } from 'lucide-react';
+import { servicesApi, projectsApi, domainsApi, filesApi, terminalWsUrl } from '../api/client';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 
 const DB_VERSIONS = {
-  postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13'],
-  mysql: ['mysql:8.3', 'mysql:8.0'],
-  mariadb: ['mariadb:11', 'mariadb:10'],
-  redis: ['redis:7', 'redis:6'],
-  mongo: ['mongo:7', 'mongo:6', 'mongo:5'],
-  keydb: ['keydb'],
-  dragonfly: ['dragonfly'],
-  clickhouse: ['clickhouse'],
+  postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13', 'postgres:12', 'postgres:latest'],
+  mysql: ['mysql:8.4', 'mysql:8.3', 'mysql:8.0', 'mysql:5.7', 'mysql:latest'],
+  mariadb: ['mariadb:11', 'mariadb:10', 'mariadb:latest'],
+  redis: ['redis:7.2', 'redis:7.0', 'redis:6.2', 'redis:latest'],
+  mongo: ['mongo:7', 'mongo:6', 'mongo:5', 'mongo:4.4', 'mongo:latest'],
+  keydb: ['keydb:latest', 'keydb:6.3'],
+  dragonfly: ['dragonfly:latest'],
+  clickhouse: ['clickhouse/clickhouse-server:latest', 'clickhouse/clickhouse-server:24.3'],
 };
 
-// ── Add Service Modal ─────────────────────────────────────────────────────────
-function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated }) {
+const getDbKey = (typeStr) => {
+  if (typeStr.includes('postgres')) return 'postgres';
+  if (typeStr.includes('mysql')) return 'mysql';
+  if (typeStr.includes('mariadb')) return 'mariadb';
+  if (typeStr.includes('redis')) return 'redis';
+  if (typeStr.includes('mongo')) return 'mongo';
+  if (typeStr.includes('keydb')) return 'keydb';
+  if (typeStr.includes('dragonfly')) return 'dragonfly';
+  if (typeStr.includes('clickhouse')) return 'clickhouse';
+  return typeStr.split(':')[0];
+};
+
+const RUNTIME_VERSIONS = {
+  node: [
+    { value: 'node:24-alpine', label: 'Node.js 24 Alpine (Latest)' },
+    { value: 'node:22-alpine', label: 'Node.js 22 Alpine (Recommended)' },
+    { value: 'node:20-alpine', label: 'Node.js 20 (LTS)' },
+    { value: 'node:18-alpine', label: 'Node.js 18 (LTS)' },
+    { value: 'node:16-alpine', label: 'Node.js 16' },
+  ],
+
+  python: [
+    { value: 'python:3.11-slim', label: 'Python 3.11 Slim (Recommended)' },
+    { value: 'python:3.11-alpine', label: 'Python 3.11 Alpine ' },
+    { value: 'python:3.14-slim', label: 'Python 3.14 Slim (Latest)' },
+    { value: 'python:3.14-alpine', label: 'Python 3.14 Alpine (Latest)' },
+    { value: 'python:3.13-slim', label: 'Python 3.13 Slim' },
+    { value: 'python:3.13-alpine', label: 'Python 3.13 Alpine' },
+    { value: 'python:3.12-slim', label: 'Python 3.12 Slim' },
+    { value: 'python:3.12-alpine', label: 'Python 3.12 Alpine' },
+    { value: 'python:3.10-slim', label: 'Python 3.10 Slim' },
+    { value: 'python:3.10-alpine', label: 'Python 3.10 Alpine' },
+    { value: 'python:3.9-slim', label: 'Python 3.9 Slim' },
+    { value: 'python:3.9-alpine', label: 'Python 3.9 Alpine' },
+  ],
+
+
+  go: [
+    { value: 'golang:1.22-alpine', label: 'Go 1.22 (Recommended)' },
+    { value: 'golang:1.23-alpine', label: 'Go 1.23 (Latest)' },
+    { value: 'golang:1.21-alpine', label: 'Go 1.21' },
+    { value: 'golang:1.20-alpine', label: 'Go 1.20' },
+  ],
+  php: [
+    { value: 'php:8.2-apache', label: 'PHP 8.2 (Recommended)' },
+    { value: 'php:8.3-apache', label: 'PHP 8.3 (Latest)' },
+    { value: 'php:8.1-apache', label: 'PHP 8.1' },
+    { value: 'php:8.0-apache', label: 'PHP 8.0' },
+    { value: 'php:7.4-apache', label: 'PHP 7.4' },
+  ]
+};
+
+const parseBuilderValue = (val) => {
+  if (!val || val === 'auto' || val === 'dockerfile' || val === 'static') {
+    return { type: val || 'auto', version: '' };
+  }
+  if (val.includes(':')) {
+    const parts = val.split(':');
+    let type = parts[0];
+    if (type === 'golang') type = 'go';
+    return { type, version: val };
+  }
+  return { type: val, version: '' };
+};
+
+const parseBulkEnv = (text) => {
+  if (!text) return [];
+  const lines = text.split('\n');
+  const parsed = [];
+  for (let line of lines) {
+    line = line.trim();
+    if (!line || line.startsWith('#')) continue;
+    const idx = line.indexOf('=');
+    if (idx > 0) {
+      const key = line.substring(0, idx).trim();
+      const value = line.substring(idx + 1).trim();
+      if (key) {
+        parsed.push({ key, value });
+      }
+    }
+  }
+  return parsed;
+};
+
+// ── Source Files Panel ───────────────────────────────────────────────────────
+function SourceFilesPanel({ service }) {
+  const rootPath = service.git_repo_url?.startsWith('file://')
+    ? service.git_repo_url.replace('file://', '')
+    : '';
+
+  const [currentPath, setCurrentPath] = useState(rootPath);
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Selected file details for editing
+  const [selectedFile, setSelectedFile] = useState(null); // { path, name, content, originalContent, size, loading }
+  const [savingFile, setSavingFile] = useState(false);
+  const [editorError, setEditorError] = useState('');
+
+  // Modals for creating new file/folder
+  const [newItemModal, setNewItemModal] = useState(null); // 'file' | 'folder' | null
+  const [newItemName, setNewItemName] = useState('');
+  const [creatingItem, setCreatingItem] = useState(false);
+
+  const fetchFiles = useCallback(async () => {
+    if (!currentPath) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await filesApi.list(currentPath);
+      setFiles(res?.items || []);
+    } catch (e) {
+      setError(e.message || 'Failed to load files');
+    }
+    setLoading(false);
+  }, [currentPath]);
+
+  useEffect(() => {
+    setCurrentPath(rootPath);
+  }, [rootPath]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
+  const handleUpload = async (e) => {
+    const selected = e.target.files;
+    if (!selected || selected.length === 0) return;
+    setUploading(true);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('path', currentPath);
+      for (let i = 0; i < selected.length; i++) {
+        fd.append('files', selected[i]);
+      }
+      await filesApi.upload(fd);
+      await fetchFiles();
+    } catch (e) {
+      setError(e.message || 'Upload failed');
+    }
+    setUploading(false);
+  };
+
+  const handleDelete = async (filePath) => {
+    if (!confirm('Are you sure you want to delete this file/folder?')) return;
+    try {
+      await filesApi.delete(filePath);
+      await fetchFiles();
+    } catch (e) {
+      setError(e.message || 'Failed to delete');
+    }
+  };
+
+  const handleOpenFile = async (file) => {
+    setEditorError('');
+    setSelectedFile({
+      path: file.path,
+      name: file.name,
+      content: '',
+      originalContent: '',
+      size: file.size_human,
+      loading: true
+    });
+    try {
+      const res = await filesApi.view(file.path);
+      setSelectedFile({
+        path: file.path,
+        name: file.name,
+        content: res.content || '',
+        originalContent: res.content || '',
+        size: file.size_human,
+        loading: false
+      });
+    } catch (err) {
+      setEditorError(err.message || 'Failed to open file');
+      setSelectedFile(null);
+    }
+  };
+
+  const handleSaveFile = async () => {
+    if (!selectedFile) return;
+    setSavingFile(true);
+    setEditorError('');
+    try {
+      await filesApi.save(selectedFile.path, selectedFile.content);
+      setSelectedFile(prev => ({
+        ...prev,
+        originalContent: prev.content
+      }));
+      await fetchFiles();
+    } catch (err) {
+      setEditorError(err.message || 'Failed to save file');
+    }
+    setSavingFile(false);
+  };
+
+  const handleCreateItem = async (e) => {
+    e.preventDefault();
+    if (!newItemName.trim() || !newItemModal) return;
+    setCreatingItem(true);
+    setError('');
+    try {
+      const fullPath = `${currentPath}/${newItemName.trim()}`;
+      const isDir = newItemModal === 'folder';
+      await filesApi.create(fullPath, isDir);
+      setNewItemName('');
+      setNewItemModal(null);
+      await fetchFiles();
+    } catch (err) {
+      setError(err.message || 'Failed to create item');
+    }
+    setCreatingItem(false);
+  };
+
+  const getBreadcrumbs = () => {
+    const root = rootPath.replace(/\\/g, '/');
+    const current = currentPath.replace(/\\/g, '/');
+    const crumbs = [{ name: 'Root', path: rootPath }];
+    if (current === root) return crumbs;
+
+    if (current.startsWith(`${root}/`)) {
+      let accum = root;
+      current.slice(root.length + 1).split('/').filter(Boolean).forEach(part => {
+        accum = `${accum}/${part}`;
+        crumbs.push({ name: part, path: accum });
+      });
+      return crumbs;
+    }
+
+    let accum = current.startsWith('/') ? '' : '';
+    current.split('/').filter(Boolean).forEach(part => {
+      accum = accum ? `${accum}/${part}` : current.startsWith('/') ? `/${part}` : part;
+      crumbs.push({ name: part, path: accum });
+    });
+    return crumbs;
+  };
+
+  const getParentPath = () => {
+    const root = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    const current = currentPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (current === root) return null;
+    const idx = current.lastIndexOf('/');
+    if (idx <= 0) return root;
+    const parent = current.substring(0, idx);
+    return parent.length < root.length ? root : parent;
+  };
+
+  const getFileIcon = (file) => {
+    if (file.is_dir) return <Folder size={16} style={{ color: '#eab308' }} />;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (['go', 'js', 'jsx', 'ts', 'tsx', 'py', 'php', 'html', 'css', 'json', 'sh', 'yaml', 'yml'].includes(ext)) {
+      return <FileCode size={16} style={{ color: '#3b82f6' }} />;
+    }
+    if (['md', 'txt', 'log', 'conf', 'env'].includes(ext)) {
+      return <FileText size={16} style={{ color: '#10b981' }} />;
+    }
+    return <FileText size={16} style={{ color: 'var(--text-muted)' }} />;
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {getParentPath() !== null && (
+            <Button
+              variant="outline"
+              size="sm"
+              style={{ padding: '4px 8px', height: 28, minWidth: 0, display: 'inline-flex', alignItems: 'center' }}
+              onClick={() => setCurrentPath(getParentPath())}
+              icon={ArrowLeft}
+            />
+          )}
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Folder size={14} style={{ color: 'var(--accent)' }} /> Path:
+          </span>
+          {getBreadcrumbs().map((crumb, idx) => (
+            <span key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.82rem' }}>
+              {idx > 0 && <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />}
+              <span
+                style={{
+                  color: idx === getBreadcrumbs().length - 1 ? 'var(--text-primary)' : 'var(--accent)',
+                  cursor: idx === getBreadcrumbs().length - 1 ? 'default' : 'pointer',
+                  fontWeight: idx === getBreadcrumbs().length - 1 ? 600 : 500,
+                  textDecoration: idx === getBreadcrumbs().length - 1 ? 'none' : 'underline'
+                }}
+                onClick={() => {
+                  if (idx !== getBreadcrumbs().length - 1) {
+                    setCurrentPath(crumb.path);
+                  }
+                }}
+              >
+                {crumb.name}
+              </span>
+            </span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setNewItemName(''); setNewItemModal('file'); }}
+            icon={FilePlus}
+            style={{ fontSize: '0.78rem' }}
+          >
+            New File
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setNewItemName(''); setNewItemModal('folder'); }}
+            icon={FolderPlus}
+            style={{ fontSize: '0.78rem' }}
+          >
+            New Folder
+          </Button>
+          <label className="btn btn-primary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0, padding: '6px 12px', background: 'var(--accent)', color: 'white', borderRadius: 'var(--radius)', fontSize: '0.78rem', fontWeight: 600 }}>
+            <Upload size={14} /> Upload Files
+            <input type="file" multiple onChange={handleUpload} style={{ display: 'none' }} />
+          </label>
+          <Button variant="outline" size="sm" onClick={fetchFiles} disabled={loading} icon={RefreshCw} />
+        </div>
+      </div>
+
+      {error && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {error}</div>}
+      {uploading && <div style={{ color: 'var(--yellow)', fontSize: '0.8rem', marginBottom: '1rem' }}>Uploading files…</div>}
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}>
+              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Name</th>
+              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', width: 100 }}>Size</th>
+              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', width: 180 }}>Last Modified</th>
+              <th style={{ width: 60 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}><div className="spinner" style={{ margin: '0 auto' }} /></td></tr>
+            )}
+            {!loading && files.length === 0 && (
+              <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem', fontSize: '0.82rem' }}>No files found. Select files to upload or create one.</td></tr>
+            )}
+            {!loading && files.map(file => (
+              <tr 
+                key={file.path} 
+                style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                onClick={() => {
+                  if (file.is_dir) {
+                    setCurrentPath(file.path);
+                  } else {
+                    handleOpenFile(file);
+                  }
+                }}
+              >
+                <td style={{ padding: '10px 14px', fontSize: '0.82rem' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>{getFileIcon(file)}</span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: file.is_dir ? 600 : 400 }}>{file.name}</span>
+                  </span>
+                </td>
+                <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{file.is_dir ? '—' : file.size_human}</td>
+                <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{new Date(file.mod_time).toLocaleString()}</td>
+                <td style={{ padding: '6px 14px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                  <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => handleDelete(file.path)} icon={Trash2} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Editor Modal */}
+      <Modal 
+        open={!!selectedFile} 
+        onOpenChange={open => { if (!open) setSelectedFile(null); }}
+        title={`Editing: ${selectedFile?.name || ''}`}
+        maxWidth={800}
+      >
+        {selectedFile?.loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+            <div className="spinner" />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {editorError && <div style={{ color: 'var(--red)', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {editorError}</div>}
+            <textarea
+              value={selectedFile?.content || ''}
+              onChange={e => setSelectedFile(prev => ({ ...prev, content: e.target.value }))}
+              style={{
+                width: '100%',
+                height: '450px',
+                resize: 'none',
+                background: '#0d1117',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                color: '#e2e8f0',
+                fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
+                fontSize: '0.875rem',
+                lineHeight: 1.6,
+                padding: '1rem',
+                outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Size: {selectedFile?.size || '—'} · {selectedFile?.content !== selectedFile?.originalContent ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Unsaved changes</span> : <span style={{ color: 'var(--green)' }}>Saved</span>}
+              </span>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Button variant="outline" size="sm" onClick={() => setSelectedFile(null)}>Close</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={selectedFile?.content === selectedFile?.originalContent}
+                  loading={savingFile}
+                  onClick={handleSaveFile}
+                  icon={Save}
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Create New Item Modal */}
+      <Modal
+        open={!!newItemModal}
+        onOpenChange={open => { if (!open) setNewItemModal(null); }}
+        title={newItemModal === 'folder' ? 'Create New Folder' : 'Create New File'}
+        maxWidth={400}
+      >
+        <form onSubmit={handleCreateItem} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">{newItemModal === 'folder' ? 'Folder Name' : 'File Name'}</label>
+            <input
+              className="form-input"
+              placeholder={newItemModal === 'folder' ? 'e.g. src, config' : 'e.g. main.py, index.js'}
+              value={newItemName}
+              onChange={e => setNewItemName(e.target.value)}
+              autoFocus
+              required
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Button variant="outline" size="sm" onClick={() => setNewItemModal(null)}>Cancel</Button>
+            <Button variant="primary" size="sm" type="submit" loading={creatingItem}>Create</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+// ── Add Service Form ──────────────────────────────────────────────────────────
+function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
@@ -37,6 +498,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
     useVenv: true,
     startCommand: '',
     installCommand: '',
+    envText: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -50,6 +512,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
     setLoading(true); setError('');
     try {
       let svc;
+      const envVars = parseBulkEnv(form.envText);
       if (type === 'database') {
         svc = await servicesApi.createDB(projectId, { name: form.name.trim(), db_type: dbType });
       } else if (subType === 'github' || subType === 'local') {
@@ -66,13 +529,15 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
           use_venv: !!form.useVenv,
           start_command: form.startCommand.trim(),
           install_command: form.installCommand.trim(),
-          port: Number(form.port) || 0
+          port: Number(form.port) || 0,
+          env_vars: envVars,
         });
       } else {
         svc = await servicesApi.createApp(projectId, {
           name: form.name.trim(),
           image: form.image.trim(),
-          port: Number(form.port) || 0
+          port: Number(form.port) || 0,
+          env_vars: envVars,
         });
       }
 
@@ -243,19 +708,18 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
   ];
 
   return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-          New Resource <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>Environment: production</span>
-        </span>
-      }
-      description="Deploy applications, databases, or third-party services on your server."
-      maxWidth={840}
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', marginTop: '0.5rem' }}>
+    <div className="card fade-in" style={{ padding: '1.5rem', marginTop: '1rem', border: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+        <div>
+          <h3 style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: '1.1rem', fontWeight: 600 }}>
+            New Resource <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>Environment: production</span>
+          </h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Deploy applications, databases, or local folders on your server.</p>
+        </div>
+        <Button variant="soft" color="gray" size="sm" onClick={onCancel}>Cancel</Button>
+      </div>
 
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', marginTop: '0.5rem' }}>
         {step === 'type' ? (
           <div style={{ overflowY: 'auto', flex: 1, paddingRight: 6 }}>
             {/* Apps Section */}
@@ -267,7 +731,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                     key={r.id}
                     onClick={() => handleSelectResource(r)}
                     style={{
-                      background: 'var(--bg-elevated)',
+                      background: 'var(--bg-base)',
                       border: '1px solid var(--border)',
                       borderRadius: 'var(--radius)',
                       padding: '1rem',
@@ -281,7 +745,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                         width: '32px',
                         height: '32px',
                         borderRadius: '6px',
-                        background: 'var(--bg-base)',
+                        background: 'var(--bg-elevated)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -306,7 +770,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                     key={r.dbType}
                     onClick={() => handleSelectResource({ type: 'database', dbType: r.dbType })}
                     style={{
-                      background: 'var(--bg-elevated)',
+                      background: 'var(--bg-base)',
                       border: '1px solid var(--border)',
                       borderRadius: 'var(--radius)',
                       padding: '1rem',
@@ -320,7 +784,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                         width: '32px',
                         height: '32px',
                         borderRadius: '6px',
-                        background: 'var(--bg-base)',
+                        background: 'var(--bg-elevated)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -347,7 +811,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                       Configuring {subType === 'github' ? 'Git Application' : subType === 'local' ? 'Local Folder Application' : 'Docker Application'}
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                      Setup the name and deployment parameters for the container.
+                      Setup the name, local path, and deployment configuration.
                     </div>
                   </div>
                 </div>
@@ -380,7 +844,14 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                     </div>
                     <div className="form-group">
                       <label className="form-label">Build Type / Runtime</label>
-                      <SelectRoot value={form.gitBuilder} onValueChange={val => setForm(f => ({ ...f, gitBuilder: val }))}>
+                      <SelectRoot value={parseBuilderValue(form.gitBuilder).type} onValueChange={val => {
+                        let finalVal = val;
+                        if (val === 'node') finalVal = 'node:20-alpine';
+                        else if (val === 'python') finalVal = 'python:3.11-slim';
+                        else if (val === 'go') finalVal = 'golang:1.22-alpine';
+                        else if (val === 'php') finalVal = 'php:8.2-apache';
+                        setForm(f => ({ ...f, gitBuilder: finalVal }));
+                      }}>
                         <SelectTrigger style={{ width: '100%' }} />
                         <SelectContent>
                           <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
@@ -393,6 +864,19 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                         </SelectContent>
                       </SelectRoot>
                     </div>
+                    {['node', 'python', 'go', 'php'].includes(parseBuilderValue(form.gitBuilder).type) && (
+                      <div className="form-group">
+                        <label className="form-label">Runtime Version</label>
+                        <SelectRoot value={form.gitBuilder} onValueChange={val => setForm(f => ({ ...f, gitBuilder: val }))}>
+                          <SelectTrigger style={{ width: '100%' }} />
+                          <SelectContent>
+                            {RUNTIME_VERSIONS[parseBuilderValue(form.gitBuilder).type].map(v => (
+                              <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </SelectRoot>
+                      </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                       <div className="form-group">
                         <label className="form-label">App Directory</label>
@@ -400,14 +884,16 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                       </div>
                       <div className="form-group">
                         <label className="form-label">Run File</label>
-                        <input className="form-input" placeholder="e.g. ecopulse.py, main.py, server.js" value={form.runFile} onChange={set('runFile')} />
+                        <input className="form-input" placeholder="e.g. main.py, server.js" value={form.runFile} onChange={set('runFile')} />
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                      <div className="form-group">
-                        <label className="form-label">Requirements File</label>
-                        <input className="form-input" placeholder="requirements.txt" value={form.requirementsFile} onChange={set('requirementsFile')} />
-                      </div>
+                      {parseBuilderValue(form.gitBuilder).type === 'python' && (
+                        <div className="form-group">
+                          <label className="form-label">Requirements File</label>
+                          <input className="form-input" placeholder="requirements.txt" value={form.requirementsFile} onChange={set('requirementsFile')} />
+                        </div>
+                      )}
                       <div className="form-group">
                         <label className="form-label">Start Command Override</label>
                         <input className="form-input" placeholder="Blank auto-runs the selected file" value={form.startCommand} onChange={set('startCommand')} />
@@ -415,14 +901,16 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                     </div>
                     <div className="form-group">
                       <label className="form-label">Install Command Override</label>
-                      <input className="form-input" placeholder="Blank installs from requirements file" value={form.installCommand} onChange={set('installCommand')} />
+                      <input className="form-input" placeholder="Blank installs dependencies" value={form.installCommand} onChange={set('installCommand')} />
                     </div>
-                    <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                        <input type="checkbox" checked={form.useVenv} onChange={e => setForm(f => ({ ...f, useVenv: e.target.checked }))} />
-                        Generate Python virtual environment inside the container
-                      </label>
-                    </div>
+                    {parseBuilderValue(form.gitBuilder).type === 'python' && (
+                      <div className="form-group">
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                          <input type="checkbox" checked={form.useVenv} onChange={e => setForm(f => ({ ...f, useVenv: e.target.checked }))} />
+                          Generate Python virtual environment inside the container
+                        </label>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -446,7 +934,14 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                     </div>
                     <div className="form-group">
                       <label className="form-label">Build Type / Runtime</label>
-                      <SelectRoot value={form.gitBuilder} onValueChange={val => setForm(f => ({ ...f, gitBuilder: val }))}>
+                      <SelectRoot value={parseBuilderValue(form.gitBuilder).type} onValueChange={val => {
+                        let finalVal = val;
+                        if (val === 'node') finalVal = 'node:20-alpine';
+                        else if (val === 'python') finalVal = 'python:3.11-slim';
+                        else if (val === 'go') finalVal = 'golang:1.22-alpine';
+                        else if (val === 'php') finalVal = 'php:8.2-apache';
+                        setForm(f => ({ ...f, gitBuilder: finalVal }));
+                      }}>
                         <SelectTrigger style={{ width: '100%' }} />
                         <SelectContent>
                           <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
@@ -459,6 +954,19 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                         </SelectContent>
                       </SelectRoot>
                     </div>
+                    {['node', 'python', 'go', 'php'].includes(parseBuilderValue(form.gitBuilder).type) && (
+                      <div className="form-group">
+                        <label className="form-label">Runtime Version</label>
+                        <SelectRoot value={form.gitBuilder} onValueChange={val => setForm(f => ({ ...f, gitBuilder: val }))}>
+                          <SelectTrigger style={{ width: '100%' }} />
+                          <SelectContent>
+                            {RUNTIME_VERSIONS[parseBuilderValue(form.gitBuilder).type].map(v => (
+                              <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </SelectRoot>
+                      </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                       <div className="form-group">
                         <label className="form-label">App Directory</label>
@@ -470,10 +978,12 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                      <div className="form-group">
-                        <label className="form-label">Requirements File</label>
-                        <input className="form-input" placeholder="requirements.txt" value={form.requirementsFile} onChange={set('requirementsFile')} />
-                      </div>
+                      {parseBuilderValue(form.gitBuilder).type === 'python' && (
+                        <div className="form-group">
+                          <label className="form-label">Requirements File</label>
+                          <input className="form-input" placeholder="requirements.txt" value={form.requirementsFile} onChange={set('requirementsFile')} />
+                        </div>
+                      )}
                       <div className="form-group">
                         <label className="form-label">Start Command Override</label>
                         <input className="form-input" placeholder="Blank auto-runs the selected file" value={form.startCommand} onChange={set('startCommand')} />
@@ -481,16 +991,29 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                     </div>
                     <div className="form-group">
                       <label className="form-label">Install Command Override</label>
-                      <input className="form-input" placeholder="Blank installs from requirements file" value={form.installCommand} onChange={set('installCommand')} />
+                      <input className="form-input" placeholder="Blank installs dependencies" value={form.installCommand} onChange={set('installCommand')} />
                     </div>
-                    <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                        <input type="checkbox" checked={form.useVenv} onChange={e => setForm(f => ({ ...f, useVenv: e.target.checked }))} />
-                        Generate Python virtual environment inside the container
-                      </label>
-                    </div>
+                    {parseBuilderValue(form.gitBuilder).type === 'python' && (
+                      <div className="form-group">
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                          <input type="checkbox" checked={form.useVenv} onChange={e => setForm(f => ({ ...f, useVenv: e.target.checked }))} />
+                          Generate Python virtual environment inside the container
+                        </label>
+                      </div>
+                    )}
                   </>
                 )}
+
+                <div className="form-group">
+                  <label className="form-label">Environment Variables (Optional, KEY=value, one per line)</label>
+                  <textarea
+                    className="form-input"
+                    style={{ minHeight: '100px', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}
+                    placeholder="DATABASE_URL=postgres://user:pass@host:5432/db&#10;PORT=8000"
+                    value={form.envText}
+                    onChange={set('envText')}
+                  />
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -511,9 +1034,9 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
                   <SelectRoot value={dbType} onValueChange={setDbType}>
                     <SelectTrigger style={{ width: '100%' }} />
                     <SelectContent>
-                      {(DB_VERSIONS[dbType.split(':')[0]] || [dbType]).map(v => (
+                      {(DB_VERSIONS[getDbKey(dbType)] || [dbType]).map(v => (
                         <SelectItem key={v} value={v}>
-                          {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : v.toUpperCase()}
+                          {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : (v.includes('/') ? v.split('/')[1].toUpperCase() : v.toUpperCase())}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -538,7 +1061,7 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
           </div>
         )}
       </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -549,6 +1072,10 @@ function EnvVarsPanel({ serviceId }) {
   const [newVal, setNewVal] = useState('');
   const [show, setShow] = useState({});
   const [saved, setSaved] = useState(null);
+  const [isBulk, setIsBulk] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     servicesApi.getEnvVars(serviceId).then(setVars).catch(() => { });
@@ -569,42 +1096,110 @@ function EnvVarsPanel({ serviceId }) {
 
   const copy = (val) => navigator.clipboard.writeText(val);
 
+  const handleToggleBulk = () => {
+    if (!isBulk) {
+      const text = vars.map(ev => `${ev.key}=${ev.value}`).join('\n');
+      setBulkText(text);
+      setError('');
+    }
+    setIsBulk(!isBulk);
+  };
+
+  const saveBulk = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const parsed = parseBulkEnv(bulkText);
+      const parsedKeys = parsed.map(x => x.key);
+
+      // Upsert all parsed keys
+      for (const item of parsed) {
+        await servicesApi.upsertEnvVar(serviceId, item.key, item.value);
+      }
+
+      // Delete any keys that are not in the new bulk list
+      const toDelete = vars.filter(v => !parsedKeys.includes(v.key));
+      for (const item of toDelete) {
+        await servicesApi.deleteEnvVar(serviceId, item.key);
+      }
+
+      const updated = await servicesApi.getEnvVars(serviceId);
+      setVars(updated);
+      setIsBulk(false);
+      setSaved('bulk');
+      setTimeout(() => setSaved(null), 2000);
+    } catch (e) {
+      setError(e.message || 'Failed to save environment variables');
+    }
+    setLoading(false);
+  };
+
   return (
     <div>
-      <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '1rem' }}>
-        <table className="data-table">
-          <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
-          <tbody>
-            {vars.length === 0 && (
-              <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No environment variables</td></tr>
-            )}
-            {vars.map(ev => (
-              <tr key={ev.key}>
-                <td><code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{ev.key}</code></td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
-                      {show[ev.key] ? ev.value : '••••••••'}
-                    </code>
-                    <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))} icon={show[ev.key] ? EyeOff : Eye} />
-                    <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
-                  </div>
-                </td>
-                <td>
-                  <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => remove(ev.key)} icon={Trash2} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input className="form-input" placeholder="KEY" value={newKey} onChange={e => setNewKey(e.target.value)} style={{ flex: 1, fontFamily: 'JetBrains Mono, monospace' }} />
-        <input className="form-input" placeholder="value" value={newVal} onChange={e => setNewVal(e.target.value)} style={{ flex: 2 }} />
-        <Button variant="primary" size="sm" onClick={add} icon={saved ? Check : Plus}>
-          {saved ? ' Saved' : ' Add'}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h4 style={{ margin: 0, color: 'var(--text-primary)' }}>Environment Variables</h4>
+        <Button variant="outline" size="sm" onClick={handleToggleBulk}>
+          {isBulk ? 'Cancel Bulk' : 'Bulk Import / Edit'}
         </Button>
       </div>
+
+      {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem' }}>⚠️ {error}</p>}
+
+      {isBulk ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <textarea
+            className="form-input"
+            style={{ minHeight: '200px', fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem', width: '100%', boxSizing: 'border-box' }}
+            placeholder="KEY=value&#10;PORT=8000"
+            value={bulkText}
+            onChange={e => setBulkText(e.target.value)}
+            disabled={loading}
+          />
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="soft" color="gray" size="sm" onClick={() => setIsBulk(false)} disabled={loading}>Cancel</Button>
+            <Button variant="primary" size="sm" onClick={saveBulk} loading={loading}>
+              Save Variables
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '1rem' }}>
+            <table className="data-table">
+              <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+              <tbody>
+                {vars.length === 0 && (
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No environment variables</td></tr>
+                )}
+                {vars.map(ev => (
+                  <tr key={ev.key}>
+                    <td><code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{ev.key}</code></td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
+                          {show[ev.key] ? ev.value : '••••••••'}
+                        </code>
+                        <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))} icon={show[ev.key] ? EyeOff : Eye} />
+                        <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
+                      </div>
+                    </td>
+                    <td>
+                      <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => remove(ev.key)} icon={Trash2} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="form-input" placeholder="KEY" value={newKey} onChange={e => setNewKey(e.target.value)} style={{ flex: 1, fontFamily: 'JetBrains Mono, monospace' }} />
+            <input className="form-input" placeholder="value" value={newVal} onChange={e => setNewVal(e.target.value)} style={{ flex: 2 }} />
+            <Button variant="primary" size="sm" onClick={add} icon={saved ? Check : Plus}>
+              {saved ? ' Saved' : ' Add'}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -974,6 +1569,145 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
   );
 }
 
+// ── Container Terminal Panel ──────────────────────────────────────────────────
+function ContainerTerminalPanel({ service }) {
+  const containerRef = useRef(null);
+  const xtermRef    = useRef(null);
+  const fitRef      = useRef(null);
+  const wsRef       = useRef(null);
+  const [status, setStatus] = useState('connecting'); // connecting | open | closed | error
+  const [reconnectCount, setReconnectCount] = useState(0);
+
+  const containerName = service.type === 'database' 
+    ? `nf-db-${service.name}` 
+    : `nf-app-${service.name}`;
+
+  useEffect(() => {
+    // ── 1. Create xterm instance ──────────────────────────────────────────
+    const term = new XTerm({
+      theme: {
+        background: '#0c0c0c',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        selectionBackground: 'rgba(255, 255, 255, 0.2)',
+        black: '#000000',
+        red: '#ef4444',
+        green: '#4af626',
+        yellow: '#eab308',
+        blue: '#00d2ff',
+        magenta: '#d8b4fe',
+        cyan: '#00ffff',
+        white: '#cccccc',
+        brightBlack: '#64748b',
+        brightRed: '#ef4444',
+        brightGreen: '#4af626',
+        brightYellow: '#eab308',
+        brightBlue: '#00d2ff',
+        brightMagenta: '#d8b4fe',
+        brightCyan: '#00ffff',
+        brightWhite: '#ffffff',
+      },
+      fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
+      fontSize: 14,
+      lineHeight: 1.6,
+      cursorBlink: true,
+      cursorStyle: 'block',
+      scrollback: 5000,
+      allowTransparency: true,
+    });
+
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(containerRef.current);
+    fit.fit();
+
+    xtermRef.current = term;
+    fitRef.current   = fit;
+
+    // ── 2. Open WebSocket ─────────────────────────────────────────────────
+    const wsUrl = terminalWsUrl('container', containerName);
+    const ws    = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setStatus('open');
+      const { cols, rows } = term;
+      ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    };
+
+    ws.onmessage = (e) => {
+      const data = e.data instanceof ArrayBuffer
+        ? new Uint8Array(e.data)
+        : e.data;
+      term.write(data);
+    };
+
+    ws.onerror = () => setStatus('error');
+    ws.onclose = () => setStatus('closed');
+
+    term.onData(data => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data));
+      }
+    });
+
+    const ro = new ResizeObserver(() => {
+      fit.fit();
+      const { cols, rows } = term;
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+    ro.observe(containerRef.current);
+
+    return () => {
+      ro.disconnect();
+      ws.close();
+      term.dispose();
+    };
+  }, [containerName, reconnectCount]);
+
+  const reconnect = () => {
+    setStatus('connecting');
+    setReconnectCount(c => c + 1);
+  };
+
+  const statusColor = { open: '#22c55e', connecting: '#eab308', closed: '#ef4444', error: '#ef4444' }[status];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Interactive Console: <code style={{ fontFamily: 'JetBrains Mono', background: 'var(--bg-base)', padding: '2px 6px', borderRadius: 4 }}>{containerName}</code>
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
+            <span style={{ fontSize: '0.75rem', color: statusColor, textTransform: 'capitalize' }}>{status}</span>
+          </div>
+          {(status === 'closed' || status === 'error') && (
+            <Button variant="ghost" size="sm" onClick={reconnect}>Reconnect</Button>
+          )}
+        </div>
+      </div>
+      <div 
+        ref={containerRef} 
+        style={{ 
+          height: 400, 
+          background: '#0c0c0c', 
+          borderRadius: 'var(--radius)', 
+          padding: '0.75rem',
+          border: '1px solid var(--border)',
+          overflow: 'hidden'
+        }} 
+      />
+    </div>
+  );
+}
+
 // ── Container Logs Panel ──────────────────────────────────────────────────────
 function ContainerLogsPanel({ serviceId }) {
   const [logs, setLogs] = useState('Fetching container logs...');
@@ -1234,7 +1968,19 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
               </div>
               <div className="form-group">
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Build Type / Runtime</label>
-                <select className="form-input form-input-sm" value={gitBuilder} onChange={e => setGitBuilder(e.target.value)}>
+                <select 
+                  className="form-input form-input-sm" 
+                  value={parseBuilderValue(gitBuilder).type} 
+                  onChange={e => {
+                    const val = e.target.value;
+                    let finalVal = val;
+                    if (val === 'node') finalVal = 'node:20-alpine';
+                    else if (val === 'python') finalVal = 'python:3.11-slim';
+                    else if (val === 'go') finalVal = 'golang:1.22-alpine';
+                    else if (val === 'php') finalVal = 'php:8.2-apache';
+                    setGitBuilder(finalVal);
+                  }}
+                >
                   <option value="auto">Auto-detect (Recommended)</option>
                   <option value="node">Node.js</option>
                   <option value="go">Go (Golang)</option>
@@ -1244,6 +1990,22 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   <option value="dockerfile">Use existing Dockerfile</option>
                 </select>
               </div>
+              {['node', 'python', 'go', 'php'].includes(parseBuilderValue(gitBuilder).type) && (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Runtime Version</label>
+                  <select 
+                    className="form-input form-input-sm" 
+                    value={gitBuilder} 
+                    onChange={e => setGitBuilder(e.target.value)}
+                  >
+                    {RUNTIME_VERSIONS[parseBuilderValue(gitBuilder).type].map(v => (
+                      <option key={v.value} value={v.value}>
+                        {v.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
                 Changing runtime fields affects the next deploy. Use App Directory when the app lives inside a subfolder, and Run File for Python files like ecopulse.py.
               </div>
@@ -1258,10 +2020,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Requirements File</label>
-                  <input className="form-input form-input-sm" value={requirementsFile} onChange={e => setRequirementsFile(e.target.value)} placeholder="requirements.txt" />
-                </div>
+                {parseBuilderValue(gitBuilder).type === 'python' && (
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Requirements File</label>
+                    <input className="form-input form-input-sm" value={requirementsFile} onChange={e => setRequirementsFile(e.target.value)} placeholder="requirements.txt" />
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label" style={{ fontSize: '0.75rem' }}>Start Command Override</label>
                   <input className="form-input form-input-sm" value={startCommand} onChange={e => setStartCommand(e.target.value)} placeholder="python ecopulse.py" />
@@ -1271,10 +2035,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Install Command Override</label>
                 <input className="form-input form-input-sm" value={installCommand} onChange={e => setInstallCommand(e.target.value)} placeholder="pip install --no-cache-dir -r requirements.txt" />
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
-                Generate Python virtual environment during build
-              </label>
+              {parseBuilderValue(gitBuilder).type === 'python' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                  <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
+                  Generate Python virtual environment during build
+                </label>
+              )}
             </>
           ) : (
             <div className="form-group">
@@ -1357,7 +2123,7 @@ export default function ProjectDetail() {
   const [services, setServices] = useState([]);
   const [domains, setDomains] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [activeTab, setActiveTab] = useState('deployments');
   const [activeSvc, setActiveSvc] = useState(null);
 
@@ -1423,7 +2189,7 @@ export default function ProjectDetail() {
 
   const handleCreated = (svc) => {
     setServices(s => [svc, ...s]);
-    setShowModal(false);
+    setShowAddForm(false);
     setActiveSvc(svc.id);
     setActiveTab('deployments');
   };
@@ -1431,7 +2197,7 @@ export default function ProjectDetail() {
   const apps = services.filter(s => s.type === 'app');
   const dbs = services.filter(s => s.type === 'database');
   const selectedSvc = services.find(s => s.id === activeSvc);
-  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
+  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', stopped: 'var(--text-muted)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
 
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
@@ -1502,7 +2268,9 @@ export default function ProjectDetail() {
             items={[
               { id: 'deployments', label: 'Deployments' },
               { id: 'logs', label: 'Logs' },
-              ...(selectedSvc.git_repo_url ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
+              { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+              ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
+              ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               { id: 'envvars', label: 'Environment Variables' },
               { id: 'settings', label: 'Settings', icon: Settings },
             ]}
@@ -1513,9 +2281,17 @@ export default function ProjectDetail() {
             <TabsContent value="logs">
               <ContainerLogsPanel serviceId={activeSvc} />
             </TabsContent>
-            {selectedSvc.git_repo_url && (
+            <TabsContent value="terminal">
+              <ContainerTerminalPanel service={selectedSvc} />
+            </TabsContent>
+            {selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') && (
               <TabsContent value="webhooks">
                 <WebhookPanel serviceId={activeSvc} />
+              </TabsContent>
+            )}
+            {selectedSvc.git_repo_url?.startsWith('file://') && (
+              <TabsContent value="files">
+                <SourceFilesPanel service={selectedSvc} />
               </TabsContent>
             )}
             <TabsContent value="settings">
@@ -1542,75 +2318,80 @@ export default function ProjectDetail() {
           </div>
           <p className="page-subtitle">{project?.description || 'Project environment'}</p>
         </div>
-        <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>New Resource</Button>
+        {!showAddForm && (
+          <Button variant="primary" onClick={() => setShowAddForm(true)} icon={Plus}>New Resource</Button>
+        )}
       </div>
 
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        {[
-          { label: 'Applications', val: apps.length, icon: Package, color: 'var(--accent)' },
-          { label: 'Databases', val: dbs.length, icon: Database, color: 'var(--blue)' },
-          { label: 'Running', val: services.filter(s => s.status === 'running').length, icon: Play, color: 'var(--green)' },
-        ].map(st => (
-          <div key={st.label} className="card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: `${st.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <st.icon size={18} color={st.color} />
-            </div>
+      {showAddForm ? (
+        <AddServiceForm
+          projectId={id}
+          projectName={project?.name}
+          onCancel={() => setShowAddForm(false)}
+          onCreated={handleCreated}
+        />
+      ) : (
+        <>
+          {/* Stats row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
+            {[
+              { label: 'Applications', val: apps.length, icon: Package, color: 'var(--accent)' },
+              { label: 'Databases', val: dbs.length, icon: Database, color: 'var(--blue)' },
+              { label: 'Running', val: services.filter(s => s.status === 'running').length, icon: Play, color: 'var(--green)' },
+            ].map(st => (
+              <div key={st.label} className="card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: `${st.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <st.icon size={18} color={st.color} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, lineHeight: 1 }}>{st.val}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{st.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: activeSvc ? '1fr 380px' : '1fr', gap: '1rem' }}>
+            {/* Left: service list */}
             <div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, lineHeight: 1 }}>{st.val}</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{st.label}</div>
+              {apps.length > 0 && (
+                <>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Applications</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+                    {apps.map(s => (
+                      <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
+                        <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {dbs.length > 0 && (
+                <>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Databases</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {dbs.map(s => (
+                      <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
+                        <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {services.length === 0 && (
+                <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
+                  <div className="empty-icon" style={{ margin: '0 auto 1rem' }}><Package size={28} /></div>
+                  <div style={{ color: 'var(--text-secondary)', fontWeight: 500, marginBottom: 8 }}>No resources yet</div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '1rem' }}>Add an app or database to get started</p>
+                  <Button variant="primary" onClick={() => setShowAddForm(true)} icon={Plus}>Add Resource</Button>
+                </div>
+              )}
             </div>
           </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: activeSvc ? '1fr 380px' : '1fr', gap: '1rem' }}>
-        {/* Left: service list */}
-        <div>
-          {apps.length > 0 && (
-            <>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Applications</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                {apps.map(s => (
-                  <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
-                    <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {dbs.length > 0 && (
-            <>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Databases</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {dbs.map(s => (
-                  <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
-                    <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {services.length === 0 && (
-            <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
-              <div className="empty-icon" style={{ margin: '0 auto 1rem' }}><Package size={28} /></div>
-              <div style={{ color: 'var(--text-secondary)', fontWeight: 500, marginBottom: 8 }}>No resources yet</div>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '1rem' }}>Add an app or database to get started</p>
-              <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>Add Resource</Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <AddServiceModal
-        projectId={id}
-        projectName={project?.name}
-        open={showModal}
-        onOpenChange={setShowModal}
-        onCreated={handleCreated}
-      />
+        </>
+      )}
     </div>
   );
 }
