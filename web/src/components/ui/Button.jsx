@@ -66,7 +66,7 @@ export function Button({
       {loading ? (
         <Spinner size="1" />
       ) : Icon ? (
-        typeof Icon === 'function' ? <Icon size={radixSize === '1' ? 13 : 15} /> : Icon
+        React.isValidElement(Icon) ? Icon : <Icon size={radixSize === '1' ? 13 : 15} />
       ) : null}
       
       {children && (
