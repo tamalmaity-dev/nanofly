@@ -2,21 +2,23 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './store/auth';
+import { ToastProvider } from './components/ui/Toast';
+import { ThemeProvider } from './context/ThemeContext';
 import { setupApi } from './api/client';
 
-import Sidebar      from './components/Sidebar';
-import Login        from './pages/Login';
-import Setup        from './pages/Setup';
-import Dashboard    from './pages/Dashboard';
-import Projects     from './pages/Projects';
+import Sidebar from './components/sidebar/Sidebar';
+import Login from './pages/Login';
+import Setup from './pages/Setup';
+import Dashboard from './pages/Dashboard';
+import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
-import Databases    from './pages/Databases';
-import Domains      from './pages/Domains';
-import Terminal     from './pages/Terminal';
-import Services     from './pages/Services';
-import ActivityLog  from './pages/Activity';
-import Settings     from './pages/Settings';
-import FileManager   from './pages/FileManager';
+import Databases from './pages/Databases';
+import Domains from './pages/Domains';
+import Terminal from './pages/Terminal';
+import Services from './pages/Services';
+import ActivityLog from './pages/Activity';
+import Settings from './pages/Settings';
+import FileManager from './pages/FileManager';
 
 // ── Shell layout ──────────────────────────────────────────────────────────────
 function Shell() {
@@ -34,16 +36,16 @@ function Shell() {
 function RequireAuth() {
   const { user, loading } = useAuth();
   if (loading) return <FullPageSpinner />;
-  if (!user)   return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
   return <Shell />;
 }
 
 // ── Setup guard ───────────────────────────────────────────────────────────────
 function SetupGuard({ children }) {
   const [checked, setChecked] = useState(false);
-  const [needSetup, setNeed]  = useState(false);
-  const { loading }           = useAuth();
-  const location              = useLocation();
+  const [needSetup, setNeed] = useState(false);
+  const { loading } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     // If we've already checked setup status and found setup is complete, or
@@ -53,8 +55,8 @@ function SetupGuard({ children }) {
     }
 
     setupApi.status()
-      .then(res  => { setNeed(!res.setup_complete); setChecked(true); })
-      .catch(()  => setChecked(true));
+      .then(res => { setNeed(!res.setup_complete); setChecked(true); })
+      .catch(() => setChecked(true));
   }, [location.pathname, checked, needSetup]);
 
   if (!checked || loading) return <FullPageSpinner />;
@@ -66,9 +68,9 @@ function SetupGuard({ children }) {
 // ── Spinner ───────────────────────────────────────────────────────────────────
 function FullPageSpinner() {
   return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg-base)', gap:12 }}>
-      <div className="spinner" style={{ borderTopColor:'var(--accent)', width:24, height:24, borderWidth:3 }} />
-      <span style={{ color:'var(--text-muted)', fontSize:'0.9rem' }}>Loading NanoFly…</span>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-base)', gap: 12 }}>
+      <div className="spinner" style={{ borderTopColor: 'var(--accent)', width: 24, height: 24, borderWidth: 3 }} />
+      <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Loading NanoFly…</span>
     </div>
   );
 }
@@ -83,16 +85,16 @@ function AppRoutes() {
           <Route path="/setup" element={<Setup />} />
 
           <Route element={<RequireAuth />}>
-            <Route path="/"              element={<Dashboard />} />
-            <Route path="/projects"      element={<Projects />} />
-            <Route path="/projects/:id"  element={<ProjectDetail />} />
-            <Route path="/databases"     element={<Databases />} />
-            <Route path="/domains"       element={<Domains />} />
-            <Route path="/terminal"      element={<Terminal />} />
-            <Route path="/files"         element={<FileManager />} />
-            <Route path="/services"      element={<Services />} />
-            <Route path="/activity"      element={<ActivityLog />} />
-            <Route path="/settings"      element={<Settings />} />
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/projects/:id" element={<ProjectDetail />} />
+            <Route path="/databases" element={<Databases />} />
+            <Route path="/domains" element={<Domains />} />
+            <Route path="/terminal" element={<Terminal />} />
+            <Route path="/files" element={<FileManager />} />
+            <Route path="/services" element={<Services />} />
+            <Route path="/activity" element={<ActivityLog />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -104,8 +106,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <AppRoutes />
+        </ToastProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

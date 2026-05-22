@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi } from '../api/client';
 import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders } from 'lucide-react';
+import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
 
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13'],
@@ -15,7 +16,7 @@ const DB_VERSIONS = {
 };
 
 // ── Add Service Modal ─────────────────────────────────────────────────────────
-function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
+function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
@@ -52,12 +53,12 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
       if (type === 'database') {
         svc = await servicesApi.createDB(projectId, { name: form.name.trim(), db_type: dbType });
       } else if (subType === 'github' || subType === 'local') {
-        svc = await servicesApi.createApp(projectId, { 
-          name: form.name.trim(), 
+        svc = await servicesApi.createApp(projectId, {
+          name: form.name.trim(),
           git_repo_url: subType === 'github' ? form.gitUrl.trim() : '',
           local_path: subType === 'local' ? form.localPath.trim() : '',
-          git_branch: form.branch.trim() || 'main', 
-          git_token: form.token.trim(), 
+          git_branch: form.branch.trim() || 'main',
+          git_token: form.token.trim(),
           git_builder: form.gitBuilder || 'auto',
           app_directory: form.appDirectory.trim(),
           run_file: form.runFile.trim(),
@@ -65,13 +66,13 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
           use_venv: !!form.useVenv,
           start_command: form.startCommand.trim(),
           install_command: form.installCommand.trim(),
-          port: Number(form.port) || 0 
+          port: Number(form.port) || 0
         });
       } else {
-        svc = await servicesApi.createApp(projectId, { 
-          name: form.name.trim(), 
-          image: form.image.trim(), 
-          port: Number(form.port) || 0 
+        svc = await servicesApi.createApp(projectId, {
+          name: form.name.trim(),
+          image: form.image.trim(),
+          port: Number(form.port) || 0
         });
       }
 
@@ -92,7 +93,7 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
         } catch (_) { /* domain already exists or conflict, skip */ }
 
         // Auto-trigger first deploy
-        try { await servicesApi.deploy(svcData.id); } catch (_) {}
+        try { await servicesApi.deploy(svcData.id); } catch (_) { }
       }
 
       onCreated(svc);
@@ -242,19 +243,18 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
   ];
 
   return (
-    <div className="modal-overlay fade-in" onClick={onClose}>
-      <div className="modal-content fade-in" style={{ maxWidth: 840, width: '90%', padding: '1.5rem', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-        
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1.25rem' }}>
-          <div>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10 }}>
-              New Resource <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>Environment: production</span>
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>Deploy applications, databases, or third-party services on your server.</p>
-          </div>
-          <button className="btn btn-ghost" style={{ padding: 6 }} onClick={onClose}><X size={18} /></button>
-        </div>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          New Resource <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>Environment: production</span>
+        </span>
+      }
+      description="Deploy applications, databases, or third-party services on your server."
+      maxWidth={840}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', marginTop: '0.5rem' }}>
 
         {step === 'type' ? (
           <div style={{ overflowY: 'auto', flex: 1, paddingRight: 6 }}>
@@ -263,8 +263,8 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
               <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Applications</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
                 {APP_RESOURCES.map(r => (
-                  <div 
-                    key={r.id} 
+                  <div
+                    key={r.id}
                     onClick={() => handleSelectResource(r)}
                     style={{
                       background: 'var(--bg-elevated)',
@@ -277,13 +277,13 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     className="hover-glow"
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <div style={{ 
-                        width: '32px', 
-                        height: '32px', 
-                        borderRadius: '6px', 
-                        background: 'var(--bg-base)', 
-                        display: 'flex', 
-                        alignItems: 'center', 
+                      <div style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '6px',
+                        background: 'var(--bg-base)',
+                        display: 'flex',
+                        alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0
                       }}>
@@ -302,8 +302,8 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
               <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Databases</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
                 {DB_RESOURCES.map(r => (
-                  <div 
-                    key={r.dbType} 
+                  <div
+                    key={r.dbType}
                     onClick={() => handleSelectResource({ type: 'database', dbType: r.dbType })}
                     style={{
                       background: 'var(--bg-elevated)',
@@ -316,13 +316,13 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     className="hover-glow"
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <div style={{ 
-                        width: '32px', 
-                        height: '32px', 
-                        borderRadius: '6px', 
-                        background: 'var(--bg-base)', 
-                        display: 'flex', 
-                        alignItems: 'center', 
+                      <div style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '6px',
+                        background: 'var(--bg-base)',
+                        display: 'flex',
+                        alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0
                       }}>
@@ -380,15 +380,18 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     </div>
                     <div className="form-group">
                       <label className="form-label">Build Type / Runtime</label>
-                      <select className="form-input" value={form.gitBuilder} onChange={set('gitBuilder')}>
-                        <option value="auto">Auto-detect (Recommended)</option>
-                        <option value="node">Node.js</option>
-                        <option value="go">Go (Golang)</option>
-                        <option value="python">Python</option>
-                        <option value="php">PHP</option>
-                        <option value="static">HTML / Static Website</option>
-                        <option value="dockerfile">Use existing Dockerfile</option>
-                      </select>
+                      <SelectRoot value={form.gitBuilder} onValueChange={val => setForm(f => ({ ...f, gitBuilder: val }))}>
+                        <SelectTrigger style={{ width: '100%' }} />
+                        <SelectContent>
+                          <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
+                          <SelectItem value="node">Node.js</SelectItem>
+                          <SelectItem value="go">Go (Golang)</SelectItem>
+                          <SelectItem value="python">Python</SelectItem>
+                          <SelectItem value="php">PHP</SelectItem>
+                          <SelectItem value="static">HTML / Static Website</SelectItem>
+                          <SelectItem value="dockerfile">Use existing Dockerfile</SelectItem>
+                        </SelectContent>
+                      </SelectRoot>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                       <div className="form-group">
@@ -443,15 +446,18 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
                     </div>
                     <div className="form-group">
                       <label className="form-label">Build Type / Runtime</label>
-                      <select className="form-input" value={form.gitBuilder} onChange={set('gitBuilder')}>
-                        <option value="auto">Auto-detect (Recommended)</option>
-                        <option value="node">Node.js</option>
-                        <option value="go">Go (Golang)</option>
-                        <option value="python">Python</option>
-                        <option value="php">PHP</option>
-                        <option value="static">HTML / Static Website</option>
-                        <option value="dockerfile">Use existing Dockerfile</option>
-                      </select>
+                      <SelectRoot value={form.gitBuilder} onValueChange={val => setForm(f => ({ ...f, gitBuilder: val }))}>
+                        <SelectTrigger style={{ width: '100%' }} />
+                        <SelectContent>
+                          <SelectItem value="auto">Auto-detect (Recommended)</SelectItem>
+                          <SelectItem value="node">Node.js</SelectItem>
+                          <SelectItem value="go">Go (Golang)</SelectItem>
+                          <SelectItem value="python">Python</SelectItem>
+                          <SelectItem value="php">PHP</SelectItem>
+                          <SelectItem value="static">HTML / Static Website</SelectItem>
+                          <SelectItem value="dockerfile">Use existing Dockerfile</SelectItem>
+                        </SelectContent>
+                      </SelectRoot>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                       <div className="form-group">
@@ -502,13 +508,16 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
 
                 <div className="form-group">
                   <label className="form-label">Database Version</label>
-                  <select className="form-input" value={dbType} onChange={e => setDbType(e.target.value)}>
-                    {(DB_VERSIONS[dbType.split(':')[0]] || [dbType]).map(v => (
-                      <option key={v} value={v}>
-                        {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : v.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
+                  <SelectRoot value={dbType} onValueChange={setDbType}>
+                    <SelectTrigger style={{ width: '100%' }} />
+                    <SelectContent>
+                      {(DB_VERSIONS[dbType.split(':')[0]] || [dbType]).map(v => (
+                        <SelectItem key={v} value={v}>
+                          {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : v.toUpperCase()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </SelectRoot>
                 </div>
 
                 <div className="form-group">
@@ -521,15 +530,15 @@ function AddServiceModal({ projectId, projectName, onClose, onCreated }) {
             {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1.5rem' }}>
-              <button className="btn btn-ghost" onClick={() => setStep('type')}>Back</button>
-              <button className="btn btn-primary" onClick={submit} disabled={loading}>
-                {loading ? 'Creating...' : `Deploy Now`}
-              </button>
+              <Button variant="ghost" onClick={() => setStep('type')}>Back</Button>
+              <Button variant="primary" onClick={submit} loading={loading}>
+                Deploy Now
+              </Button>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -542,7 +551,7 @@ function EnvVarsPanel({ serviceId }) {
   const [saved, setSaved] = useState(null);
 
   useEffect(() => {
-    servicesApi.getEnvVars(serviceId).then(setVars).catch(() => {});
+    servicesApi.getEnvVars(serviceId).then(setVars).catch(() => { });
   }, [serviceId]);
 
   const add = async () => {
@@ -615,7 +624,7 @@ function DeploymentsPanel({ serviceId }) {
       setDeps(d || []);
       // Auto-open the latest deployment
       if (d && d.length > 0 && open === null) setOpen(d[0].id);
-    }).catch(() => {});
+    }).catch(() => { });
   }, [serviceId, open]);
 
   useEffect(() => {
@@ -624,7 +633,7 @@ function DeploymentsPanel({ serviceId }) {
     const interval = setInterval(() => {
       servicesApi.deployments(serviceId).then(d => {
         setDeps(d || []);
-      }).catch(() => {});
+      }).catch(() => { });
     }, 1500);
     return () => clearInterval(interval);
   }, [serviceId]);
@@ -632,21 +641,21 @@ function DeploymentsPanel({ serviceId }) {
   const isBuilding = deps.some(d => d.status === 'building' || d.status === 'deploying');
 
   const statusColor = {
-    running:   'var(--green)',
+    running: 'var(--green)',
     completed: 'var(--green)',
-    building:  'var(--yellow)',
+    building: 'var(--yellow)',
     deploying: 'var(--yellow)',
-    error:     'var(--red)',
-    idle:      'var(--text-muted)',
+    error: 'var(--red)',
+    idle: 'var(--text-muted)',
   };
 
   const statusLabel = {
-    running:   '✅ Running',
+    running: '✅ Running',
     completed: '✅ Completed',
-    building:  '🔨 Building...',
+    building: '🔨 Building...',
     deploying: '🚀 Deploying...',
-    error:     '❌ Failed',
-    idle:      '💤 Idle',
+    error: '❌ Failed',
+    idle: '💤 Idle',
   };
 
   return (
@@ -941,7 +950,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
           </div>
           <div style={{ display: 'flex', gap: 12, fontSize: '0.8125rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
             {svc.git_repo_url && <span><GitBranch size={11} style={{ display: 'inline' }} /> {svc.git_repo_url.replace('https://github.com/', '')}</span>}
-            {svc.port > 0    && <span><Globe size={11} style={{ display: 'inline' }} /> :{svc.port}</span>}
+            {svc.port > 0 && <span><Globe size={11} style={{ display: 'inline' }} /> :{svc.port}</span>}
           </div>
           {svc.status === 'running' && svc.cpu_percent !== undefined && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -1032,11 +1041,11 @@ function WebhookPanel({ serviceId }) {
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input 
-          readOnly 
-          className="form-input" 
-          value={webhookUrl} 
-          style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', flex: 1 }} 
+        <input
+          readOnly
+          className="form-input"
+          value={webhookUrl}
+          style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', flex: 1 }}
         />
         <button className="btn btn-ghost" onClick={copyToClipboard} style={{ height: 38, width: 38, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {copied ? <Check size={16} color="var(--green)" style={{ margin: 0 }} /> : <Copy size={16} style={{ margin: 0 }} />}
@@ -1284,21 +1293,21 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Domains 
+              Domains
               <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Add custom domains. Point your DNS A record to your server IP.">ℹ️</span>
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input 
-                className="form-input form-input-sm" 
-                value={domainVal} 
-                onChange={e => setDomainVal(e.target.value)} 
-                placeholder="e.g. app.yourdomain.com" 
+              <input
+                className="form-input form-input-sm"
+                value={domainVal}
+                onChange={e => setDomainVal(e.target.value)}
+                placeholder="e.g. app.yourdomain.com"
                 style={{ flex: 1 }}
               />
-              <button 
-                type="button" 
-                className="btn btn-ghost btn-sm" 
-                onClick={handleGenerateDomain} 
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleGenerateDomain}
                 style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
               >
                 Generate Domain
@@ -1308,13 +1317,13 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Direction * 
+              Direction *
               <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Select how requests to www and non-www subdomains are handled.">ℹ️</span>
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <select 
-                className="form-input form-input-sm" 
-                value={direction} 
+              <select
+                className="form-input form-input-sm"
+                value={direction}
                 onChange={e => setDirection(e.target.value)}
                 style={{ flex: 1 }}
               >
@@ -1322,10 +1331,10 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                 <option value="www">Redirect to www</option>
                 <option value="non-www">Redirect to non-www</option>
               </select>
-              <button 
-                type="button" 
-                className="btn btn-ghost btn-sm" 
-                onClick={handleSetDirection} 
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleSetDirection}
                 style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
               >
                 Set Direction
@@ -1348,10 +1357,10 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 // ── Main ProjectDetail ────────────────────────────────────────────────────────
 export default function ProjectDetail() {
   const { id } = useParams();
-  const [project, setProject]   = useState(null);
+  const [project, setProject] = useState(null);
   const [services, setServices] = useState([]);
-  const [domains, setDomains]   = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [domains, setDomains] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState('deployments');
   const [activeSvc, setActiveSvc] = useState(null);
@@ -1386,7 +1395,7 @@ export default function ProjectDetail() {
             project: project?.name || '',
             direction: 'both',
           });
-        } catch (_) {}
+        } catch (_) { }
       }
     }
     await servicesApi.deploy(svcId);
@@ -1424,7 +1433,7 @@ export default function ProjectDetail() {
   };
 
   const apps = services.filter(s => s.type === 'app');
-  const dbs  = services.filter(s => s.type === 'database');
+  const dbs = services.filter(s => s.type === 'database');
   const selectedSvc = services.find(s => s.id === activeSvc);
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
 
@@ -1432,7 +1441,7 @@ export default function ProjectDetail() {
 
   if (activeSvc && selectedSvc) {
     const matchedDomain = domains.find(d => d.service === selectedSvc.name && d.project === project?.name);
-    const serviceUrl = matchedDomain 
+    const serviceUrl = matchedDomain
       ? (matchedDomain.domain.startsWith('http') ? matchedDomain.domain : `http://${matchedDomain.domain}`)
       : (selectedSvc.port > 0 && selectedSvc.type === 'app' ? `http://${window.location.hostname}:${selectedSvc.port}` : null);
 
@@ -1442,9 +1451,9 @@ export default function ProjectDetail() {
         <div className="page-header" style={{ marginBottom: '1.25rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <button 
-                className="btn btn-ghost btn-sm" 
-                onClick={() => setActiveSvc(null)} 
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setActiveSvc(null)}
                 style={{ padding: '2px 8px', fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}
               >
                 &larr; Projects
@@ -1476,32 +1485,32 @@ export default function ProjectDetail() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button 
-              className="btn" 
-              onClick={() => handleDeploy(selectedSvc.id)} 
+            <button
+              className="btn"
+              onClick={() => handleDeploy(selectedSvc.id)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f59e0b', color: '#111', fontWeight: 600, border: 'none', height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
             >
               <Play size={13} /> Redeploy
             </button>
-            <button 
-              className="btn" 
-              onClick={() => handleRestart(selectedSvc.id)} 
+            <button
+              className="btn"
+              onClick={() => handleRestart(selectedSvc.id)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', fontWeight: 500, height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
             >
               <RefreshCw size={13} /> Restart
             </button>
             {selectedSvc.status === 'running' && (
-              <button 
-                className="btn" 
-                onClick={() => handleStop(selectedSvc.id)} 
+              <button
+                className="btn"
+                onClick={() => handleStop(selectedSvc.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 500, height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
               >
                 <X size={13} /> Stop
               </button>
             )}
-            <button 
-              className="btn btn-ghost" 
-              style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)', height: 34, display: 'flex', alignItems: 'center' }} 
+            <button
+              className="btn btn-ghost"
+              style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)', height: 34, display: 'flex', alignItems: 'center' }}
               onClick={() => handleDelete(selectedSvc.id)}
             >
               <Trash2 size={13} style={{ marginRight: 4 }} /> Delete
@@ -1511,23 +1520,35 @@ export default function ProjectDetail() {
 
         {/* Full-width Details Panel */}
         <div className="card hover-glow" style={{ padding: '1.5rem', minHeight: '400px' }}>
-          <div className="tabs" style={{ marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.25rem' }}>
-            <button className={`tab-btn ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => setActiveTab('deployments')}>Deployments</button>
-            <button className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>Logs</button>
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            items={[
+              { id: 'deployments', label: 'Deployments' },
+              { id: 'logs', label: 'Logs' },
+              ...(selectedSvc.git_repo_url ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
+              { id: 'envvars', label: 'Environment Variables' },
+              { id: 'settings', label: 'Settings', icon: Settings },
+            ]}
+          >
+            <TabsContent value="deployments">
+              <DeploymentsPanel serviceId={activeSvc} />
+            </TabsContent>
+            <TabsContent value="logs">
+              <ContainerLogsPanel serviceId={activeSvc} />
+            </TabsContent>
             {selectedSvc.git_repo_url && (
-              <button className={`tab-btn ${activeTab === 'webhooks' ? 'active' : ''}`} onClick={() => setActiveTab('webhooks')}>Webhooks</button>
+              <TabsContent value="webhooks">
+                <WebhookPanel serviceId={activeSvc} />
+              </TabsContent>
             )}
-            <button className={`tab-btn ${activeTab === 'envvars' ? 'active' : ''}`} onClick={() => setActiveTab('envvars')}>Environment Variables</button>
-            <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}><Settings size={13} style={{ marginRight: 5, display: 'inline', verticalAlign: 'middle' }} />Settings</button>
-          </div>
-
-          <div style={{ marginTop: '1rem' }}>
-            {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
-            {activeTab === 'logs'        && <ContainerLogsPanel serviceId={activeSvc} />}
-            {activeTab === 'webhooks'    && <WebhookPanel serviceId={activeSvc} />}
-            {activeTab === 'settings'    && <SettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />}
-            {activeTab === 'envvars'     && <EnvVarsPanel serviceId={activeSvc} />}
-          </div>
+            <TabsContent value="settings">
+              <SettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />
+            </TabsContent>
+            <TabsContent value="envvars">
+              <EnvVarsPanel serviceId={activeSvc} />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     );
@@ -1551,9 +1572,9 @@ export default function ProjectDetail() {
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {[
-          { label: 'Applications', val: apps.length,  icon: Package,  color: 'var(--accent)' },
-          { label: 'Databases',    val: dbs.length,   icon: Database, color: 'var(--blue)' },
-          { label: 'Running',      val: services.filter(s => s.status === 'running').length, icon: Play, color: 'var(--green)' },
+          { label: 'Applications', val: apps.length, icon: Package, color: 'var(--accent)' },
+          { label: 'Databases', val: dbs.length, icon: Database, color: 'var(--blue)' },
+          { label: 'Running', val: services.filter(s => s.status === 'running').length, icon: Play, color: 'var(--green)' },
         ].map(st => (
           <div key={st.label} className="card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 36, height: 36, borderRadius: 8, background: `${st.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1607,7 +1628,13 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      {showModal && <AddServiceModal projectId={id} projectName={project?.name} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
+      <AddServiceModal
+        projectId={id}
+        projectName={project?.name}
+        open={showModal}
+        onOpenChange={setShowModal}
+        onCreated={handleCreated}
+      />
     </div>
   );
 }

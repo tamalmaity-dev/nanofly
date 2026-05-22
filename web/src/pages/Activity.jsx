@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Activity, ShieldCheck, GitBranch, LogIn, Settings, Trash2, Plus, Server, Globe, RefreshCw, Loader2 } from 'lucide-react';
 import { activityApi } from '../api/client';
+import { Button } from '../components/ui';
 
 const TYPE_CONFIG = {
   login:    { icon: LogIn,       color: 'var(--blue)',       label: 'Auth' },
@@ -63,9 +64,9 @@ export default function ActivityLog() {
           <p className="page-subtitle">Audit trail of all deployments, logins and configuration changes.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="btn btn-ghost" onClick={fetchActivity} style={{ border: '1px solid var(--border)' }}>
-            <RefreshCw size={14} /> Refresh
-          </button>
+          <Button variant="ghost" onClick={fetchActivity} style={{ border: '1px solid var(--border)' }} icon={RefreshCw}>
+            Refresh
+          </Button>
           <Activity size={20} color="var(--text-muted)" />
           <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{events.length} events</span>
         </div>

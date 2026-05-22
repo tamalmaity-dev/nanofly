@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Server, Play, Square, RefreshCw, Search, AlertCircle, Loader2 } from 'lucide-react';
 import { systemdApi } from '../api/client';
+import { Button } from '../components/ui';
 
 function StatusBadge({ status }) {
   if (status === 'running') return <span className="badge badge-green">● running</span>;
@@ -71,9 +72,9 @@ export default function Services() {
           <h1 className="page-title">System Services</h1>
           <p className="page-subtitle">Manage systemd services on this server.</p>
         </div>
-        <button className="btn btn-ghost" onClick={fetchServices} style={{ border: '1px solid var(--border)' }}>
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <Button variant="ghost" onClick={fetchServices} style={{ border: '1px solid var(--border)' }} icon={RefreshCw}>
+          Refresh
+        </Button>
       </div>
 
       {error && (
@@ -116,18 +117,12 @@ export default function Services() {
                 <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{s.since || '—'}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-ghost btn-sm" title="Start" disabled={s.status === 'running' || acting === s.name}
-                      onClick={() => handleAction(s.name, 'start')}>
-                      {acting === s.name ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
-                    </button>
-                    <button className="btn btn-ghost btn-sm" title="Stop" disabled={s.status === 'stopped' || acting === s.name}
-                      onClick={() => handleAction(s.name, 'stop')}>
-                      <Square size={13} />
-                    </button>
-                    <button className="btn btn-ghost btn-sm" title="Restart" disabled={acting === s.name}
-                      onClick={() => handleAction(s.name, 'restart')}>
-                      <RefreshCw size={13} />
-                    </button>
+                    <Button variant="ghost" size="sm" title="Start" disabled={s.status === 'running'} loading={acting === s.name}
+                      onClick={() => handleAction(s.name, 'start')} icon={Play} />
+                    <Button variant="ghost" size="sm" title="Stop" disabled={s.status === 'stopped' || acting === s.name}
+                      onClick={() => handleAction(s.name, 'stop')} icon={Square} />
+                    <Button variant="ghost" size="sm" title="Restart" disabled={acting === s.name}
+                      onClick={() => handleAction(s.name, 'restart')} icon={RefreshCw} />
                   </div>
                 </td>
               </tr>

@@ -1,30 +1,33 @@
 // src/components/Sidebar.jsx — Navigation sidebar with update indicator
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../store/auth';
+import { useAuth } from '../../store/auth';
+import { useTheme } from '../../context/ThemeContext';
 import {
   LayoutDashboard, FolderOpen, Database, Globe, Terminal,
-  Settings, LogOut, Server, Activity, ArrowUpCircle, Files
+  Settings, LogOut, Server, Activity, ArrowUpCircle, Files,
+  Sun, Moon
 } from 'lucide-react';
-import { updateApi } from '../api/client';
+import { updateApi } from '../../api/client';
+import { Modal } from '../ui/Modal';
 
 const NAV = [
-  { label: 'Overview',    icon: LayoutDashboard, to: '/'           },
-  { label: 'Projects',    icon: FolderOpen,       to: '/projects'   },
-  { label: 'File Manager',icon: Files,            to: '/files'      },
-  { label: 'Databases',   icon: Database,          to: '/databases'  },
-  { label: 'Domains',     icon: Globe,             to: '/domains'    },
-  { label: 'Terminal',    icon: Terminal,           to: '/terminal'   },
+  { label: 'Overview', icon: LayoutDashboard, to: '/' },
+  { label: 'Projects', icon: FolderOpen, to: '/projects' },
+  { label: 'File Manager', icon: Files, to: '/files' },
+  { label: 'Databases', icon: Database, to: '/databases' },
+  { label: 'Domains', icon: Globe, to: '/domains' },
+  { label: 'Terminal', icon: Terminal, to: '/terminal' },
 ];
 
 const SYSTEM = [
-  { label: 'Services',    icon: Server,   to: '/services'  },
-  { label: 'Activity',    icon: Activity, to: '/activity'  },
+  { label: 'Services', icon: Server, to: '/services' },
+  { label: 'Activity', icon: Activity, to: '/activity' },
 ];
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
@@ -226,32 +229,42 @@ export default function Sidebar() {
           </span>
         </div>
 
-        <button className="nav-item" style={{ color: 'var(--red)', width: '100%' }} onClick={() => setConfirmSignout(true)}>
-          <LogOut size={16} />
-          Sign Out
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="nav-item"
+            style={{ flex: 1, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
+          <button
+            className="nav-item"
+            style={{ color: 'var(--red)', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}
+            onClick={() => setConfirmSignout(true)}
+            title="Sign Out"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
 
-      {confirmSignout && createPortal(
-        <div className="modal-overlay fade-in" onClick={() => setConfirmSignout(false)}>
-          <div className="modal-content fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
-            <div className="modal-header">
-              <h3 className="modal-title">Sign out?</h3>
-            </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              Your current panel session will be closed on this device.
-            </p>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setConfirmSignout(false)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleLogout}>
-                <LogOut size={16} />
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      <Modal
+        open={confirmSignout}
+        onOpenChange={setConfirmSignout}
+        title="Sign out?"
+        description="Your current panel session will be closed on this device."
+        maxWidth={380}
+      >
+        <div className="modal-footer" style={{ marginTop: '1.25rem' }}>
+          <button className="btn btn-ghost" onClick={() => setConfirmSignout(false)}>Cancel</button>
+          <button className="btn btn-danger" onClick={handleLogout}>
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
+      </Modal>
     </aside>
   );
 }

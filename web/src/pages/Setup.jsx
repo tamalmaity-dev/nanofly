@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { setupApi } from '../api/client';
+import { Button } from '../components/ui';
 
 export default function Setup() {
   const navigate = useNavigate();
@@ -98,9 +99,9 @@ export default function Setup() {
               ))}
             </div>
 
-            <button className="btn btn-primary btn-full btn-lg" onClick={() => setStep(2)}>
+            <Button className="btn-full btn-lg" variant="primary" onClick={() => setStep(2)}>
               Get Started →
-            </button>
+            </Button>
           </div>
         )}
 
@@ -184,18 +185,19 @@ export default function Setup() {
                 </div>
               </div>
 
-              <button className="btn btn-primary btn-full btn-lg" type="submit" disabled={loading}>
-                {loading ? <><div className="spinner" /> Creating Account…</> : 'Create Account & Enter Panel →'}
-              </button>
+              <Button className="btn-full btn-lg" variant="primary" type="submit" loading={loading}>
+                Create Account & Enter Panel →
+              </Button>
             </form>
 
-            <button
-              className="btn btn-ghost btn-full"
+            <Button
+              className="btn-full"
+              variant="ghost"
               style={{ marginTop: '0.5rem' }}
               onClick={() => setStep(1)}
             >
               ← Back
-            </button>
+            </Button>
           </div>
         )}
       </div>

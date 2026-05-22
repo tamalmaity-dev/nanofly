@@ -4,6 +4,7 @@ import { Cpu, MemoryStick, HardDrive, Thermometer, Wifi, Clock, Server, ArrowUpC
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { connectMetricsWS, metricsApi, updateApi } from '../api/client';
+import { Button } from '../components/ui';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtUptime(seconds) {
@@ -249,20 +250,22 @@ export default function Dashboard() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              className="btn btn-primary btn-sm"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => navigate('/settings')}
-              style={{ padding: '6px 16px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}
+              style={{ padding: '6px 16px', fontSize: '0.75rem' }}
             >
               Update Now
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setUpdateDismissed(true)}
               style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}
             >
               Dismiss
-            </button>
+            </Button>
           </div>
         </div>
       )}

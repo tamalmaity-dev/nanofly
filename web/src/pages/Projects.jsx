@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Plus, Trash2, LayoutGrid, LayoutList, MoreVertical } from 'lucide-react';
 import { projectsApi } from '../api/client';
+import { Modal, Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../components/ui';
 
 // ── Create Project Modal ────────────────────────────────────────────────────────
-function CreateProjectModal({ onClose, onSuccess }) {
+function CreateProjectModal({ open, onOpenChange, onSuccess }) {
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,43 +26,43 @@ function CreateProjectModal({ onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-overlay fade-in" onClick={onClose}>
-      <div className="modal-content fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
-        <div className="modal-header">
-          <h3 className="modal-title">New Project</h3>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New Project"
+      maxWidth={460}
+    >
+      <form onSubmit={handleSubmit} style={{ marginTop: 12 }}>
+        {error && <div className="auth-error" style={{ marginBottom: 12 }}>{error}</div>}
+        <div className="form-group">
+          <label className="form-label">Project Name</label>
+          <input
+            className="form-input"
+            placeholder="e.g. Production App"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            autoFocus
+          />
         </div>
-        <form onSubmit={handleSubmit}>
-          {error && <div className="auth-error" style={{ marginBottom: 12 }}>{error}</div>}
-          <div className="form-group">
-            <label className="form-label">Project Name</label>
-            <input
-              className="form-input"
-              placeholder="e.g. Production App"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Description (Optional)</label>
-            <textarea
-              className="form-input"
-              placeholder="What is this project for?"
-              value={desc}
-              onChange={e => setDesc(e.target.value)}
-              rows={3}
-              style={{ resize: 'vertical' }}
-            />
-          </div>
-          <div className="modal-footer" style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={loading || !name.trim()}>
-              {loading ? 'Creating...' : 'Create Project'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="form-group">
+          <label className="form-label">Description (Optional)</label>
+          <textarea
+            className="form-input"
+            placeholder="What is this project for?"
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            rows={3}
+            style={{ resize: 'vertical' }}
+          />
+        </div>
+        <div className="modal-footer" style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" variant="primary" loading={loading} disabled={!name.trim()}>
+            Create Project
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -69,9 +70,9 @@ function CreateProjectModal({ onClose, onSuccess }) {
 export default function Projects() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [viewMode, setViewMode]   = useState('grid'); // grid or list
+  const [viewMode, setViewMode] = useState('grid'); // grid or list
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -112,9 +113,9 @@ export default function Projects() {
             <button className={`btn btn-ghost ${viewMode === 'grid' ? 'active' : ''}`} style={{ padding: '6px' }} onClick={() => setViewMode('grid')}><LayoutGrid size={16} /></button>
             <button className={`btn btn-ghost ${viewMode === 'list' ? 'active' : ''}`} style={{ padding: '6px' }} onClick={() => setViewMode('list')}><LayoutList size={16} /></button>
           </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            <Plus size={16} /> New Project
-          </button>
+          <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>
+            New Project
+          </Button>
         </div>
       </div>
 
@@ -125,46 +126,46 @@ export default function Projects() {
           <div className="empty-icon"><FolderOpen size={32} /></div>
           <h3>No projects found</h3>
           <p>Get started by creating your first project environment.</p>
-          <button className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => setShowModal(true)}>
+          <Button variant="primary" style={{ marginTop: '1rem' }} onClick={() => setShowModal(true)}>
             Create Project
-          </button>
+          </Button>
         </div>
       ) : (
         <div className={viewMode === 'grid' ? "projects-grid" : "projects-list"}>
           {projects.map(p => (
-            <div 
-              key={p.id} 
-              className="card project-card hover-glow fade-in" 
+            <div
+              key={p.id}
+              className="card project-card hover-glow fade-in"
               onClick={() => navigate(`/projects/${p.id}`)}
               style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div className="project-icon" style={{ 
-                    width: 36, height: 36, borderRadius: 'var(--radius-sm)', 
+                  <div className="project-icon" style={{
+                    width: 36, height: 36, borderRadius: 'var(--radius-sm)',
                     background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: 'var(--accent)', border: '1px solid var(--border)' 
+                    color: 'var(--accent)', border: '1px solid var(--border)'
                   }}>
                     <FolderOpen size={18} />
                   </div>
                   <h3 style={{ fontSize: '1.05rem', fontWeight: 500, color: 'var(--text-primary)' }}>{p.name}</h3>
                 </div>
-                <div className="dropdown">
-                  <button className="btn btn-ghost" style={{ padding: 4 }} onClick={e => e.stopPropagation()}>
-                    <MoreVertical size={16} color="var(--text-muted)" />
-                  </button>
-                  <div className="dropdown-menu">
-                    <button className="dropdown-item danger" onClick={e => handleDelete(e, p.id)}>
-                      <Trash2 size={14} /> Delete Project
-                    </button>
-                  </div>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" onClick={e => e.stopPropagation()} icon={MoreVertical} />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent onClick={e => e.stopPropagation()}>
+                    <DropdownMenuItem variant="danger" onClick={e => handleDelete(e, p.id)}>
+                      <Trash2 size={14} style={{ marginRight: 6 }} /> Delete Project
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-              
+
               <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', flex: 1, marginBottom: '1.5rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                 {p.description || 'No description provided.'}
               </p>
-              
+
               <div style={{ display: 'flex', gap: 12, borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: 'auto' }}>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>0</span> Apps
@@ -178,17 +179,14 @@ export default function Projects() {
         </div>
       )}
 
-      {showModal && (
-        <CreateProjectModal 
-          onClose={() => setShowModal(false)} 
-          onSuccess={(newProject) => {
-            setShowModal(false);
-            setProjects([newProject, ...projects]);
-            // Optional: immediately navigate to the new project
-            // navigate(`/projects/${newProject.id}`);
-          }} 
-        />
-      )}
+      <CreateProjectModal
+        open={showModal}
+        onOpenChange={setShowModal}
+        onSuccess={(newProject) => {
+          setShowModal(false);
+          setProjects([newProject, ...projects]);
+        }}
+      />
     </div>
   );
 }

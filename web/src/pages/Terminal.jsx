@@ -4,6 +4,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalWsUrl } from '../api/client';
 import { Box, Maximize2, Minimize2, Server, TerminalSquare, Wifi, WifiOff } from 'lucide-react';
+import { Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
 import '@xterm/xterm/css/xterm.css';
 
 export default function Terminal() {
@@ -148,14 +149,12 @@ export default function Terminal() {
             <StatusIcon size={13} color={statusColor} />
             <span style={{ fontSize: '0.8125rem', color: statusColor, textTransform: 'capitalize' }}>{status}</span>
           </div>
-          {status === 'closed' || status === 'error' ? (
-            <button className="btn btn-ghost btn-sm" onClick={reconnect}>Reconnect</button>
-          ) : null}
-          <select
-            className="form-input terminal-target-select"
+          {(status === 'closed' || status === 'error') && (
+            <Button variant="ghost" size="sm" onClick={reconnect}>Reconnect</Button>
+          )}
+          <SelectRoot
             value={target.type === 'container' ? `container:${target.container}` : 'host'}
-            onChange={e => {
-              const value = e.target.value;
+            onValueChange={value => {
               if (value === 'host') {
                 setTarget({ type: 'host', container: '' });
               } else {
@@ -163,16 +162,17 @@ export default function Terminal() {
               }
             }}
           >
-            <option value="host">Host Root Terminal</option>
-            {containers.map(c => (
-              <option key={c.id} value={`container:${c.id}`}>
-                {c.name || c.id} ({c.id})
-              </option>
-            ))}
-          </select>
-          <button className="btn btn-ghost" onClick={() => setFullscreen(f => !f)}>
-            {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
+            <SelectTrigger style={{ width: 220 }} />
+            <SelectContent>
+              <SelectItem value="host">Host Root Terminal</SelectItem>
+              {containers.map(c => (
+                <SelectItem key={c.id} value={`container:${c.id}`}>
+                  {c.name || c.id} ({c.id.substring(0, 8)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </SelectRoot>
+          <Button variant="ghost" onClick={() => setFullscreen(f => !f)} icon={fullscreen ? Minimize2 : Maximize2} />
         </div>
       </div>
 

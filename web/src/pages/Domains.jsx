@@ -2,20 +2,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Globe, Plus, ShieldCheck, ShieldAlert, Clock, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';
 import { domainsApi } from '../api/client';
+import { Modal, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
 
 function SSLBadge({ status }) {
-  if (status === 'active')  return <span className="badge badge-green"><ShieldCheck size={11} /> Active</span>;
+  if (status === 'active') return <span className="badge badge-green"><ShieldCheck size={11} /> Active</span>;
   if (status === 'pending') return <span className="badge badge-yellow"><Clock size={11} /> Pending</span>;
   return <span className="badge badge-red"><ShieldAlert size={11} /> Error</span>;
 }
 
-function AddDomainModal({ onClose, onAdded }) {
-  const [domain, setDomain]   = useState('');
+function AddDomainModal({ open, onOpenChange, onAdded }) {
+  const [domain, setDomain] = useState('');
   const [service, setService] = useState('');
   const [project, setProject] = useState('');
   const [direction, setDirection] = useState('both');
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState(null);
+  const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,7 +26,7 @@ function AddDomainModal({ onClose, onAdded }) {
     try {
       await domainsApi.create({ domain: domain.trim(), service, project, direction });
       onAdded();
-      onClose();
+      onOpenChange(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -34,60 +35,62 @@ function AddDomainModal({ onClose, onAdded }) {
   };
 
   return (
-    <div className="modal-overlay fade-in" onClick={onClose}>
-      <div className="modal-content fade-in" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 className="modal-title">Add Custom Domain</h3>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}><X size={16} /></button>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add Custom Domain"
+      maxWidth={460}
+    >
+      <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label className="form-label">Domain Name</label>
+          <input className="form-input" placeholder="e.g. app.yourdomain.com" value={domain} onChange={e => setDomain(e.target.value)} autoFocus required />
         </div>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Domain Name</label>
-            <input className="form-input" placeholder="e.g. app.yourdomain.com" value={domain} onChange={e => setDomain(e.target.value)} autoFocus required />
+        <div className="form-group">
+          <label className="form-label">Service (optional)</label>
+          <input className="form-input" placeholder="e.g. my-app" value={service} onChange={e => setService(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Project (optional)</label>
+          <input className="form-input" placeholder="e.g. Production" value={project} onChange={e => setProject(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Direction</label>
+          <SelectRoot value={direction} onValueChange={setDirection}>
+            <SelectTrigger style={{ width: '100%' }} />
+            <SelectContent>
+              <SelectItem value="both">Allow www & non-www.</SelectItem>
+              <SelectItem value="www">Redirect to www</SelectItem>
+              <SelectItem value="non-www">Redirect to non-www</SelectItem>
+            </SelectContent>
+          </SelectRoot>
+        </div>
+        <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', padding: '0.75rem 1rem', marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+          <strong style={{ color: 'var(--text-secondary)' }}>DNS Setup Required:</strong> Point your domain's <code>A</code> record to this server's IP address before adding it here.
+        </div>
+        {error && (
+          <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginTop: '0.75rem', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <AlertCircle size={14} /> {error}
           </div>
-          <div className="form-group">
-            <label className="form-label">Service (optional)</label>
-            <input className="form-input" placeholder="e.g. my-app" value={service} onChange={e => setService(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Project (optional)</label>
-            <input className="form-input" placeholder="e.g. Production" value={project} onChange={e => setProject(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Direction</label>
-            <select className="form-input" value={direction} onChange={e => setDirection(e.target.value)}>
-              <option value="both">Allow www & non-www.</option>
-              <option value="www">Redirect to www</option>
-              <option value="non-www">Redirect to non-www</option>
-            </select>
-          </div>
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', padding: '0.75rem 1rem', marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-            <strong style={{ color: 'var(--text-secondary)' }}>DNS Setup Required:</strong> Point your domain's <code>A</code> record to this server's IP address before adding it here.
-          </div>
-          {error && (
-            <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginTop: '0.75rem', display: 'flex', gap: 6, alignItems: 'center' }}>
-              <AlertCircle size={14} /> {error}
-            </div>
-          )}
-          <div className="modal-footer">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={loading || !domain.trim()}>
-              {loading ? <Loader2 size={14} className="spin" /> : <Plus size={16} />} Add Domain
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        )}
+        <div className="modal-footer">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" variant="primary" loading={loading} icon={Plus}>
+            Add Domain
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
 // domain management page
 export default function Domains() {
   const [showModal, setShowModal] = useState(false);
-  const [domains, setDomains]     = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
-  const [deleting, setDeleting]   = useState(null);
+  const [domains, setDomains] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const fetchDomains = useCallback(async () => {
     try {
@@ -125,7 +128,7 @@ export default function Domains() {
       const verified = res?.verified ?? res?.data?.verified;
       const domainIPs = res?.domain_ips ?? res?.data?.domain_ips;
       const serverIPs = res?.server_ips ?? res?.data?.server_ips;
-      const errorMsg  = res?.error ?? res?.data?.error;
+      const errorMsg = res?.error ?? res?.data?.error;
       if (verified) {
         alert(`✅ DNS verified! Domain is correctly pointing to this server.`);
       } else if (errorMsg) {
@@ -157,8 +160,22 @@ export default function Domains() {
           <p className="page-subtitle">Manage custom domains and SSL certificates.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-ghost" onClick={fetchDomains}><RefreshCw size={16} /></button>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} /> Add Domain</button>
+          <Button
+            radius="small"
+            variant="solid"
+            onClick={fetchDomains}
+            icon={RefreshCw}
+          >
+            Refresh
+          </Button>
+          <Button
+            radius="small"
+            variant="solid"
+            onClick={() => setShowModal(true)}
+            icon={Plus}
+          >
+            Add Domain
+          </Button>
         </div>
       </div>
 
@@ -175,9 +192,9 @@ export default function Domains() {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
             Add a custom domain to point traffic to your services.
           </p>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            <Plus size={16} /> Add Your First Domain
-          </button>
+          <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>
+            Add Your First Domain
+          </Button>
         </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -211,13 +228,9 @@ export default function Domains() {
                   <td><SSLBadge status={d.tls_status} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="btn btn-ghost btn-sm" title="Verify DNS" onClick={() => handleVerify(d.id)}>
-                        <CheckCircle2 size={13} />
-                      </button>
-                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} title="Delete"
-                        disabled={deleting === d.id} onClick={() => handleDelete(d.id)}>
-                        {deleting === d.id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
-                      </button>
+                      <Button variant="ghost" size="sm" title="Verify DNS" onClick={() => handleVerify(d.id)} icon={CheckCircle2} />
+                      <Button variant="ghost" size="sm" style={{ color: 'var(--red)' }} title="Delete"
+                        loading={deleting === d.id} onClick={() => handleDelete(d.id)} icon={Trash2} />
                     </div>
                   </td>
                 </tr>
@@ -227,7 +240,7 @@ export default function Domains() {
         </div>
       )}
 
-      {showModal && <AddDomainModal onClose={() => setShowModal(false)} onAdded={fetchDomains} />}
+      <AddDomainModal open={showModal} onOpenChange={setShowModal} onAdded={fetchDomains} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { authApi, setupApi } from '../api/client';
+import { Button } from '../components/ui';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -99,18 +100,16 @@ export default function Login() {
             />
           </div>
 
-          <button
+          <Button
             id="login-submit"
-            className="btn btn-primary btn-full btn-lg"
+            className="btn-full btn-lg"
+            variant="primary"
             type="submit"
-            disabled={loading}
+            loading={loading}
             style={{ marginTop: '0.5rem' }}
           >
-            {loading
-              ? <><div className="spinner" /> Signing in…</>
-              : 'Sign In →'
-            }
-          </button>
+            Sign In →
+          </Button>
         </form>
 
         <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>

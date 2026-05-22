@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Database, Plus, RefreshCw, Copy, Eye, EyeOff, Trash2, X } from 'lucide-react';
 import { servicesApi, projectsApi } from '../api/client';
+import { Modal, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
 
 const DB_TYPES = [
   {
@@ -40,13 +41,13 @@ const DB_TYPES = [
   },
 ];
 
-function CreateModal({ projects, onClose, onCreated }) {
+function CreateModal({ projects, open, onOpenChange, onCreated }) {
   const [selectedType, setSelectedType] = useState(DB_TYPES[0]);
-  const [version, setVersion]           = useState(DB_TYPES[0].defaultVersion);
-  const [name,    setName]              = useState('');
-  const [projId,  setProjId]            = useState(projects[0]?.id || '');
-  const [loading, setLoading]           = useState(false);
-  const [error,   setError]             = useState('');
+  const [version, setVersion] = useState(DB_TYPES[0].defaultVersion);
+  const [name, setName] = useState('');
+  const [projId, setProjId] = useState(projects[0]?.id || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const selectType = (t) => {
     setSelectedType(t);
@@ -64,65 +65,70 @@ function CreateModal({ projects, onClose, onCreated }) {
   };
 
   return (
-    <div className="modal-overlay fade-in" onClick={onClose}>
-      <div className="modal-content fade-in" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <h3 className="modal-title">Create Database</h3>
-          <button className="btn btn-ghost" style={{ padding: 4 }} onClick={onClose}><X size={15} /></button>
-        </div>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create Database"
+      maxWidth={520}
+    >
 
-        {/* Type grid */}
-        <div className="db-type-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(100px,1fr))', marginBottom: '1rem' }}>
-          {DB_TYPES.map(t => (
-            <div key={t.id} className={`db-type-card ${selectedType.id === t.id ? 'selected' : ''}`} onClick={() => selectType(t)}>
-              <div className="db-type-icon" style={{ fontSize: '1.5rem' }}>{t.icon}</div>
-              <div className="db-type-name" style={{ fontSize: '0.8rem' }}>{t.name}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Version */}
-        {selectedType.versions.length > 1 && (
-          <div className="form-group">
-            <label className="form-label">Version</label>
-            <select className="form-input" value={version} onChange={e => setVersion(e.target.value)}>
-              {selectedType.versions.map(v => (
-                <option key={v} value={v}>{v.replace(`${selectedType.id}:`, '')}</option>
-              ))}
-            </select>
+      {/* Type grid */}
+      <div className="db-type-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(100px,1fr))', marginBottom: '1rem' }}>
+        {DB_TYPES.map(t => (
+          <div key={t.id} className={`db-type-card ${selectedType.id === t.id ? 'selected' : ''}`} onClick={() => selectType(t)}>
+            <div className="db-type-icon" style={{ fontSize: '1.5rem' }}>{t.icon}</div>
+            <div className="db-type-name" style={{ fontSize: '0.8rem' }}>{t.name}</div>
           </div>
-        )}
-
-        <div className="form-group">
-          <label className="form-label">Instance Name</label>
-          <input className="form-input" placeholder={`my-${selectedType.id}`} value={name} onChange={e => setName(e.target.value)} autoFocus />
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">Project</label>
-          <select className="form-input" value={projId} onChange={e => setProjId(e.target.value)}>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-
-        {/* Summary */}
-        <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', padding: '0.75rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-          <strong style={{ color: 'var(--text-secondary)' }}>Image: </strong>
-          <code style={{ fontFamily: 'JetBrains Mono,monospace' }}>{version}</code>
-          <span style={{ marginLeft: 12 }}>Port: {selectedType.port}</span>
-          <span style={{ marginLeft: 12 }}>Auto-credentials: ✓</span>
-        </div>
-
-        {error && <p style={{ color: 'var(--red)', fontSize: '0.875rem' }}>{error}</p>}
-
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit} disabled={loading || !projId}>
-            {loading ? 'Creating…' : `Create ${selectedType.name}`}
-          </button>
-        </div>
+        ))}
       </div>
-    </div>
+
+      {/* Version */}
+      {selectedType.versions.length > 1 && (
+        <div className="form-group">
+          <label className="form-label">Version</label>
+          <SelectRoot value={version} onValueChange={setVersion}>
+            <SelectTrigger style={{ width: '100%' }} />
+            <SelectContent>
+              {selectedType.versions.map(v => (
+                <SelectItem key={v} value={v}>{v.replace(`${selectedType.id}:`, '')}</SelectItem>
+              ))}
+            </SelectContent>
+          </SelectRoot>
+        </div>
+      )}
+
+      <div className="form-group">
+        <label className="form-label">Instance Name</label>
+        <input className="form-input" placeholder={`my-${selectedType.id}`} value={name} onChange={e => setName(e.target.value)} autoFocus />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Project</label>
+        <SelectRoot value={projId} onValueChange={setProjId}>
+          <SelectTrigger style={{ width: '100%' }} />
+          <SelectContent>
+            {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </SelectRoot>
+      </div>
+
+      {/* Summary */}
+      <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', padding: '0.75rem 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+        <strong style={{ color: 'var(--text-secondary)' }}>Image: </strong>
+        <code style={{ fontFamily: 'JetBrains Mono,monospace' }}>{version}</code>
+        <span style={{ marginLeft: 12 }}>Port: {selectedType.port}</span>
+        <span style={{ marginLeft: 12 }}>Auto-credentials: ✓</span>
+      </div>
+
+      {error && <p style={{ color: 'var(--red)', fontSize: '0.875rem' }}>{error}</p>}
+
+      <div className="modal-footer">
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="primary" onClick={submit} loading={loading} disabled={!projId}>
+          Create {selectedType.name}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -136,22 +142,18 @@ function ConnString({ value }) {
       <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono,monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
         {show ? value : '••••••••••••••••••••••••••'}
       </code>
-      <button className="btn btn-ghost" style={{ padding: 3 }} onClick={() => setShow(s => !s)}>
-        {show ? <EyeOff size={12} /> : <Eye size={12} />}
-      </button>
-      <button className="btn btn-ghost" style={{ padding: 3 }} onClick={() => navigator.clipboard.writeText(value)}>
-        <Copy size={12} />
-      </button>
+      <Button variant="ghost" size="sm" onClick={() => setShow(s => !s)} icon={show ? EyeOff : Eye} />
+      <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(value)} icon={Copy} />
     </div>
   );
 }
 
 export default function Databases() {
-  const [dbs,       setDbs]       = useState([]);
-  const [projects,  setProjects]  = useState([]);
-  const [envMap,    setEnvMap]    = useState({});   // svcId → CONNECTION_STRING
+  const [dbs, setDbs] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [envMap, setEnvMap] = useState({});   // svcId → CONNECTION_STRING
   const [showModal, setShowModal] = useState(false);
-  const [loading,   setLoading]   = useState(true);
+  const [loading, setLoading] = useState(true);
 
   const dbTypeInfo = id => DB_TYPES.find(t => t.id === id) || { icon: '🗄️', name: id };
 
@@ -176,7 +178,7 @@ export default function Databases() {
       servicesApi.getEnvVars(db.id).then(vars => {
         const cs = vars.find(v => v.key === 'CONNECTION_STRING');
         if (cs) setEnvMap(m => ({ ...m, [db.id]: cs.value }));
-      }).catch(() => {});
+      }).catch(() => { });
     });
   }, [dbs]);
 
@@ -203,8 +205,10 @@ export default function Databases() {
           <p className="page-subtitle">Managed database containers across all projects.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-ghost" onClick={load}><RefreshCw size={16} /></button>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} /> New Database</button>
+          <Button variant="ghost" onClick={load} icon={RefreshCw} />
+          <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>
+            New Database
+          </Button>
         </div>
       </div>
 
@@ -238,9 +242,7 @@ export default function Databases() {
                     <td><code style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: '0.8125rem' }}>{db.port > 0 ? db.port : '—'}</code></td>
                     <td><ConnString value={envMap[db.id]} /></td>
                     <td>
-                      <button className="btn btn-ghost" style={{ padding: 6, color: 'var(--red)' }} onClick={() => handleDelete(db.id)}>
-                        <Trash2 size={14} />
-                      </button>
+                      <Button variant="ghost" size="sm" style={{ color: 'var(--red)' }} onClick={() => handleDelete(db.id)} icon={Trash2} />
                     </td>
                   </tr>
                 );
@@ -250,7 +252,7 @@ export default function Databases() {
         )}
       </div>
 
-      {showModal && <CreateModal projects={projects} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
+      <CreateModal projects={projects} open={showModal} onOpenChange={setShowModal} onCreated={handleCreated} />
     </div>
   );
 }

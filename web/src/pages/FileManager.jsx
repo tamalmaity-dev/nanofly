@@ -6,6 +6,7 @@ import {
   LayoutGrid, LayoutList, AlertTriangle
 } from 'lucide-react';
 import { filesApi } from '../api/client';
+import { Modal, Button } from '../components/ui';
 
 export default function FileManager() {
   const [currentPath, setCurrentPath] = useState('/');
@@ -239,7 +240,7 @@ export default function FileManager() {
 
   return (
     <div className="page-content fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 4rem)', padding: '1.5rem' }}>
-      
+
       {/* Top Header */}
       <div className="page-header" style={{ marginBottom: '1.25rem', flexShrink: 0 }}>
         <div>
@@ -250,18 +251,18 @@ export default function FileManager() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
           <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
-          <button className="btn btn-secondary btn-sm" disabled={uploadLoading} onClick={() => fileInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Upload size={14} /> Upload Files
-          </button>
-          <button className="btn btn-secondary btn-sm" disabled={uploadLoading} onClick={() => folderInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Upload size={14} /> Upload Folder
-          </button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateModal('folder')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <FolderPlus size={14} /> New Folder
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal('file')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <FilePlus size={14} /> New File
-          </button>
+          <Button variant="secondary" size="sm" loading={uploadLoading} onClick={() => fileInputRef.current?.click()} icon={Upload}>
+            Upload Files
+          </Button>
+          <Button variant="secondary" size="sm" loading={uploadLoading} onClick={() => folderInputRef.current?.click()} icon={Upload}>
+            Upload Folder
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setShowCreateModal('folder')} icon={FolderPlus}>
+            New Folder
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setShowCreateModal('file')} icon={FilePlus}>
+            New File
+          </Button>
         </div>
       </div>
 
@@ -297,9 +298,9 @@ export default function FileManager() {
             </span>
           </div>
         ))}
-        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', padding: '4px 8px' }} onClick={(e) => copyPath(currentPath || rootPath, e)}>
-          <Copy size={13} /> Copy Path
-        </button>
+        <Button variant="ghost" size="sm" style={{ marginLeft: 'auto', padding: '4px 8px' }} onClick={(e) => copyPath(currentPath || rootPath, e)} icon={Copy}>
+          Copy Path
+        </Button>
       </div>
 
       <div style={{
@@ -338,7 +339,7 @@ export default function FileManager() {
 
       {/* Main Split Layout */}
       <div style={{ display: 'flex', gap: '1.25rem', flex: 1, minHeight: 0 }}>
-        
+
         {/* Left Side: Directory Explorer */}
         <div className="card" style={{
           flex: 1.2,
@@ -352,24 +353,24 @@ export default function FileManager() {
           {/* Search bar */}
           <div className="form-group" style={{ marginBottom: '1rem', flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                className="form-input"
-                style={{ paddingLeft: 36 }}
-                placeholder="Filter files by name..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 3 }}>
-              <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 6, color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                <LayoutList size={15} />
-              </button>
-              <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 6, color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                <LayoutGrid size={15} />
-              </button>
-            </div>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  className="form-input"
+                  style={{ paddingLeft: 36 }}
+                  placeholder="Filter files by name..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 3 }}>
+                <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 6, color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                  <LayoutList size={15} />
+                </button>
+                <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 6, color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                  <LayoutGrid size={15} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -492,21 +493,21 @@ export default function FileManager() {
                           {item.size_human}
                         </span>
                       )}
-                      <button
-                        className="btn btn-ghost btn-sm"
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         style={{ color: 'var(--text-muted)', padding: 4 }}
                         onClick={(e) => copyPath(item.path, e)}
                         title="Copy path"
-                      >
-                        <Copy size={14} />
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
+                        icon={Copy}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         style={{ color: 'var(--red)', padding: 4 }}
                         onClick={(e) => handleDeleteItem(item, e)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                        icon={Trash2}
+                      />
                     </div>
                   </div>
                 ))}
@@ -527,7 +528,7 @@ export default function FileManager() {
         }}>
           {selectedFile ? (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              
+
               {/* Editor Header */}
               <div style={{
                 display: 'flex',
@@ -551,28 +552,28 @@ export default function FileManager() {
                   <code style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 520 }}>
                     {selectedFile.path}
                   </code>
-                  <button className="btn btn-ghost btn-sm" style={{ padding: 3 }} onClick={(e) => copyPath(selectedFile.path, e)} title="Copy file path">
-                    <Copy size={13} />
-                  </button>
+                  <Button variant="ghost" size="sm" style={{ padding: 3 }} onClick={(e) => copyPath(selectedFile.path, e)} title="Copy file path" icon={Copy} />
                 </div>
 
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    className="btn btn-ghost btn-sm"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setSelectedFile(null)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                    icon={X}
                   >
-                    <X size={14} /> Close
-                  </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={!isModified || saveLoading}
+                    Close
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={!isModified}
+                    loading={saveLoading}
                     onClick={handleSaveFile}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    icon={Save}
                   >
-                    <Save size={14} />
-                    {saveLoading ? 'Saving...' : 'Save File'}
-                  </button>
+                    Save File
+                  </Button>
                 </div>
               </div>
 
@@ -620,37 +621,37 @@ export default function FileManager() {
       </div>
 
       {/* Create File / Folder Modal */}
-      {showCreateModal && (
-        <div className="modal-overlay fade-in" onClick={() => setShowCreateModal(null)}>
-          <div className="modal-content fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
-            <div className="modal-header">
-              <h3 className="modal-title">New {showCreateModal === 'folder' ? 'Folder' : 'File'}</h3>
-            </div>
-            <form onSubmit={handleCreateItem}>
-              {createError && (
-                <div className="auth-error" style={{ marginBottom: 12 }}>{createError}</div>
-              )}
-              <div className="form-group">
-                <label className="form-label">{showCreateModal === 'folder' ? 'Folder Name' : 'File Name'}</label>
-                <input
-                  className="form-input"
-                  placeholder={showCreateModal === 'folder' ? 'e.g. src' : 'e.g. index.js'}
-                  value={newItemName}
-                  onChange={e => setNewItemName(e.target.value)}
-                  autoFocus
-                  required
-                />
-              </div>
-              <div className="modal-footer" style={{ marginTop: 20, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowCreateModal(null)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-sm" disabled={createLoading || !newItemName.trim()}>
-                  {createLoading ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </form>
+      <Modal
+        open={!!showCreateModal}
+        onOpenChange={(open) => {
+          if (!open) setShowCreateModal(null);
+        }}
+        title={`New ${showCreateModal === 'folder' ? 'Folder' : 'File'}`}
+        maxWidth={400}
+      >
+        <form onSubmit={handleCreateItem}>
+          {createError && (
+            <div className="auth-error" style={{ marginBottom: 12 }}>{createError}</div>
+          )}
+          <div className="form-group">
+            <label className="form-label">{showCreateModal === 'folder' ? 'Folder Name' : 'File Name'}</label>
+            <input
+              className="form-input"
+              placeholder={showCreateModal === 'folder' ? 'e.g. src' : 'e.g. index.js'}
+              value={newItemName}
+              onChange={e => setNewItemName(e.target.value)}
+              autoFocus
+              required
+            />
           </div>
-        </div>
-      )}
+          <div className="modal-footer" style={{ marginTop: 20, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" size="sm" onClick={() => setShowCreateModal(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" size="sm" loading={createLoading} disabled={!newItemName.trim()}>
+              Create
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

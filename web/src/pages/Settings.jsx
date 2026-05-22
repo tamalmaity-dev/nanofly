@@ -15,35 +15,14 @@ const TABS = [
   { id: 'updates', label: 'Updates', icon: RefreshCw },
 ];
 
+import { Field, SaveBar, Switch, Tabs, TabsContent, SelectRoot, SelectTrigger, SelectContent, SelectItem, Button } from '../components/ui';
+
 function Toggle({ checked, onChange }) {
   return (
-    <label className="toggle">
-      <input type="checkbox" checked={checked === 'true'} onChange={e => onChange(e.target.checked ? 'true' : 'false')} />
-      <span className="toggle-slider" />
-    </label>
-  );
-}
-
-function Field({ label, desc, children }) {
-  return (
-    <div className="settings-row">
-      <div>
-        <div className="settings-row-label">{label}</div>
-        {desc && <div className="settings-row-desc">{desc}</div>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function SaveBar({ saving, saved, onSave }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-      <button className="btn btn-primary" onClick={onSave} disabled={saving}>
-        <Save size={15} /> {saving ? 'Saving...' : 'Save Settings'}
-      </button>
-      {saved && <span style={{ color: 'var(--green)', fontSize: '0.85rem' }}>Saved</span>}
-    </div>
+    <Switch
+      checked={checked === 'true'}
+      onCheckedChange={checkedState => onChange(checkedState ? 'true' : 'false')}
+    />
   );
 }
 
@@ -79,11 +58,14 @@ function SecurityTab({ settings, setSetting, onSave, saving, saved }) {
       <div className="settings-section">
         <div className="settings-section-title">Authentication</div>
         <Field label="JWT Session Duration" desc="Stored for panel auth policy">
-          <select className="form-input" style={{ maxWidth: 180 }} value={settings['security.session_duration'] || '24h'} onChange={e => setSetting('security.session_duration', e.target.value)}>
-            <option value="24h">24 hours</option>
-            <option value="7d">7 days</option>
-            <option value="30d">30 days</option>
-          </select>
+          <SelectRoot value={settings['security.session_duration'] || '24h'} onValueChange={val => setSetting('security.session_duration', val)}>
+            <SelectTrigger style={{ width: 180 }} />
+            <SelectContent>
+              <SelectItem value="24h">24 hours</SelectItem>
+              <SelectItem value="7d">7 days</SelectItem>
+              <SelectItem value="30d">30 days</SelectItem>
+            </SelectContent>
+          </SelectRoot>
         </Field>
       </div>
       <div className="settings-section">
@@ -147,7 +129,7 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
   const [busy, setBusy] = useState(false);
 
   const load = async () => setBackups(await backupsApi.list());
-  useEffect(() => { load().catch(() => {}); }, []);
+  useEffect(() => { load().catch(() => { }); }, []);
 
   const create = async () => {
     setBusy(true);
@@ -192,9 +174,9 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 240px) 1fr auto', gap: 10, alignItems: 'center' }}>
           <input className="form-input" value={manualName} onChange={e => setManualName(e.target.value)} placeholder="backup-name" />
           <input className="form-input" value={manualDesc} onChange={e => setManualDesc(e.target.value)} placeholder="Description" />
-          <button className="btn btn-primary" onClick={create} disabled={busy}>
-            <Archive size={15} /> {busy ? 'Creating...' : 'Run Backup'}
-          </button>
+          <Button variant="primary" onClick={create} loading={busy} icon={Archive}>
+            Run Backup
+          </Button>
         </div>
       </div>
 
@@ -238,9 +220,9 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
 function UpdateProgressSteps({ status, log }) {
   const steps = [
     { key: 'downloading', label: 'Downloading Update', desc: 'Fetching target release archives from GitHub.' },
-    { key: 'extracting',  label: 'Extracting Files',    desc: 'Decompressing package contents locally.' },
-    { key: 'installing',  label: 'Installing Assets',   desc: 'Replacing system binaries and running database checks.' },
-    { key: 'restarting',  label: 'Restarting Service',  desc: 'Re-initializing the NanoFly application daemon.' }
+    { key: 'extracting', label: 'Extracting Files', desc: 'Decompressing package contents locally.' },
+    { key: 'installing', label: 'Installing Assets', desc: 'Replacing system binaries and running database checks.' },
+    { key: 'restarting', label: 'Restarting Service', desc: 'Re-initializing the NanoFly application daemon.' }
   ];
 
   const getStepState = (stepKey, index) => {
@@ -280,8 +262,8 @@ function UpdateProgressSteps({ status, log }) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   background: state === 'completed' ? 'var(--green)' :
-                              state === 'active' ? 'var(--accent)' :
-                              state === 'error' ? 'var(--red)' : 'var(--bg-base)',
+                    state === 'active' ? 'var(--accent)' :
+                      state === 'error' ? 'var(--red)' : 'var(--bg-base)',
                   border: `1.5px solid ${state === 'pending' ? 'var(--border)' : 'transparent'}`,
                   color: '#fff',
                   fontSize: '0.75rem',
@@ -290,8 +272,8 @@ function UpdateProgressSteps({ status, log }) {
                   transition: 'all 0.3s ease'
                 }}>
                   {state === 'completed' ? <Check size={12} strokeWidth={3} /> :
-                   state === 'active' ? <div className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5, borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.2)' }} /> :
-                   state === 'error' ? '!' : idx + 1}
+                    state === 'active' ? <div className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5, borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.2)' }} /> :
+                      state === 'error' ? '!' : idx + 1}
                 </div>
                 {idx < steps.length - 1 && (
                   <div style={{
@@ -410,16 +392,17 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
       <div className="settings-section">
         <div className="settings-section-title">Update Channel</div>
         <Field label="Release Channel" desc="Stable receives fully tested versions. Beta receives pre-releases.">
-          <select 
-            className="form-input" 
-            style={{ maxWidth: 180 }} 
-            value={settings['updates.channel'] || 'stable'} 
-            onChange={e => setSetting('updates.channel', e.target.value)}
+          <SelectRoot
+            value={settings['updates.channel'] || 'stable'}
+            onValueChange={val => setSetting('updates.channel', val)}
             disabled={updating}
           >
-            <option value="stable">Stable</option>
-            <option value="beta">Beta Channel</option>
-          </select>
+            <SelectTrigger style={{ width: 180 }} />
+            <SelectContent>
+              <SelectItem value="stable">Stable</SelectItem>
+              <SelectItem value="beta">Beta Channel</SelectItem>
+            </SelectContent>
+          </SelectRoot>
         </Field>
         <SaveBar saving={saving} saved={saved} onSave={onSave} />
       </div>
@@ -429,9 +412,9 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
         <div className="settings-row" style={{ alignItems: 'flex-start' }}>
           <div><div className="settings-row-label">Current Version</div><div className="settings-row-desc" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{info?.current_version || 'dev'}</div></div>
           <div><div className="settings-row-label">Latest Available</div><div className="settings-row-desc" style={{ fontFamily: 'monospace' }}>{info?.latest_version || 'dev'}</div></div>
-          <button className="btn btn-ghost" style={{ border: '1px solid var(--border)' }} onClick={() => checkUpdates()} disabled={checking || updating}>
-            <RefreshCw size={14} className={checking ? 'spin' : ''} /> Check
-          </button>
+          <Button variant="ghost" style={{ border: '1px solid var(--border)' }} onClick={() => checkUpdates()} loading={checking} disabled={updating} icon={RefreshCw}>
+            Check
+          </Button>
         </div>
 
         {info?.has_update && !updating && (
@@ -452,7 +435,7 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
                 {info.prerelease ? 'Beta' : 'Stable'}
               </span>
             </div>
-            
+
             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               A new update is available for NanoFly. We recommend updating to keep your panel secure and up-to-date with the latest features.
             </div>
@@ -486,9 +469,9 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
             )}
 
             <div style={{ display: 'flex', gap: 12, marginTop: '0.5rem' }}>
-              <button className="btn btn-primary" onClick={applyUpdate} disabled={updating}>
-                <RefreshCw size={14} /> Start Automatic Update
-              </button>
+              <Button variant="primary" onClick={applyUpdate} loading={updating} icon={RefreshCw}>
+                Start Automatic Update
+              </Button>
             </div>
           </div>
         )}
@@ -561,23 +544,26 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="tabs">
-        {TABS.map(t => {
-          const Icon = t.icon;
-          return (
-            <button key={t.id} className={`tab-btn ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
-              <Icon size={14} style={{ display: 'inline', marginRight: 6 }} />{t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {tab === 'general' && <GeneralTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} user={user} />}
-      {tab === 'security' && <SecurityTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
-      {tab === 'notifications' && <NotificationsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
-      {tab === 'api' && <ApiKeysTab />}
-      {tab === 'backups' && <BackupsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
-      {tab === 'updates' && <UpdatesTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />}
+      <Tabs value={tab} onValueChange={setTab} items={TABS}>
+        <TabsContent value="general">
+          <GeneralTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} user={user} />
+        </TabsContent>
+        <TabsContent value="security">
+          <SecurityTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />
+        </TabsContent>
+        <TabsContent value="notifications">
+          <NotificationsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />
+        </TabsContent>
+        <TabsContent value="api">
+          <ApiKeysTab />
+        </TabsContent>
+        <TabsContent value="backups">
+          <BackupsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />
+        </TabsContent>
+        <TabsContent value="updates">
+          <UpdatesTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
