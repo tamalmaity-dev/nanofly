@@ -158,7 +158,7 @@ export const backupsApi = {
 };
 
 export const updateApi = {
-  check: () => get('/settings/update/check'),
+  check: (channel = '') => get(`/settings/update/check${channel ? `?channel=${channel}` : ''}`),
   apply: () => post('/settings/update/apply'),
   log:   () => get('/settings/update/log'),
 };

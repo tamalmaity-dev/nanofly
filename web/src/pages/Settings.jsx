@@ -344,9 +344,14 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
   const [updateLog, setUpdateLog] = useState('');
   const [updateStatus, setUpdateStatus] = useState('idle');
 
-  const checkUpdates = async () => {
+  const checkUpdates = async (channelOverride) => {
     setChecking(true);
-    try { setInfo(await updateApi.check()); } finally { setChecking(false); }
+    try {
+      const activeChannel = channelOverride !== undefined ? channelOverride : (settings['updates.channel'] || 'stable');
+      setInfo(await updateApi.check(activeChannel));
+    } finally {
+      setChecking(false);
+    }
   };
 
   const pollHealthAndReload = async () => {
@@ -392,7 +397,13 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
     }
   };
 
-  useEffect(() => { checkUpdates(); checkStatus(); }, []);
+  useEffect(() => {
+    checkStatus();
+  }, []);
+
+  useEffect(() => {
+    checkUpdates(settings['updates.channel'] || 'stable');
+  }, [settings['updates.channel']]);
 
   return (
     <div className="fade-in">
@@ -418,7 +429,7 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
         <div className="settings-row" style={{ alignItems: 'flex-start' }}>
           <div><div className="settings-row-label">Current Version</div><div className="settings-row-desc" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{info?.current_version || 'dev'}</div></div>
           <div><div className="settings-row-label">Latest Available</div><div className="settings-row-desc" style={{ fontFamily: 'monospace' }}>{info?.latest_version || 'dev'}</div></div>
-          <button className="btn btn-ghost" style={{ border: '1px solid var(--border)' }} onClick={checkUpdates} disabled={checking || updating}>
+          <button className="btn btn-ghost" style={{ border: '1px solid var(--border)' }} onClick={() => checkUpdates()} disabled={checking || updating}>
             <RefreshCw size={14} className={checking ? 'spin' : ''} /> Check
           </button>
         </div>

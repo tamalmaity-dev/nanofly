@@ -722,7 +722,10 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Detect update channel preference (stable or beta)
-	channel := s.setting(r.Context(), "updates.channel")
+	channel := r.URL.Query().Get("channel")
+	if channel == "" {
+		channel = s.setting(r.Context(), "updates.channel")
+	}
 	if channel == "" {
 		if strings.Contains(currentVersion, "-") {
 			channel = "beta"
@@ -750,7 +753,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	hasUpdate := targetRelease.TagName != "" && semverGt(targetRelease.TagName, currentVersion)
+	hasUpdate := targetRelease.TagName != "" && semverCompare(targetRelease.TagName, currentVersion) != 0
 
 	response.Success(w, map[string]any{
 		"current_version": currentVersion,
@@ -1199,9 +1202,35 @@ func (s *Server) runUpdateLoop() {
 		fail(fmt.Sprintf("Failed to parse release data: %v", err))
 		return
 	}
-	release := releaseList[0]
+	currentVersion := s.getCurrentVersion()
+	channel := s.setting(context.Background(), "updates.channel")
+	if channel == "" {
+		if strings.Contains(currentVersion, "-") {
+			channel = "beta"
+		} else {
+			channel = "stable"
+		}
+	}
+	isBetaChannel := channel == "beta"
 
-	logMsg(fmt.Sprintf("Latest release: %s", release.TagName))
+	var release ghReleaseJSON
+	if isBetaChannel {
+		release = releaseList[0]
+	} else {
+		found := false
+		for i := range releaseList {
+			if !releaseList[i].Prerelease {
+				release = releaseList[i]
+				found = true
+				break
+			}
+		}
+		if !found {
+			release = releaseList[0]
+		}
+	}
+
+	logMsg(fmt.Sprintf("Latest release targeting channel (%s): %s", channel, release.TagName))
 
 	// 2. Find the right asset for this architecture
 	arch := runtime.GOARCH
