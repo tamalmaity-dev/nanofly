@@ -996,12 +996,13 @@ function ContainerLogsPanel({ serviceId }) {
         background: '#0d1117',
         border: '1px solid var(--border)',
         borderRadius: 8,
-        padding: '0.75rem',
-        fontSize: '0.8rem',
+        padding: '1rem',
+        fontSize: '0.875rem',
+        lineHeight: 1.6,
         color: '#e2e8f0',
         overflow: 'auto',
         maxHeight: 320,
-        fontFamily: 'JetBrains Mono, monospace',
+        fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
         whiteSpace: 'pre-wrap',
       }}>
         {logs}

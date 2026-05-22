@@ -28,8 +28,8 @@ export default function Terminal() {
     // ── 2. Create xterm instance ──────────────────────────────────────────
     const term = new XTerm({
       theme: {
-        background: '#070b12',
-        foreground: '#d7e3f4',
+        background: '#0d1117',
+        foreground: '#e2e8f0',
         cursor: '#22f7a8',
         selectionBackground: '#2d4a74',
         black: '#0b1020',
@@ -39,7 +39,7 @@ export default function Terminal() {
         blue: '#5b8cff',
         magenta: '#c084fc',
         cyan: '#38d9ff',
-        white: '#d7e3f4',
+        white: '#e2e8f0',
         brightBlack: '#556070',
         brightRed: '#ff7b93',
         brightGreen: '#69f0bd',
@@ -51,7 +51,7 @@ export default function Terminal() {
       },
       fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
       fontSize: 14,
-      lineHeight: 1.5,
+      lineHeight: 1.6,
       cursorBlink: true,
       cursorStyle: 'bar',
       scrollback: 5000,

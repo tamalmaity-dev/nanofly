@@ -321,12 +321,13 @@ function UpdateProgressSteps({ status, log }) {
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius)',
             padding: '1rem',
-            color: '#c9d1d9',
-            fontSize: '0.8rem',
+            color: '#e2e8f0',
+            fontSize: '0.875rem',
+            lineHeight: 1.6,
             maxHeight: 200,
             overflowY: 'auto',
             whiteSpace: 'pre-wrap',
-            fontFamily: 'monospace'
+            fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace'
           }}>
             {log}
           </pre>
