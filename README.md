@@ -15,91 +15,65 @@
 
 <p align="center">
   <a href="https://github.com/tamalmaity-dev/nanofly/releases/latest"><img src="https://img.shields.io/github/v/release/tamalmaity-dev/nanofly?style=flat-square&color=00d4aa" alt="Latest Release" /></a>
-  <a href="#license"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square" alt="License: AGPL v3" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square" alt="License: Apache 2.0" /></a>
   <a href="https://github.com/tamalmaity-dev/nanofly/actions"><img src="https://img.shields.io/github/actions/workflow/status/tamalmaity-dev/nanofly/release.yml?style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://github.com/tamalmaity-dev/nanofly/stargazers"><img src="https://img.shields.io/github/stars/tamalmaity-dev/nanofly?style=flat-square" alt="Stars" /></a>
 </p>
 
 ---
 
-## 🚀 Installation
+## 🚀 Getting Started
 
-To get started, run the following command on your server:
+To install NanoFly on your server, run the following command:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/install.sh | sudo bash
 ```
 
-That's it. NanoFly will be installed, configured, and running as a system service.
+Once execution completes, NanoFly is set up as a system service. Open the URL shown in your terminal to create your admin account and start deploying.
 
-> **Note**
-> Please refer to the docs for more information about the installation. Supports **x86_64** and **ARM64** (Raspberry Pi).
+> **System Requirements**
+> - Ubuntu 20.04+, Debian 11+, or Rocky Linux 8+
+> - Docker Engine installed and running
+> - Supports **x86_64** and **ARM64** architectures (including Raspberry Pi 4/5)
 
 ---
 
 ## ✨ Features
 
-### 🐳 Docker Application Deployment
-Deploy applications from Docker images or directly from GitHub repositories. Automatic container build pipelines with real-time build log streaming, environment variable management, and one-click start/stop controls.
+### 🐳 Application Deployment
+- **Direct GitHub Integration:** Connect your repository and deploy branches automatically.
+- **Docker-ready Builds:** Built-in builder to build your Dockerfiles, run build command steps, and handle deployments.
+- **Streaming Logs:** Inspect compilation and runtime logs in real-time.
+- **Environment Management:** Easily define, update, and hide environment secrets for your projects.
 
-### 🐘 One-Click Database Provisioning
-Spin up **PostgreSQL**, **MySQL**, **MariaDB**, **Redis**, **MongoDB**, **KeyDB**, or **ClickHouse** instances instantly. Select major engine versions from the UI with auto-generated secure credentials.
+### 🐘 One-Click Databases
+- **Major Engines Supported:** Provision **PostgreSQL**, **MySQL**, **MariaDB**, **Redis**, **MongoDB**, **KeyDB**, or **ClickHouse** instantly.
+- **Auto-generated Credentials:** Zero manual config required. NanoFly handles root user generation and exposes clean connection strings.
 
-### 📟 Web Terminal
-Fully interactive web-based terminal powered by `xterm.js` and `creack/pty`. SSH into your server directly from the browser — no external tools needed.
+### 📟 Interactive Web Terminal
+- **PTY integration:** Full-powered shell inside your browser window.
+- **Responsive Layout:** Automatically scales row/column bounds. Fully styled with custom themes.
 
-### 📊 Real-Time Server Monitoring
-Live dashboard with CPU usage, memory consumption, temperature readings, and disk metrics. Beautiful area charts with smooth animations for server telemetry.
+### 📊 Telemetry & Health Checks
+- Live dashboards for CPU, memory, storage utilization, and CPU temperature.
+- Real-time service state monitoring (starting, active, stopped, restarting).
 
-### 🔐 Security First
-- JWT-based authentication with secure session management
-- Auto-generated cryptographic secrets during installation
-- Environment variable panels with visibility toggles and copy helpers
-- AGPL-3.0 licensed — your data stays on your server
+### ⚡ Resource Optimized
+- Designed specifically for low-end devices and Raspberry Pis.
+- Ultra lightweight single-binary Go backend using an embedded SQLite database.
 
-### 🪵 Live Build Logs
-Track Docker builds in real-time with expandable, streaming log output. Monitor every step of your application's build process as it happens.
-
-### 📦 Project Organization
-Group your applications and databases into projects for clean organization. Full CRUD management with intuitive navigation.
-
-### ⚡ Lightweight & ARM Compatible
-Optimized to run on a **Raspberry Pi** or low-end cloud servers. Single binary, SQLite database, minimal resource usage. No Java, no heavy runtimes.
-
-### 🔄 Self-Updating
-Check for updates and apply them directly from the dashboard. The panel automatically rebuilds and restarts itself with zero manual intervention.
-
-### 🎨 Premium Dark UI
-Modern glassmorphic dark interface with smooth micro-animations, responsive layouts, and a design that feels premium — not like a typical admin panel.
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD;
-    Client[React Frontend] -- REST API / WebSockets --> GoServer[Go Backend]
-    GoServer -- SQL --> SQLite[(SQLite WAL)]
-    GoServer -- Docker SDK --> DockerDaemon[Docker Engine]
-    GoServer -- WebSocket PTY --> Shell[Server Shell]
-```
-
-**Tech Stack:**
-- **Backend:** Go with Chi router — single compiled binary
-- **Frontend:** React 18 + Vite — pre-built and served by the Go binary
-- **Database:** SQLite in WAL mode — zero configuration
-- **Containers:** Docker Engine SDK — direct API integration
+### 🔄 Auto Updates
+- Keep your panel updated. Pull latest beta and stable updates directly from the dashboard settings.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Feel free to open issues, submit pull requests, or start discussions.
+We welcome contributions of all forms! Feel free to open issues, submit pull requests, or start discussions on our GitHub repository.
 
 ---
 
 ## 📄 License
 
-NanoFly is open-source software licensed under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
-
-If you deploy a modified version of NanoFly over a network, you must make your source code available under the same license. This keeps NanoFly open for everyone.
+NanoFly is open-source software licensed under the **[Apache License 2.0](LICENSE)**.
