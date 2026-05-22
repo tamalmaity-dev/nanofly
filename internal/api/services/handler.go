@@ -32,6 +32,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/services/{id}/stop", h.Stop)
 	r.Post("/services/{id}/restart", h.Restart)
 	r.Get("/services/{id}/logs", h.GetContainerLogs)
+	r.Get("/services/{id}/metrics", h.GetMetrics)
 	r.Get("/services/{id}/deployments", h.ListDeployments)
 	r.Get("/services/{id}/envvars", h.GetEnvVars)
 	r.Post("/services/{id}/envvars", h.UpsertEnvVar)
@@ -49,22 +50,25 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name             string   `json:"name"`
-		Image            string   `json:"image"`
-		Port             int      `json:"port"`
-		GitRepoURL       string   `json:"git_repo_url"`
-		GitBranch        string   `json:"git_branch"`
-		GitToken         string   `json:"git_token"`
-		GitBuilder       string   `json:"git_builder"`
-		LocalPath        string   `json:"local_path"`
-		StartCommand     string   `json:"start_command"`
-		InstallCommand   string   `json:"install_command"`
-		AppDirectory     string   `json:"app_directory"`
-		RunFile          string   `json:"run_file"`
-		RequirementsFile string   `json:"requirements_file"`
-		UseVenv          bool     `json:"use_venv"`
-		DockerArgs       string   `json:"docker_args"`
-		EnvVars          []EnvVar `json:"env_vars"`
+		Name                 string   `json:"name"`
+		Image                string   `json:"image"`
+		Port                 int      `json:"port"`
+		GitRepoURL           string   `json:"git_repo_url"`
+		GitBranch            string   `json:"git_branch"`
+		GitToken             string   `json:"git_token"`
+		GitBuilder           string   `json:"git_builder"`
+		LocalPath            string   `json:"local_path"`
+		StartCommand         string   `json:"start_command"`
+		InstallCommand       string   `json:"install_command"`
+		AppDirectory         string   `json:"app_directory"`
+		RunFile              string   `json:"run_file"`
+		RequirementsFile     string   `json:"requirements_file"`
+		UseVenv              bool     `json:"use_venv"`
+		DockerArgs           string   `json:"docker_args"`
+		EnvVars              []EnvVar `json:"env_vars"`
+		SSHKey               string   `json:"ssh_key"`
+		DockerfileContent    string   `json:"dockerfile_content"`
+		DockerComposeContent string   `json:"docker_compose_content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -82,22 +86,25 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	svc, err := h.mgr.CreateApp(r.Context(), CreateAppReq{
-		ProjectID:        chi.URLParam(r, "projectID"),
-		Name:             req.Name,
-		Image:            req.Image,
-		Port:             req.Port,
-		EnvVars:          req.EnvVars,
-		GitRepoURL:       req.GitRepoURL,
-		GitBranch:        req.GitBranch,
-		GitToken:         req.GitToken,
-		Builder:          req.GitBuilder,
-		StartCommand:     req.StartCommand,
-		InstallCommand:   req.InstallCommand,
-		AppDirectory:     req.AppDirectory,
-		RunFile:          req.RunFile,
-		RequirementsFile: req.RequirementsFile,
-		UseVenv:          req.UseVenv,
-		DockerArgs:       req.DockerArgs,
+		ProjectID:            chi.URLParam(r, "projectID"),
+		Name:                 req.Name,
+		Image:                req.Image,
+		Port:                 req.Port,
+		EnvVars:              req.EnvVars,
+		GitRepoURL:           req.GitRepoURL,
+		GitBranch:            req.GitBranch,
+		GitToken:             req.GitToken,
+		SSHKey:               req.SSHKey,
+		Builder:              req.GitBuilder,
+		StartCommand:         req.StartCommand,
+		InstallCommand:       req.InstallCommand,
+		AppDirectory:         req.AppDirectory,
+		RunFile:              req.RunFile,
+		RequirementsFile:     req.RequirementsFile,
+		UseVenv:              req.UseVenv,
+		DockerArgs:           req.DockerArgs,
+		DockerfileContent:    req.DockerfileContent,
+		DockerComposeContent: req.DockerComposeContent,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -240,4 +247,14 @@ func (h *Handler) Restart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"status": "running"})
+}
+
+// GetMetrics handles GET /services/{id}/metrics
+func (h *Handler) GetMetrics(w http.ResponseWriter, r *http.Request) {
+	metrics, err := h.mgr.GetServiceMetrics(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, metrics)
 }

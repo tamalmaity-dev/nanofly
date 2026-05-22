@@ -6,11 +6,13 @@ package docker
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
 	"math/rand"
 	"strings"
+	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -265,7 +267,7 @@ func (m *Manager) RemoveContainer(ctx context.Context, nameOrID string) error {
 	return m.cli.ContainerRemove(ctx, nameOrID, container.RemoveOptions{Force: true, RemoveVolumes: true})
 }
 
-// Logs returns the last N lines of container logs.
+// Logs returns the last N lines of container logs, demultiplexed and formatted.
 func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (string, error) {
 	if tail == "" {
 		tail = "100"
@@ -280,8 +282,44 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 		return "", err
 	}
 	defer rc.Close()
+
 	var sb strings.Builder
-	io.Copy(&sb, rc) //nolint:errcheck
+	header := make([]byte, 8)
+	for {
+		_, err := io.ReadFull(rc, header)
+		if err != nil {
+			break
+		}
+		// Stream type: header[0] (1 = stdout, 2 = stderr)
+		length := binary.BigEndian.Uint32(header[4:8])
+		payload := make([]byte, length)
+		_, err = io.ReadFull(rc, payload)
+		if err != nil {
+			break
+		}
+
+		// Process the payload line by line to format the Docker RFC3339 timestamps
+		lines := strings.Split(string(payload), "\n")
+		for i, line := range lines {
+			if line == "" && i == len(lines)-1 {
+				continue
+			}
+			trimmed := strings.TrimSpace(line)
+			// A line with Docker timestamp looks like: 2026-05-22T18:41:09.803493204Z actual_log_msg
+			spaceIdx := strings.Index(trimmed, " ")
+			if spaceIdx > 0 {
+				tsStr := trimmed[:spaceIdx]
+				rest := line[strings.Index(line, tsStr)+len(tsStr):]
+				if t, parseErr := time.Parse(time.RFC3339Nano, tsStr); parseErr == nil {
+					// Format nicely as: [2026-05-22 18:41:09] rest_of_line
+					formattedTime := t.Local().Format("2006-01-02 15:04:05")
+					sb.WriteString(fmt.Sprintf("[%s] %s\n", formattedTime, strings.TrimPrefix(rest, " ")))
+					continue
+				}
+			}
+			sb.WriteString(line + "\n")
+		}
+	}
 	return sb.String(), nil
 }
 

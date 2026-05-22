@@ -7,6 +7,86 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
+// Copied from FileManager.jsx
+function CodeEditor({ value, onChange, placeholder, style, readOnly = false }) {
+  const textareaRef = useRef(null);
+  const gutterRef = useRef(null);
+  const [lineCount, setLineCount] = useState(1);
+
+  useEffect(() => {
+    const lines = value ? value.split('\n').length : 1;
+    setLineCount(lines);
+  }, [value]);
+
+  const handleScroll = () => {
+    if (textareaRef.current && gutterRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+
+  const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1);
+
+  return (
+    <div style={{
+      display: 'flex',
+      fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace',
+      fontSize: '0.82rem',
+      lineHeight: '1.5',
+      background: 'var(--bg-base)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)',
+      overflow: 'hidden',
+      height: '350px',
+      ...style
+    }}>
+      <div 
+        ref={gutterRef}
+        style={{
+          width: '45px',
+          padding: '10px 0',
+          background: 'var(--bg-elevated)',
+          borderRight: '1px solid var(--border)',
+          color: 'var(--text-muted)',
+          textAlign: 'right',
+          paddingRight: '10px',
+          userSelect: 'none',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch'
+        }}
+      >
+        {lineNumbers.map(ln => (
+          <div key={ln} style={{ height: '1.5em' }}>{ln}</div>
+        ))}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onScroll={handleScroll}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        spellCheck="false"
+        style={{
+          flex: 1,
+          padding: '10px',
+          background: 'transparent',
+          color: 'var(--text-primary)',
+          border: 'none',
+          outline: 'none',
+          resize: 'none',
+          fontFamily: 'inherit',
+          fontSize: 'inherit',
+          lineHeight: 'inherit',
+          whiteSpace: 'pre',
+          overflow: 'auto'
+        }}
+      />
+    </div>
+  );
+}
+
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13', 'postgres:12', 'postgres:latest'],
   mysql: ['mysql:8.4', 'mysql:8.3', 'mysql:8.0', 'mysql:5.7', 'mysql:latest'],
@@ -407,23 +487,10 @@ function SourceFilesPanel({ service }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {editorError && <div style={{ color: 'var(--red)', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {editorError}</div>}
-            <textarea
+            <CodeEditor
               value={selectedFile?.content || ''}
-              onChange={e => setSelectedFile(prev => ({ ...prev, content: e.target.value }))}
-              style={{
-                width: '100%',
-                height: '450px',
-                resize: 'none',
-                background: '#0d1117',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                color: '#e2e8f0',
-                fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
-                fontSize: '0.875rem',
-                lineHeight: 1.6,
-                padding: '1rem',
-                outline: 'none',
-              }}
+              onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+              style={{ height: '450px' }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -483,6 +550,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   const [subType, setSubType] = useState('docker'); // docker | github
   const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [selectedResourceId, setSelectedResourceId] = useState('');
   const [form, setForm] = useState({
     name: '',
     image: '',
@@ -491,6 +559,9 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
     localPath: '',
     branch: 'main',
     token: '',
+    sshKey: '',
+    dockerfileContent: '',
+    dockerComposeContent: '',
     gitBuilder: 'auto',
     appDirectory: '',
     runFile: '',
@@ -523,6 +594,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           local_path: subType === 'local' ? form.localPath.trim() : '',
           git_branch: form.branch.trim() || 'main',
           git_token: form.token.trim(),
+          ssh_key: form.sshKey.trim(),
           git_builder: form.gitBuilder || 'auto',
           app_directory: form.appDirectory.trim(),
           run_file: form.runFile.trim(),
@@ -533,6 +605,8 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           docker_args: form.dockerArgs.trim(),
           port: Number(form.port) || 0,
           env_vars: envVars,
+          dockerfile_content: form.dockerfileContent,
+          docker_compose_content: form.dockerComposeContent,
         });
       } else {
         svc = await servicesApi.createApp(projectId, {
@@ -569,17 +643,29 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   };
 
   const handleSelectResource = (resource) => {
+    setSelectedResourceId(resource.id || '');
     if (resource.type === 'app') {
       setType('app');
-      setSubType(resource.subType);
+      let sub = resource.subType;
+      if (resource.id === 'dockerfile' || resource.id === 'docker-compose') {
+        sub = 'local';
+      }
+      setSubType(sub);
       setIsPrivate(resource.isPrivate || false);
-      setForm(f => ({
-        ...f,
-        name: resource.defaultName || '',
-        image: resource.defaultImage || '',
-        port: resource.defaultPort || '',
-        gitBuilder: resource.defaultBuilder || f.gitBuilder || 'auto',
-      }));
+      setForm(f => {
+        const defaultPath = (resource.id === 'dockerfile' || resource.id === 'docker-compose')
+          ? `/opt/nanofly/apps/${resource.defaultName}`
+          : f.localPath;
+        return {
+          ...f,
+          name: resource.defaultName || '',
+          image: resource.defaultImage || '',
+          port: resource.defaultPort || '',
+          gitBuilder: (resource.id === 'dockerfile' || resource.id === 'docker-compose') ? resource.id : (resource.defaultBuilder || 'auto'),
+          localPath: defaultPath,
+          useVenv: (resource.id === 'dockerfile' || resource.id === 'docker-compose') ? false : f.useVenv,
+        };
+      });
     } else {
       setType('database');
       const defaultVer = DB_VERSIONS[resource.dbType]?.[0] || resource.dbType;
@@ -622,7 +708,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       icon: 'WP',
       defaultName: 'wordpress',
       defaultImage: 'wordpress:php8.2-apache',
-      defaultPort: '8080'
+      defaultPort: '8050'
     },
     {
       id: 'python-template',
@@ -724,49 +810,99 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', marginTop: '0.5rem' }}>
         {step === 'type' ? (
           <div style={{ overflowY: 'auto', flex: 1, paddingRight: 6 }}>
-            {/* Apps Section */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Applications</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                {APP_RESOURCES.map(r => (
-                  <div
-                    key={r.id}
-                    onClick={() => handleSelectResource(r)}
-                    style={{
-                      background: 'var(--bg-base)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius)',
-                      padding: '1rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                    className="hover-glow"
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <div style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '6px',
-                        background: 'var(--bg-elevated)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        <ResourceIcon type={r.id} size={18} />
+            {/* Apps Side-by-side Columns */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+              
+              {/* Git Based */}
+              <div>
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
+                  <GitBranch size={14} color="var(--accent)" /> Git Based
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+                  {APP_RESOURCES.filter(r => r.id.startsWith('git-')).map(r => (
+                    <div
+                      key={r.id}
+                      onClick={() => handleSelectResource(r)}
+                      style={{
+                        background: 'var(--bg-base)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        padding: '0.85rem 1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      className="hover-glow"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          background: 'var(--bg-elevated)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}>
+                          <ResourceIcon type={r.id} size={15} />
+                        </div>
+                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{r.title}</span>
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                      <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
                     </div>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+
+              {/* Docker / Folder Based */}
+              <div>
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
+                  <Package size={14} color="var(--accent)" /> Docker & Folder Based
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+                  {APP_RESOURCES.filter(r => !r.id.startsWith('git-')).map(r => (
+                    <div
+                      key={r.id}
+                      onClick={() => handleSelectResource(r)}
+                      style={{
+                        background: 'var(--bg-base)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        padding: '0.85rem 1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                      className="hover-glow"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          background: 'var(--bg-elevated)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}>
+                          <ResourceIcon type={r.id} size={15} />
+                        </div>
+                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                      </div>
+                      <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
             </div>
 
             {/* DB Section */}
-            <div style={{ marginBottom: '1rem' }}>
-              <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Databases</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.25rem', marginBottom: '1rem' }}>
+              <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
+                <Database size={14} color="var(--accent)" /> Databases
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
                 {DB_RESOURCES.map(r => (
                   <div
                     key={r.dbType}
@@ -775,16 +911,16 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                       background: 'var(--bg-base)',
                       border: '1px solid var(--border)',
                       borderRadius: 'var(--radius)',
-                      padding: '1rem',
+                      padding: '0.85rem 1rem',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
                     className="hover-glow"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                       <div style={{
-                        width: '32px',
-                        height: '32px',
+                        width: '28px',
+                        height: '28px',
                         borderRadius: '6px',
                         background: 'var(--bg-elevated)',
                         display: 'flex',
@@ -792,11 +928,11 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         justifyContent: 'center',
                         flexShrink: 0
                       }}>
-                        <ResourceIcon type={r.dbType} size={18} />
+                        <ResourceIcon type={r.dbType} size={15} />
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{r.title}</span>
                     </div>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>{r.desc}</p>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
                   </div>
                 ))}
               </div>
@@ -852,7 +988,11 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         else if (val === 'python') finalVal = 'python:3.11-slim';
                         else if (val === 'go') finalVal = 'golang:1.22-alpine';
                         else if (val === 'php') finalVal = 'php:8.2-apache';
-                        setForm(f => ({ ...f, gitBuilder: finalVal }));
+                        setForm(f => ({
+                          ...f,
+                          gitBuilder: finalVal,
+                          useVenv: (val === 'dockerfile' || val === 'docker-compose') ? false : f.useVenv,
+                        }));
                       }}>
                         <SelectTrigger style={{ width: '100%' }} />
                         <SelectContent>
@@ -862,10 +1002,34 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                           <SelectItem value="python">Python</SelectItem>
                           <SelectItem value="php">PHP</SelectItem>
                           <SelectItem value="static">HTML / Static Website</SelectItem>
-                          <SelectItem value="dockerfile">Use existing Dockerfile</SelectItem>
+                          <SelectItem value="dockerfile">Dockerfile</SelectItem>
+                          <SelectItem value="docker-compose">Docker Compose</SelectItem>
+                          <SelectItem value="nixpacks">Nixpacks</SelectItem>
                         </SelectContent>
                       </SelectRoot>
                     </div>
+                    {parseBuilderValue(form.gitBuilder).type === 'dockerfile' && (
+                      <div className="form-group">
+                        <label className="form-label">Dockerfile Content</label>
+                        <CodeEditor
+                          value={form.dockerfileContent}
+                          onChange={val => setForm(f => ({ ...f, dockerfileContent: val }))}
+                          placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
+                          style={{ height: '220px' }}
+                        />
+                      </div>
+                    )}
+                    {parseBuilderValue(form.gitBuilder).type === 'docker-compose' && (
+                      <div className="form-group">
+                        <label className="form-label">Docker Compose Definition (docker-compose.yml)</label>
+                        <CodeEditor
+                          value={form.dockerComposeContent}
+                          onChange={val => setForm(f => ({ ...f, dockerComposeContent: val }))}
+                          placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
+                          style={{ height: '220px' }}
+                        />
+                      </div>
+                    )}
                     {['node', 'python', 'go', 'php'].includes(parseBuilderValue(form.gitBuilder).type) && (
                       <div className="form-group">
                         <label className="form-label">Runtime Version</label>
@@ -936,10 +1100,23 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                       <input className="form-input" placeholder="main" value={form.branch} onChange={set('branch')} />
                     </div>
                     {isPrivate && (
-                      <div className="form-group">
-                        <label className="form-label">Personal Access Token (GitHub Token)</label>
-                        <input className="form-input" type="password" placeholder="ghp_xxxxxxxxxxxx" value={form.token} onChange={set('token')} />
-                      </div>
+                      selectedResourceId === 'git-private-key' ? (
+                        <div className="form-group">
+                          <label className="form-label">SSH Private Key *</label>
+                          <textarea
+                            className="form-input"
+                            style={{ fontFamily: 'monospace', height: '120px', fontSize: '0.82rem' }}
+                            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."
+                            value={form.sshKey}
+                            onChange={e => setForm(f => ({ ...f, sshKey: e.target.value }))}
+                          />
+                        </div>
+                      ) : (
+                        <div className="form-group">
+                          <label className="form-label">Personal Access Token (GitHub Token)</label>
+                          <input className="form-input" type="password" placeholder="ghp_xxxxxxxxxxxx" value={form.token} onChange={set('token')} />
+                        </div>
+                      )
                     )}
                     <div className="form-group">
                       <label className="form-label">Exposed Container Port</label>
@@ -953,7 +1130,11 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         else if (val === 'python') finalVal = 'python:3.11-slim';
                         else if (val === 'go') finalVal = 'golang:1.22-alpine';
                         else if (val === 'php') finalVal = 'php:8.2-apache';
-                        setForm(f => ({ ...f, gitBuilder: finalVal }));
+                        setForm(f => ({
+                          ...f,
+                          gitBuilder: finalVal,
+                          useVenv: (val === 'dockerfile' || val === 'docker-compose') ? false : f.useVenv,
+                        }));
                       }}>
                         <SelectTrigger style={{ width: '100%' }} />
                         <SelectContent>
@@ -963,10 +1144,34 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                           <SelectItem value="python">Python</SelectItem>
                           <SelectItem value="php">PHP</SelectItem>
                           <SelectItem value="static">HTML / Static Website</SelectItem>
-                          <SelectItem value="dockerfile">Use existing Dockerfile</SelectItem>
+                          <SelectItem value="dockerfile">Dockerfile</SelectItem>
+                          <SelectItem value="docker-compose">Docker Compose</SelectItem>
+                          <SelectItem value="nixpacks">Nixpacks</SelectItem>
                         </SelectContent>
                       </SelectRoot>
                     </div>
+                    {parseBuilderValue(form.gitBuilder).type === 'dockerfile' && (
+                      <div className="form-group">
+                        <label className="form-label">Dockerfile Content (If not in repository)</label>
+                        <CodeEditor
+                          value={form.dockerfileContent}
+                          onChange={val => setForm(f => ({ ...f, dockerfileContent: val }))}
+                          placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
+                          style={{ height: '220px' }}
+                        />
+                      </div>
+                    )}
+                    {parseBuilderValue(form.gitBuilder).type === 'docker-compose' && (
+                      <div className="form-group">
+                        <label className="form-label">Docker Compose Definition (docker-compose.yml)</label>
+                        <CodeEditor
+                          value={form.dockerComposeContent}
+                          onChange={val => setForm(f => ({ ...f, dockerComposeContent: val }))}
+                          placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
+                          style={{ height: '220px' }}
+                        />
+                      </div>
+                    )}
                     {['node', 'python', 'go', 'php'].includes(parseBuilderValue(form.gitBuilder).type) && (
                       <div className="form-group">
                         <label className="form-label">Runtime Version</label>
@@ -1224,6 +1429,141 @@ function EnvVarsPanel({ serviceId }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Monitoring Panel ──────────────────────────────────────────────────────────
+function MonitoringPanel({ serviceId }) {
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch(`/api/services/${serviceId}/metrics`);
+        if (!res.ok) throw new Error('Failed to fetch container metrics');
+        const data = await res.json();
+        if (active) {
+          setMetrics(data);
+          setError(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (active) {
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 3000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [serviceId]);
+
+  if (loading && !metrics) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: 12 }}>
+        <div className="spinner" style={{ borderTopColor: 'var(--accent)' }} />
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading live metrics...</span>
+      </div>
+    );
+  }
+
+  if (error && !metrics) {
+    return (
+      <div style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(239, 68, 68, 0.2)', fontSize: '0.875rem' }}>
+        ⚠️ {error}. Ensure your container is running.
+      </div>
+    );
+  }
+
+  const cpu = metrics?.cpu_percent ?? 0;
+  const memory = metrics?.memory_usage ?? '0 B';
+  const netIn = metrics?.network_in ?? '0 B';
+  const netOut = metrics?.network_out ?? '0 B';
+
+  const getCpuColor = (val) => {
+    if (val > 80) return 'var(--red)';
+    if (val > 50) return 'var(--yellow)';
+    return 'var(--green)';
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Live Container Resource Usage</h4>
+        <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.65rem' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }} className="pulse" />
+          Updating live
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+        {/* CPU Card */}
+        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>CPU USAGE</span>
+            <Cpu size={16} color="var(--accent)" />
+          </div>
+          <div>
+            <span style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+              {cpu.toFixed(2)}%
+            </span>
+          </div>
+          <div style={{ width: '100%', height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ width: `${Math.min(cpu, 100)}%`, height: '100%', background: getCpuColor(cpu), transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }} />
+          </div>
+        </div>
+
+        {/* Memory Card */}
+        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>MEMORY USAGE</span>
+            <MemoryStick size={16} color="var(--accent)" />
+          </div>
+          <div>
+            <span style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+              {memory}
+            </span>
+          </div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            Physical RAM consumed by processes.
+          </div>
+        </div>
+
+        {/* Network Card */}
+        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>NETWORK I/O</span>
+            <Globe size={16} color="var(--accent)" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 500 }}>INCOMING</span>
+              <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--green)', fontFamily: 'monospace', marginTop: 2 }}>
+                ↓ {netIn}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 500 }}>OUTGOING</span>
+              <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace', marginTop: 2 }}>
+                ↑ {netOut}
+              </span>
+            </div>
+          </div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            Cumulative network traffic.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1839,6 +2179,10 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [startCommand, setStartCommand] = useState(service.start_command || '');
   const [installCommand, setInstallCommand] = useState(service.install_command || '');
   const [dockerArgs, setDockerArgs] = useState(service.docker_args || '');
+  const [gitToken, setGitToken] = useState(service.git_token || '');
+  const [sshKey, setSshKey] = useState(service.ssh_key || '');
+  const [dockerfileContent, setDockerfileContent] = useState(service.dockerfile_content || '');
+  const [dockerComposeContent, setDockerComposeContent] = useState(service.docker_compose_content || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -1861,6 +2205,10 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setStartCommand(service.start_command || '');
     setInstallCommand(service.install_command || '');
     setDockerArgs(service.docker_args || '');
+    setGitToken(service.git_token || '');
+    setSshKey(service.ssh_key || '');
+    setDockerfileContent(service.dockerfile_content || '');
+    setDockerComposeContent(service.docker_compose_content || '');
 
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
     setDomainVal(matched ? matched.domain : '');
@@ -1932,6 +2280,10 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         start_command: startCommand.trim(),
         install_command: installCommand.trim(),
         docker_args: dockerArgs.trim(),
+        git_token: gitToken.trim(),
+        ssh_key: sshKey.trim(),
+        dockerfile_content: dockerfileContent,
+        docker_compose_content: dockerComposeContent,
       });
 
       // Update domain and direction in domains_v2 if modified
@@ -1969,6 +2321,8 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setSaving(false);
   };
 
+  const isBuiltApp = !!(service.git_repo_url || service.local_path);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
       <div className="form-group">
@@ -1983,16 +2337,39 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         </div>
       ) : (
         <>
-          {gitUrl ? (
+          {isBuiltApp ? (
             <>
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Source URL / Local Folder</label>
-                <input className="form-input form-input-sm" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Branch</label>
-                <input className="form-input form-input-sm" value={branch} onChange={e => setBranch(e.target.value)} />
-              </div>
+              {service.git_repo_url ? (
+                <>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Source URL</label>
+                    <input className="form-input form-input-sm" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Branch</label>
+                    <input className="form-input form-input-sm" value={branch} onChange={e => setBranch(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>GitHub Access Token (PAT)</label>
+                    <input className="form-input form-input-sm" type="password" value={gitToken} onChange={e => setGitToken(e.target.value)} placeholder="Leave blank to keep unchanged" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontSize: '0.75rem' }}>SSH Private Key (Deploy Key)</label>
+                    <textarea 
+                      className="form-input form-input-sm" 
+                      style={{ fontFamily: 'monospace', height: '80px', fontSize: '0.82rem' }} 
+                      value={sshKey} 
+                      onChange={e => setSshKey(e.target.value)} 
+                      placeholder="Leave blank to keep unchanged" 
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Server Folder Path</label>
+                  <input className="form-input form-input-sm" value={service.local_path || ''} readOnly disabled style={{ opacity: 0.7 }} />
+                </div>
+              )}
               <div className="form-group">
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Build Type / Runtime</label>
                 <select 
@@ -2006,6 +2383,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                     else if (val === 'go') finalVal = 'golang:1.22-alpine';
                     else if (val === 'php') finalVal = 'php:8.2-apache';
                     setGitBuilder(finalVal);
+                    if (val === 'dockerfile' || val === 'docker-compose') {
+                      setUseVenv(false);
+                    }
                   }}
                 >
                   <option value="auto">Auto-detect (Recommended)</option>
@@ -2014,9 +2394,36 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   <option value="python">Python</option>
                   <option value="php">PHP</option>
                   <option value="static">HTML / Static Website</option>
-                  <option value="dockerfile">Use existing Dockerfile</option>
+                  <option value="dockerfile">Dockerfile</option>
+                  <option value="docker-compose">Docker Compose</option>
+                  <option value="nixpacks">Nixpacks</option>
                 </select>
               </div>
+
+              {parseBuilderValue(gitBuilder).type === 'dockerfile' && (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Dockerfile Content</label>
+                  <CodeEditor
+                    value={dockerfileContent}
+                    onChange={val => setDockerfileContent(val)}
+                    placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
+                    style={{ height: '180px' }}
+                  />
+                </div>
+              )}
+
+              {parseBuilderValue(gitBuilder).type === 'docker-compose' && (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Docker Compose Definition (docker-compose.yml)</label>
+                  <CodeEditor
+                    value={dockerComposeContent}
+                    onChange={val => setDockerComposeContent(val)}
+                    placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
+                    style={{ height: '180px' }}
+                  />
+                </div>
+              )}
+
               {['node', 'python', 'go', 'php'].includes(parseBuilderValue(gitBuilder).type) && (
                 <div className="form-group">
                   <label className="form-label" style={{ fontSize: '0.75rem' }}>Runtime Version</label>
@@ -2034,7 +2441,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                 </div>
               )}
               <div style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                Changing runtime fields affects the next deploy. Use App Directory when the app lives inside a subfolder, and Run File for Python files like ecopulse.py.
+                Changing runtime fields affects the next deploy. Use App Directory when the app lives inside a subfolder, and Run File for Python files like main.py.
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                 <div className="form-group">
@@ -2353,6 +2760,7 @@ export default function ProjectDetail() {
               { id: 'deployments', label: 'Deployments' },
               { id: 'logs', label: 'Logs' },
               { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+              { id: 'monitoring', label: 'Monitoring', icon: Cpu },
               ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               { id: 'envvars', label: 'Environment Variables' },
@@ -2367,6 +2775,9 @@ export default function ProjectDetail() {
             </TabsContent>
             <TabsContent value="terminal">
               <ContainerTerminalPanel service={selectedSvc} />
+            </TabsContent>
+            <TabsContent value="monitoring">
+              <MonitoringPanel serviceId={activeSvc} />
             </TabsContent>
             {selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') && (
               <TabsContent value="webhooks">

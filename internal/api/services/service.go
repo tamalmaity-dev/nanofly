@@ -70,6 +70,10 @@ type Service struct {
 	RequirementsFile string `json:"requirements_file,omitempty"`
 	UseVenv          bool   `json:"use_venv"`
 	DockerArgs       string `json:"docker_args,omitempty"`
+	DockerfileContent    string `json:"dockerfile_content,omitempty"`
+	DockerComposeContent string `json:"docker_compose_content,omitempty"`
+	GitToken             string `json:"git_token,omitempty"`
+	SSHKey               string `json:"ssh_key,omitempty"`
 	ConnString       string `json:"conn_string,omitempty"` // databases only (encrypted stub)
 
 	// Real-time resource metrics (populated in memory)
@@ -140,6 +144,139 @@ func getContainerStats(ctx context.Context) map[string]ContainerStats {
 	return stats
 }
 
+// parseMemToBytes parses a memory string (e.g., "128MiB") to bytes.
+func parseMemToBytes(s string) int64 {
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ToLower(s)
+	
+	var multiplier float64 = 1
+	var numStr string
+	
+	switch {
+	case strings.HasSuffix(s, "gib") || strings.HasSuffix(s, "gb"):
+		multiplier = 1024 * 1024 * 1024
+		numStr = s[:len(s)-3]
+	case strings.HasSuffix(s, "mib") || strings.HasSuffix(s, "mb"):
+		multiplier = 1024 * 1024
+		numStr = s[:len(s)-3]
+	case strings.HasSuffix(s, "kib") || strings.HasSuffix(s, "kb"):
+		multiplier = 1024
+		numStr = s[:len(s)-3]
+	case strings.HasSuffix(s, "b"):
+		numStr = s[:len(s)-1]
+	default:
+		numStr = s
+	}
+	
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0
+	}
+	return int64(val * multiplier)
+}
+
+// formatBytes formats bytes into a human-readable string (e.g., "1.5 MiB").
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// ServiceMetrics holds resource usage metrics for a service.
+type ServiceMetrics struct {
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemoryUsage string  `json:"memory_usage"`
+	NetworkIn   string  `json:"network_in"`
+	NetworkOut  string  `json:"network_out"`
+}
+	
+func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*ServiceMetrics, error) {
+	svc, err := m.Get(ctx, serviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	metrics := &ServiceMetrics{
+		CPUPercent:  0,
+		MemoryUsage: "0 B",
+		NetworkIn:   "0 B",
+		NetworkOut:  "0 B",
+	}
+
+	// Query docker stats
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}")
+	out, err := cmd.Output()
+	if err != nil {
+		return metrics, nil
+	}
+
+	prefix1 := "nf-app-" + svc.Name
+	prefix2 := "nf-db-" + svc.Name
+	prefixCompose := "nf-" + svc.ID
+
+	var totalCPU float64
+	var totalMemBytes int64
+	var totalNetInBytes int64
+	var totalNetOutBytes int64
+	found := false
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		parts := strings.Split(line, "\t")
+		if len(parts) >= 4 {
+			name := strings.TrimSpace(parts[0])
+			
+			match := false
+			if svc.Builder == "docker-compose" {
+				match = strings.HasPrefix(name, prefixCompose)
+			} else {
+				match = name == prefix1 || name == prefix2
+			}
+
+			if match {
+				found = true
+				
+				// CPU
+				cpuStr := strings.TrimSuffix(strings.TrimSpace(parts[1]), "%")
+				cVal, _ := strconv.ParseFloat(cpuStr, 64)
+				totalCPU += cVal
+
+				// Memory (e.g. "15.2MiB / 7.66GiB")
+				memParts := strings.Split(parts[2], "/")
+				if len(memParts) > 0 {
+					totalMemBytes += parseMemToBytes(strings.TrimSpace(memParts[0]))
+				}
+
+				// Network IO (e.g. "4.2MB / 120kB")
+				netParts := strings.Split(parts[3], "/")
+				if len(netParts) == 2 {
+					totalNetInBytes += parseMemToBytes(strings.TrimSpace(netParts[0]))
+					totalNetOutBytes += parseMemToBytes(strings.TrimSpace(netParts[1]))
+				}
+			}
+		}
+	}
+
+	if found {
+		metrics.CPUPercent = totalCPU
+		metrics.MemoryUsage = formatBytes(totalMemBytes)
+		metrics.NetworkIn = formatBytes(totalNetInBytes)
+		metrics.NetworkOut = formatBytes(totalNetOutBytes)
+	}
+
+	return metrics, nil
+}
+
 // List returns all services for a project.
 func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error) {
 	rows, err := m.db.QueryContext(ctx, `
@@ -150,7 +287,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
 		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
-		       COALESCE(s.docker_args,'')
+		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
+		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,'')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -173,6 +311,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.GitRepoURL, &s.GitBranch,
 			&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
 			&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
+			&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey,
 		); err != nil {
 			return nil, err
 		}
@@ -186,11 +325,33 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		} else {
 			cName = "nf-app-" + s.Name
 		}
-		if st, ok := containerStats[cName]; ok {
-			s.CPUPercent = st.CPUPercent
-			s.MemoryUsage = st.MemoryUsage
+		if s.Builder == "docker-compose" {
+			var totalCPU float64
+			var totalMemBytes int64
+			prefix := "nf-" + s.ID
+			found := false
+			for name, st := range containerStats {
+				if strings.HasPrefix(name, prefix) {
+					found = true
+					totalCPU += st.CPUPercent
+					memPart := strings.Split(st.MemoryUsage, "/")[0]
+					memPart = strings.TrimSpace(memPart)
+					totalMemBytes += parseMemToBytes(memPart)
+				}
+			}
+			if found {
+				s.CPUPercent = totalCPU
+				s.MemoryUsage = formatBytes(totalMemBytes)
+			} else {
+				s.MemoryUsage = "0 B"
+			}
 		} else {
-			s.MemoryUsage = "0 B"
+			if st, ok := containerStats[cName]; ok {
+				s.CPUPercent = st.CPUPercent
+				s.MemoryUsage = st.MemoryUsage
+			} else {
+				s.MemoryUsage = "0 B"
+			}
 		}
 
 		svcs = append(svcs, s)
@@ -213,7 +374,8 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
 		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
-		       COALESCE(s.docker_args,'')
+		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
+		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,'')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -223,6 +385,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.GitRepoURL, &s.GitBranch,
 		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
 		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
+		&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey,
 	)
 	if err != nil {
 		return nil, err
@@ -238,11 +401,33 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	} else {
 		cName = "nf-app-" + s.Name
 	}
-	if st, ok := containerStats[cName]; ok {
-		s.CPUPercent = st.CPUPercent
-		s.MemoryUsage = st.MemoryUsage
+	if s.Builder == "docker-compose" {
+		var totalCPU float64
+		var totalMemBytes int64
+		prefix := "nf-" + s.ID
+		found := false
+		for name, st := range containerStats {
+			if strings.HasPrefix(name, prefix) {
+				found = true
+				totalCPU += st.CPUPercent
+				memPart := strings.Split(st.MemoryUsage, "/")[0]
+				memPart = strings.TrimSpace(memPart)
+				totalMemBytes += parseMemToBytes(memPart)
+			}
+		}
+		if found {
+			s.CPUPercent = totalCPU
+			s.MemoryUsage = formatBytes(totalMemBytes)
+		} else {
+			s.MemoryUsage = "0 B"
+		}
 	} else {
-		s.MemoryUsage = "0 B"
+		if st, ok := containerStats[cName]; ok {
+			s.CPUPercent = st.CPUPercent
+			s.MemoryUsage = st.MemoryUsage
+		} else {
+			s.MemoryUsage = "0 B"
+		}
 	}
 
 	return &s, nil
@@ -257,17 +442,20 @@ type CreateAppReq struct {
 	EnvVars   []EnvVar
 
 	// GitHub source (optional)
-	GitRepoURL       string
-	GitBranch        string
-	GitToken         string // PAT for private repos
-	Builder          string // auto, node, go, python, php, static, dockerfile
-	StartCommand     string
-	InstallCommand   string
-	AppDirectory     string
-	RunFile          string
-	RequirementsFile string
-	UseVenv          bool
-	DockerArgs       string
+	GitRepoURL           string
+	GitBranch            string
+	GitToken             string // PAT for private repos
+	SSHKey               string
+	Builder              string // auto, node, go, python, php, static, dockerfile
+	StartCommand         string
+	InstallCommand       string
+	AppDirectory         string
+	RunFile              string
+	RequirementsFile     string
+	UseVenv              bool
+	DockerArgs           string
+	DockerfileContent    string
+	DockerComposeContent string
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -276,13 +464,15 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 	err := m.db.QueryRowContext(ctx, `
 		INSERT INTO services (
 			project_id, name, type, status, port, image,
-			start_command, install_command, app_directory, run_file, requirements_file, use_venv, docker_args
+			start_command, install_command, app_directory, run_file, requirements_file, use_venv, docker_args,
+			dockerfile_content, docker_compose_content
 		)
-		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`, req.ProjectID, req.Name, req.Port, req.Image,
 		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
 		defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
+		req.DockerfileContent, req.DockerComposeContent,
 	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating service: %w", err)
@@ -295,9 +485,9 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 			builderVal = "auto"
 		}
 		_, err = m.db.ExecContext(ctx, `
-			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder)
-			VALUES (?, ?, ?, ?, ?)
-		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal)
+			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
 		if err != nil {
 			slog.Warn("storing git source", "err", err)
 		}
@@ -604,11 +794,62 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	}
 
 	cloneURL := svc.GitRepoURL
+	var gitEnv []string
+	if svc.GitToken != "" && strings.HasPrefix(cloneURL, "https://") {
+		cloneURL = "https://" + svc.GitToken + "@" + strings.TrimPrefix(cloneURL, "https://")
+	} else if svc.SSHKey != "" {
+		keyPath := filepath.Join(os.TempDir(), "nf-ssh-"+svc.ID)
+		if err := os.WriteFile(keyPath, []byte(svc.SSHKey), 0600); err == nil {
+			defer os.Remove(keyPath)
+			gitEnv = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o StrictHostKeyChecking=no", keyPath))
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir)
+	if len(gitEnv) > 0 {
+		cmd.Env = gitEnv
+	}
 	out, err := cmd.CombinedOutput()
 	log(string(out))
 	if err != nil {
 		return fmt.Errorf("git clone: %w", err)
+	}
+
+	// Handle Docker Compose
+	if svc.Builder == "docker-compose" {
+		log("ℹ️ Docker Compose builder selected. Writing docker-compose.yml…")
+		dockerComposePath := filepath.Join(repoDir, "docker-compose.yml")
+		if svc.DockerComposeContent != "" {
+			if err := os.WriteFile(dockerComposePath, []byte(svc.DockerComposeContent), 0644); err != nil {
+				return fmt.Errorf("writing docker-compose.yml: %w", err)
+			}
+		} else {
+			if _, err := os.Stat(dockerComposePath); err != nil {
+				return fmt.Errorf("no docker-compose.yml content in service config and none found in repository root")
+			}
+		}
+
+		log("🐳 Running docker compose up…")
+		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
+		downCmd.Dir = repoDir
+		downCmd.Run()
+
+		upCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "up", "-d", "--build")
+		upCmd.Dir = repoDir
+		upOut, err := upCmd.CombinedOutput()
+		log(string(upOut))
+		if err != nil {
+			return fmt.Errorf("docker compose up: %w", err)
+		}
+		return nil
+	}
+
+	// If custom Dockerfile is present, write it
+	if svc.Builder == "dockerfile" && svc.DockerfileContent != "" {
+		dockerfilePath := filepath.Join(repoDir, "Dockerfile")
+		if err := os.WriteFile(dockerfilePath, []byte(svc.DockerfileContent), 0644); err != nil {
+			return fmt.Errorf("writing Dockerfile: %w", err)
+		}
 	}
 
 	// Dynamic detection and generation of Dockerfile if none exists
@@ -1182,19 +1423,23 @@ func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (strin
 
 // UpdateServiceReq defines request parameters to edit service settings.
 type UpdateServiceReq struct {
-	Name             string `json:"name"`
-	Image            string `json:"image"`
-	Port             int    `json:"port"`
-	GitRepoURL       string `json:"git_repo_url"`
-	GitBranch        string `json:"git_branch"`
-	Builder          string `json:"git_builder"`
-	StartCommand     string `json:"start_command"`
-	InstallCommand   string `json:"install_command"`
-	AppDirectory     string `json:"app_directory"`
-	RunFile          string `json:"run_file"`
-	RequirementsFile string `json:"requirements_file"`
-	UseVenv          bool   `json:"use_venv"`
-	DockerArgs       string `json:"docker_args"`
+	Name                 string `json:"name"`
+	Image                string `json:"image"`
+	Port                 int    `json:"port"`
+	GitRepoURL           string `json:"git_repo_url"`
+	GitBranch            string `json:"git_branch"`
+	Builder              string `json:"git_builder"`
+	StartCommand         string `json:"start_command"`
+	InstallCommand       string `json:"install_command"`
+	AppDirectory         string `json:"app_directory"`
+	RunFile              string `json:"run_file"`
+	RequirementsFile     string `json:"requirements_file"`
+	UseVenv              bool   `json:"use_venv"`
+	DockerArgs           string `json:"docker_args"`
+	DockerfileContent    string `json:"dockerfile_content"`
+	DockerComposeContent string `json:"docker_compose_content"`
+	GitToken             string `json:"git_token"`
+	SSHKey               string `json:"ssh_key"`
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -1203,10 +1448,11 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		UPDATE services
 		SET name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
-		    docker_args = ?, updated_at = CURRENT_TIMESTAMP
+		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, req.Name, req.Image, req.Port, req.StartCommand, req.InstallCommand,
-		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs, serviceID)
+		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
+		req.DockerfileContent, req.DockerComposeContent, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}
@@ -1225,15 +1471,15 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		} else {
 			_, _ = m.db.ExecContext(ctx, `
 				UPDATE git_sources
-				SET repo_url = ?, branch = ?, builder = ?
+				SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
 				WHERE service_id = ?
-			`, req.GitRepoURL, req.GitBranch, builderVal, serviceID)
+			`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
 		}
 	} else if req.GitRepoURL != "" {
 		_, _ = m.db.ExecContext(ctx, `
-			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder)
-			VALUES (?, ?, ?, ?, ?)
-		`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal)
+			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
 	}
 
 	return m.Get(ctx, serviceID)
@@ -1276,6 +1522,15 @@ func detectLocalBuilder(localPath, requestedBuilder string) string {
 	if requestedBuilder != "" && requestedBuilder != "auto" {
 		return requestedBuilder
 	}
+	if _, err := os.Stat(filepath.Join(localPath, "docker-compose.yml")); err == nil {
+		return "docker-compose"
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "docker-compose.yaml")); err == nil {
+		return "docker-compose"
+	}
+	if _, err := os.Stat(filepath.Join(localPath, "Dockerfile")); err == nil {
+		return "dockerfile"
+	}
 	if _, err := os.Stat(filepath.Join(localPath, "package.json")); err == nil {
 		return "node"
 	}
@@ -1309,8 +1564,40 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		return fmt.Errorf("creating local path: %w", err)
 	}
 
+	// Write custom Dockerfile if configured
+	if svc.Builder == "dockerfile" && svc.DockerfileContent != "" {
+		dockerfilePath := filepath.Join(localPath, "Dockerfile")
+		if err := os.WriteFile(dockerfilePath, []byte(svc.DockerfileContent), 0644); err != nil {
+			return fmt.Errorf("writing Dockerfile: %w", err)
+		}
+	}
+
+	// Write custom docker-compose.yml if configured
+	if svc.Builder == "docker-compose" && svc.DockerComposeContent != "" {
+		dockerComposePath := filepath.Join(localPath, "docker-compose.yml")
+		if err := os.WriteFile(dockerComposePath, []byte(svc.DockerComposeContent), 0644); err != nil {
+			return fmt.Errorf("writing docker-compose.yml: %w", err)
+		}
+	}
+
 	bType := detectLocalBuilder(localPath, svc.Builder)
 	log("🔍 Detected local build type: " + bType)
+
+	if bType == "docker-compose" {
+		log("🐳 Running docker compose up…")
+		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
+		downCmd.Dir = localPath
+		downCmd.Run()
+
+		upCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "up", "-d", "--build")
+		upCmd.Dir = localPath
+		upOut, err := upCmd.CombinedOutput()
+		log(string(upOut))
+		if err != nil {
+			return fmt.Errorf("docker compose up: %w", err)
+		}
+		return nil
+	}
 
 	if bType == "dockerfile" {
 		dockerfilePath := filepath.Join(localPath, "Dockerfile")

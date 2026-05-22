@@ -8,6 +8,86 @@ import {
 import { filesApi } from '../api/client';
 import { Modal, Button } from '../components/ui';
 
+function CodeEditor({ value, onChange, placeholder, style, readOnly = false }) {
+  const textareaRef = useRef(null);
+  const gutterRef = useRef(null);
+  const [lineCount, setLineCount] = useState(1);
+
+  useEffect(() => {
+    const lines = value ? value.split('\n').length : 1;
+    setLineCount(lines);
+  }, [value]);
+
+  const handleScroll = () => {
+    if (textareaRef.current && gutterRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+
+  const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1);
+
+  return (
+    <div style={{
+      display: 'flex',
+      fontFamily: 'Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace',
+      fontSize: '0.82rem',
+      lineHeight: '1.5',
+      background: 'var(--bg-base)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)',
+      overflow: 'hidden',
+      height: '100%',
+      width: '100%',
+      ...style
+    }}>
+      <div 
+        ref={gutterRef}
+        style={{
+          width: '45px',
+          padding: '10px 0',
+          background: 'var(--bg-elevated)',
+          borderRight: '1px solid var(--border)',
+          color: 'var(--text-muted)',
+          textAlign: 'right',
+          paddingRight: '10px',
+          userSelect: 'none',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch'
+        }}
+      >
+        {lineNumbers.map(ln => (
+          <div key={ln} style={{ height: '1.5em' }}>{ln}</div>
+        ))}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onScroll={handleScroll}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        spellCheck="false"
+        style={{
+          flex: 1,
+          padding: '10px',
+          background: 'transparent',
+          color: 'var(--text-primary)',
+          border: 'none',
+          outline: 'none',
+          resize: 'none',
+          fontFamily: 'inherit',
+          fontSize: 'inherit',
+          lineHeight: 'inherit',
+          whiteSpace: 'pre',
+          overflow: 'auto'
+        }}
+      />
+    </div>
+  );
+}
+
 export default function FileManager() {
   const [currentPath, setCurrentPath] = useState('/');
   const [rootPath, setRootPath] = useState('');
@@ -582,26 +662,10 @@ export default function FileManager() {
               )}
 
               {/* Text Area Code Editor */}
-              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                <textarea
-                  value={selectedFile.content}
-                  onChange={e => setSelectedFile(prev => ({ ...prev, content: e.target.value }))}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    resize: 'none',
-                    background: '#0d1117',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    color: '#e2e8f0',
-                    fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
-                    fontSize: '0.875rem',
-                    lineHeight: 1.6,
-                    padding: '1rem',
-                    outline: 'none',
-                  }}
-                />
-              </div>
+            <CodeEditor
+              value={selectedFile.content}
+              onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+            />
             </div>
           ) : editorLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
