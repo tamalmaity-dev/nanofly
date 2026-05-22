@@ -644,9 +644,9 @@ export default function FileManager() {
               required
             />
           </div>
-          <div className="modal-footer" style={{ marginTop: 20, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Button variant="ghost" size="sm" onClick={() => setShowCreateModal(null)}>Cancel</Button>
-            <Button type="submit" variant="primary" size="sm" loading={createLoading} disabled={!newItemName.trim()}>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+            <Button variant="soft" color="gray" onClick={() => setShowCreateModal(null)}>Cancel</Button>
+            <Button type="submit" variant="solid" loading={createLoading} disabled={!newItemName.trim()}>
               Create
             </Button>
           </div>

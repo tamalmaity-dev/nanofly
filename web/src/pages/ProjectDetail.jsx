@@ -529,9 +529,9 @@ function AddServiceModal({ projectId, projectName, open, onOpenChange, onCreated
 
             {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
 
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1.5rem' }}>
-              <Button variant="ghost" onClick={() => setStep('type')}>Back</Button>
-              <Button variant="primary" onClick={submit} loading={loading}>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+              <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
+              <Button variant="solid" onClick={submit} loading={loading}>
                 Deploy Now
               </Button>
             </div>
@@ -586,14 +586,12 @@ function EnvVarsPanel({ serviceId }) {
                     <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
                       {show[ev.key] ? ev.value : '••••••••'}
                     </code>
-                    <button className="btn btn-ghost" style={{ padding: 3 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))}>
-                      {show[ev.key] ? <EyeOff size={12} /> : <Eye size={12} />}
-                    </button>
-                    <button className="btn btn-ghost" style={{ padding: 3 }} onClick={() => copy(ev.value)}><Copy size={12} /></button>
+                    <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))} icon={show[ev.key] ? EyeOff : Eye} />
+                    <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
                   </div>
                 </td>
                 <td>
-                  <button className="btn btn-ghost" style={{ padding: 3, color: 'var(--red)' }} onClick={() => remove(ev.key)}><Trash2 size={13} /></button>
+                  <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => remove(ev.key)} icon={Trash2} />
                 </td>
               </tr>
             ))}
@@ -603,9 +601,9 @@ function EnvVarsPanel({ serviceId }) {
       <div style={{ display: 'flex', gap: 8 }}>
         <input className="form-input" placeholder="KEY" value={newKey} onChange={e => setNewKey(e.target.value)} style={{ flex: 1, fontFamily: 'JetBrains Mono, monospace' }} />
         <input className="form-input" placeholder="value" value={newVal} onChange={e => setNewVal(e.target.value)} style={{ flex: 2 }} />
-        <button className="btn btn-primary btn-sm" onClick={add}>
-          {saved ? <><Check size={14} /> Saved</> : <><Plus size={14} /> Add</>}
-        </button>
+        <Button variant="primary" size="sm" onClick={add} icon={saved ? Check : Plus}>
+          {saved ? ' Saved' : ' Add'}
+        </Button>
       </div>
     </div>
   );
@@ -966,10 +964,10 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
           )}
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          <button className="btn btn-primary btn-sm" onClick={handleDeploy} disabled={deploying}>
-            {deploying ? <RefreshCw size={13} className="spin" /> : <Play size={13} />} {svc.type === 'database' ? 'Recreate' : 'Deploy'}
-          </button>
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={(e) => { e.stopPropagation(); onDelete(svc.id); }}><Trash2 size={13} /></button>
+          <Button variant="primary" size="sm" onClick={handleDeploy} disabled={deploying} loading={deploying} icon={Play}>
+            {svc.type === 'database' ? 'Recreate' : 'Deploy'}
+          </Button>
+          <Button variant="ghost" size="sm" style={{ color: 'var(--red)' }} onClick={(e) => { e.stopPropagation(); onDelete(svc.id); }} icon={Trash2} />
         </div>
       </div>
     </div>
@@ -999,7 +997,7 @@ function ContainerLogsPanel({ serviceId }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Runtime Container Logs</span>
-        <button className="btn btn-ghost btn-sm" onClick={fetchLogs}><RefreshCw size={12} /> Refresh</button>
+        <Button variant="ghost" size="sm" onClick={fetchLogs} icon={RefreshCw}>Refresh</Button>
       </div>
       <pre style={{
         background: '#0d1117',
@@ -1047,9 +1045,7 @@ function WebhookPanel({ serviceId }) {
           value={webhookUrl}
           style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', flex: 1 }}
         />
-        <button className="btn btn-ghost" onClick={copyToClipboard} style={{ height: 38, width: 38, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {copied ? <Check size={16} color="var(--green)" style={{ margin: 0 }} /> : <Copy size={16} style={{ margin: 0 }} />}
-        </button>
+        <Button variant="ghost" size="sm" onClick={copyToClipboard} style={{ height: 38, width: 38 }} icon={copied ? Check : Copy} />
       </div>
 
       <div className="card" style={{ padding: '1rem', background: 'rgba(79,110,247,0.04)', border: '1px solid rgba(79,110,247,0.08)', borderRadius: 8 }}>
@@ -1347,9 +1343,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       {error && <div style={{ color: 'var(--red)', fontSize: '0.75rem' }}>⚠️ {error}</div>}
       {success && <div style={{ color: 'var(--green)', fontSize: '0.75rem' }}>✓ Settings saved successfully!</div>}
 
-      <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving} style={{ marginTop: 6, alignSelf: 'flex-end' }}>
-        {saving ? 'Saving...' : 'Save Settings'}
-      </button>
+      <Button variant="primary" size="sm" onClick={handleSave} disabled={saving} loading={saving} style={{ marginTop: 6, alignSelf: 'flex-end' }}>
+        Save Settings
+      </Button>
     </div>
   );
 }
@@ -1451,13 +1447,9 @@ export default function ProjectDetail() {
         <div className="page-header" style={{ marginBottom: '1.25rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => setActiveSvc(null)}
-                style={{ padding: '2px 8px', fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setActiveSvc(null)} style={{ padding: '2px 8px', color: 'var(--accent)' }}>
                 &larr; Projects
-              </button>
+              </Button>
               <ChevronRight size={14} color="var(--text-muted)" />
               <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{project?.name}</span>
               <ChevronRight size={14} color="var(--text-muted)" />
@@ -1485,36 +1477,20 @@ export default function ProjectDetail() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              className="btn"
-              onClick={() => handleDeploy(selectedSvc.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f59e0b', color: '#111', fontWeight: 600, border: 'none', height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
-            >
-              <Play size={13} /> Redeploy
-            </button>
-            <button
-              className="btn"
-              onClick={() => handleRestart(selectedSvc.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', fontWeight: 500, height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
-            >
-              <RefreshCw size={13} /> Restart
-            </button>
+            <Button variant="solid" color="amber" size="sm" onClick={() => handleDeploy(selectedSvc.id)} icon={Play} style={{ fontWeight: 600 }}>
+              Redeploy
+            </Button>
+            <Button variant="outline" color="amber" size="sm" onClick={() => handleRestart(selectedSvc.id)} icon={RefreshCw}>
+              Restart
+            </Button>
             {selectedSvc.status === 'running' && (
-              <button
-                className="btn"
-                onClick={() => handleStop(selectedSvc.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', fontWeight: 500, height: 34, padding: '0 12px', borderRadius: 'var(--radius)' }}
-              >
-                <X size={13} /> Stop
-              </button>
+              <Button variant="outline" color="red" size="sm" onClick={() => handleStop(selectedSvc.id)} icon={X}>
+                Stop
+              </Button>
             )}
-            <button
-              className="btn btn-ghost"
-              style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)', height: 34, display: 'flex', alignItems: 'center' }}
-              onClick={() => handleDelete(selectedSvc.id)}
-            >
-              <Trash2 size={13} style={{ marginRight: 4 }} /> Delete
-            </button>
+            <Button variant="ghost" size="sm" style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }} onClick={() => handleDelete(selectedSvc.id)} icon={Trash2}>
+              Delete
+            </Button>
           </div>
         </div>
 
@@ -1566,7 +1542,7 @@ export default function ProjectDetail() {
           </div>
           <p className="page-subtitle">{project?.description || 'Project environment'}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={16} /> New Resource</button>
+        <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>New Resource</Button>
       </div>
 
       {/* Stats row */}
@@ -1622,7 +1598,7 @@ export default function ProjectDetail() {
               <div className="empty-icon" style={{ margin: '0 auto 1rem' }}><Package size={28} /></div>
               <div style={{ color: 'var(--text-secondary)', fontWeight: 500, marginBottom: 8 }}>No resources yet</div>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '1rem' }}>Add an app or database to get started</p>
-              <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Add Resource</button>
+              <Button variant="primary" onClick={() => setShowModal(true)} icon={Plus}>Add Resource</Button>
             </div>
           )}
         </div>

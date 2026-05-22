@@ -6,10 +6,18 @@ import { useTheme } from '../../context/ThemeContext';
 import {
   LayoutDashboard, FolderOpen, Database, Globe, Terminal,
   Settings, LogOut, Server, Activity, ArrowUpCircle, Files,
-  Sun, Moon
+  Sun, Moon, ChevronDown
 } from 'lucide-react';
 import { updateApi } from '../../api/client';
+import { Button } from '../ui';
 import { Modal } from '../ui/Modal';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '../ui/DropdownMenu';
 
 const NAV = [
   { label: 'Overview', icon: LayoutDashboard, to: '/' },
@@ -198,54 +206,60 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* User / Logout */}
+      {/* User / Profile Dropdown (Radix UI) */}
       <div className="sidebar-bottom">
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '0.625rem 0.875rem',
-          background: 'var(--bg-elevated)',
-          borderRadius: 'var(--radius)',
-          marginBottom: '0.5rem',
-        }}>
-          <div style={{
-            width: 32, height: 32,
-            background: 'var(--accent)',
-            borderRadius: '50%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '0.875rem', fontWeight: 600, flexShrink: 0,
-          }}>
-            {(user?.name || user?.email || 'U')[0].toUpperCase()}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.8125rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.name || 'Admin'}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <div className="user-profile-trigger" role="button" tabIndex={0}>
+              <div className="user-avatar">
+                {(user?.name || user?.email || 'U')[0].toUpperCase()}
+              </div>
+              <div className="user-info">
+                <div className="user-name">{user?.name || 'Admin'}</div>
+                <div className="user-email">{user?.email}</div>
+              </div>
+              <span className="user-dropdown-chevron">
+                <ChevronDown size={14} />
+              </span>
             </div>
-            <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.email}
-            </div>
-          </div>
-          <span className="badge badge-green" style={{ fontSize: '0.625rem' }}>
-            {user?.role}
-          </span>
-        </div>
+          </DropdownMenuTrigger>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+          <DropdownMenuContent side="top" sideOffset={6} align="end" className="user-dropdown-radix">
+            <DropdownMenuItem onClick={() => navigate('/settings')}>
+              <Settings size={15} />
+              <span>Settings</span>
+            </DropdownMenuItem>
+
+            <DropdownMenuItem onClick={toggleTheme}>
+              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+              <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem color="red" onClick={() => setConfirmSignout(true)}>
+              <LogOut size={15} />
+              <span>Sign Out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Bottom action bar */}
+        <div className="sidebar-bottom-actions">
           <button
-            className="nav-item"
-            style={{ flex: 1, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+            className="sidebar-action-btn"
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
           <button
-            className="nav-item"
-            style={{ color: 'var(--red)', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}
+            className="sidebar-action-btn sidebar-signout-btn"
             onClick={() => setConfirmSignout(true)}
             title="Sign Out"
           >
-            <LogOut size={16} />
+            <LogOut size={15} />
+            <span>Sign Out</span>
           </button>
         </div>
       </div>
@@ -257,12 +271,13 @@ export default function Sidebar() {
         description="Your current panel session will be closed on this device."
         maxWidth={380}
       >
-        <div className="modal-footer" style={{ marginTop: '1.25rem' }}>
-          <button className="btn btn-ghost" onClick={() => setConfirmSignout(false)}>Cancel</button>
-          <button className="btn btn-danger" onClick={handleLogout}>
-            <LogOut size={16} />
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.25rem' }}>
+          <Button variant="soft" color="gray" onClick={() => setConfirmSignout(false)}>
+            Cancel
+          </Button>
+          <Button variant="solid" color="red" onClick={handleLogout} icon={LogOut}>
             Sign Out
-          </button>
+          </Button>
         </div>
       </Modal>
     </aside>

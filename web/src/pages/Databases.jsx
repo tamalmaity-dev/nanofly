@@ -122,9 +122,9 @@ function CreateModal({ projects, open, onOpenChange, onCreated }) {
 
       {error && <p style={{ color: 'var(--red)', fontSize: '0.875rem' }}>{error}</p>}
 
-      <div className="modal-footer">
-        <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button variant="primary" onClick={submit} loading={loading} disabled={!projId}>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+        <Button variant="soft" color="gray" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="solid" onClick={submit} loading={loading} disabled={!projId}>
           Create {selectedType.name}
         </Button>
       </div>

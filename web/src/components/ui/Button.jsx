@@ -5,6 +5,7 @@ export function Button({
   children,
   variant = 'solid', // 'solid' | 'ghost' | 'danger' | 'soft' | 'outline'
   size = 'md',        // 'sm' | 'md' | 'lg' | '1' | '2' | '3'
+  color: colorProp,
   loading = false,
   disabled = false,
   icon: Icon,
@@ -23,7 +24,7 @@ export function Button({
 
   // Map variant and color
   let radixVariant = variant;
-  let color = 'indigo';
+  let color = colorProp || 'indigo';
 
   if (variant === 'danger' || variant === 'red') {
     radixVariant = 'solid';

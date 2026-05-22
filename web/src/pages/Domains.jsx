@@ -73,9 +73,9 @@ function AddDomainModal({ open, onOpenChange, onAdded }) {
             <AlertCircle size={14} /> {error}
           </div>
         )}
-        <div className="modal-footer">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" variant="primary" loading={loading} icon={Plus}>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+          <Button variant="soft" color="gray" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" variant="solid" loading={loading} icon={Plus}>
             Add Domain
           </Button>
         </div>

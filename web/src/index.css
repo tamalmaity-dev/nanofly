@@ -335,6 +335,192 @@ code, pre {
 .sidebar-bottom {
   padding: 0.75rem;
   border-top: 1px solid var(--border);
+  position: relative;
+}
+
+/* -- User Profile Trigger -- */
+.user-profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.625rem 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  width: 100%;
+  outline: none;
+}
+.user-profile-trigger:hover {
+  border-color: var(--border-focus);
+  background: var(--bg-hover);
+}
+.user-profile-trigger:focus-visible {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.user-avatar {
+  width: 34px;
+  height: 34px;
+  background: linear-gradient(135deg, var(--accent), #7c8ff9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px rgba(79, 110, 247, 0.15);
+  transition: box-shadow var(--transition);
+}
+.user-profile-trigger:hover .user-avatar {
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px rgba(79, 110, 247, 0.3);
+}
+
+.user-info {
+  flex: 1;
+  min-width: 0;
+}
+.user-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-email {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-dropdown-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.user-dropdown-chevron.open {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+/* -- User Dropdown Menu (Radix) -- */
+.user-dropdown-radix {
+  min-width: 200px !important;
+  padding: 6px !important;
+  animation: dropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dropdown-header-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px 8px;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.dropdown-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+  text-align: left;
+}
+.dropdown-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.dropdown-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dropdown-signout {
+  color: var(--red);
+}
+.dropdown-signout:hover {
+  background: var(--red-dim) !important;
+  color: var(--red) !important;
+}
+
+/* -- Bottom Action Bar -- */
+.sidebar-bottom-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sidebar-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+.sidebar-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sidebar-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sidebar-signout-btn {
+  flex: 1;
+  gap: 8px;
+  justify-content: center;
+  color: var(--red);
+  background: var(--red-dim);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+.sidebar-signout-btn:hover {
+  background: var(--red) !important;
+  color: #fff !important;
+  border-color: var(--red);
 }
 
 /* ── Main Content ────────────────────────────────────────────────────────── */
@@ -1106,3 +1292,80 @@ code, pre {
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .btn-sm { padding: 5px 10px; font-size: 0.8125rem; }
+
+/* -- Skeleton Loading ------------------------------------------------------ */
+.skeleton-text,
+.skeleton-btn,
+.skeleton-circle {
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-hover) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+.skeleton-circle {
+  border-radius: 50%;
+}
+.skeleton-btn {
+  border-radius: var(--radius-sm);
+}
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Radix UI Dropdown & Select Custom Styling ───────────────────────────── */
+.rt-DropdownMenuContent,
+.rt-SelectContent {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 6px !important;
+}
+
+.rt-DropdownMenuItem,
+.rt-SelectItem {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 6px 12px !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  color: var(--text-secondary) !important;
+  cursor: pointer !important;
+  transition: all var(--transition) !important;
+  user-select: none !important;
+}
+
+.rt-DropdownMenuItem:hover,
+.rt-DropdownMenuItem:focus,
+.rt-DropdownMenuItem[data-highlighted],
+.rt-SelectItem:hover,
+.rt-SelectItem:focus,
+.rt-SelectItem[data-highlighted] {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+  outline: none !important;
+}
+
+.rt-DropdownMenuSeparator,
+.rt-SelectSeparator {
+  height: 1px !important;
+  background-color: var(--border) !important;
+  margin: 4px 0 !important;
+}
+
+.rt-DropdownMenuLabel {
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  color: var(--text-muted) !important;
+  padding: 6px 12px !important;
+}
+
+/* Fix active state (when selected in select menu) */
+.rt-SelectItem[data-state="checked"] {
+  background-color: var(--accent) !important;
+  color: #ffffff !important;
+}
+

@@ -1,50 +1,41 @@
 import React from 'react';
-import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
+import { DropdownMenu as ThemesDropdownMenu } from '@radix-ui/themes';
 
-export const DropdownMenu = DropdownMenuPrimitive.Root;
-export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+export function DropdownMenu({ children, ...props }) {
+  return <ThemesDropdownMenu.Root {...props}>{children}</ThemesDropdownMenu.Root>;
+}
 
-export const DropdownMenuContent = React.forwardRef(({ children, className = '', sideOffset = 4, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal>
-    <DropdownMenuPrimitive.Content
-      ref={ref}
-      sideOffset={sideOffset}
-      className={`dropdown-content ${className}`}
-      {...props}
-    >
-      {children}
-    </DropdownMenuPrimitive.Content>
-  </DropdownMenuPrimitive.Portal>
+export function DropdownMenuTrigger({ children, ...props }) {
+  return <ThemesDropdownMenu.Trigger {...props}>{children}</ThemesDropdownMenu.Trigger>;
+}
+
+export const DropdownMenuContent = React.forwardRef(({ children, className = '', ...props }, ref) => (
+  <ThemesDropdownMenu.Content ref={ref} className={className} {...props}>
+    {children}
+  </ThemesDropdownMenu.Content>
 ));
 DropdownMenuContent.displayName = 'DropdownMenuContent';
 
-export const DropdownMenuItem = React.forwardRef(({ children, className = '', variant = '', ...props }, ref) => (
-  <DropdownMenuPrimitive.Item
+export const DropdownMenuItem = React.forwardRef(({ children, className = '', variant = '', color, ...props }, ref) => (
+  <ThemesDropdownMenu.Item
     ref={ref}
-    className={`dropdown-item-root ${variant} ${className}`}
+    className={`${variant} ${className}`}
+    color={color}
     {...props}
   >
     {children}
-  </DropdownMenuPrimitive.Item>
+  </ThemesDropdownMenu.Item>
 ));
 DropdownMenuItem.displayName = 'DropdownMenuItem';
 
 export const DropdownMenuSeparator = React.forwardRef(({ className = '', ...props }, ref) => (
-  <DropdownMenuPrimitive.Separator
-    ref={ref}
-    className={`dropdown-separator ${className}`}
-    {...props}
-  />
+  <ThemesDropdownMenu.Separator ref={ref} className={className} {...props} />
 ));
 DropdownMenuSeparator.displayName = 'DropdownMenuSeparator';
 
 export const DropdownMenuLabel = React.forwardRef(({ children, className = '', ...props }, ref) => (
-  <DropdownMenuPrimitive.Label
-    ref={ref}
-    className={`dropdown-label ${className}`}
-    {...props}
-  >
+  <ThemesDropdownMenu.Label ref={ref} className={className} {...props}>
     {children}
-  </DropdownMenuPrimitive.Label>
+  </ThemesDropdownMenu.Label>
 ));
 DropdownMenuLabel.displayName = 'DropdownMenuLabel';

@@ -1,6 +1,6 @@
 // src/pages/Services.jsx — Real systemd service management
 import { useState, useEffect, useCallback } from 'react';
-import { Server, Play, Square, RefreshCw, Search, AlertCircle, Loader2 } from 'lucide-react';
+import { Server, Play, Square, RefreshCw, Search, AlertCircle } from 'lucide-react';
 import { systemdApi } from '../api/client';
 import { Button } from '../components/ui';
 
@@ -59,8 +59,41 @@ export default function Services() {
 
   if (loading) {
     return (
-      <div className="page-content fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh' }}>
-        <Loader2 size={32} className="spin" color="var(--primary)" />
+      <div className="page-content fade-in">
+        <div className="page-header">
+          <div>
+            <div className="skeleton-text" style={{ width: 180, height: 24, marginBottom: 8 }} />
+            <div className="skeleton-text" style={{ width: 260, height: 14 }} />
+          </div>
+          <div className="skeleton-btn" style={{ width: 100, height: 34 }} />
+        </div>
+
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="skeleton-circle" style={{ width: 14, height: 14 }} />
+            <div className="skeleton-text" style={{ width: 180, height: 14 }} />
+            <div style={{ marginLeft: 'auto' }}>
+              <div className="skeleton-text" style={{ width: 180, height: 28, borderRadius: 'var(--radius-sm)' }} />
+            </div>
+          </div>
+          <div style={{ padding: '0.5rem 1rem' }}>
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0.75rem 0', borderBottom: i < 5 ? '1px solid var(--border)' : 'none' }}>
+                <div className="skeleton-circle" style={{ width: 14, height: 14, borderRadius: 4 }} />
+                <div className="skeleton-text" style={{ width: '30%', height: 14 }} />
+                <div className="skeleton-text" style={{ width: 80, height: 22, borderRadius: 99 }} />
+                <div className="skeleton-text" style={{ width: 50, height: 14 }} />
+                <div className="skeleton-text" style={{ width: 70, height: 14 }} />
+                <div className="skeleton-text" style={{ width: 80, height: 14 }} />
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  <div className="skeleton-btn" style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)' }} />
+                  <div className="skeleton-btn" style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)' }} />
+                  <div className="skeleton-btn" style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -116,7 +149,7 @@ export default function Services() {
                 <td>{s.memory || '—'}</td>
                 <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{s.since || '—'}</td>
                 <td>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <Button variant="ghost" size="sm" title="Start" disabled={s.status === 'running'} loading={acting === s.name}
                       onClick={() => handleAction(s.name, 'start')} icon={Play} />
                     <Button variant="ghost" size="sm" title="Stop" disabled={s.status === 'stopped' || acting === s.name}

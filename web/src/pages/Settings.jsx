@@ -203,9 +203,7 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
                         <Download size={14} />
                       </a>
                     )}
-                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => remove(b.file)}>
-                      <Trash2 size={14} />
-                    </button>
+                    <Button variant="ghost" size="sm" style={{ color: 'var(--red)' }} onClick={() => remove(b.file)} icon={Trash2} />
                   </td>
                 </tr>
               ))}

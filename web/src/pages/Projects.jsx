@@ -55,9 +55,9 @@ function CreateProjectModal({ open, onOpenChange, onSuccess }) {
             style={{ resize: 'vertical' }}
           />
         </div>
-        <div className="modal-footer" style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" variant="primary" loading={loading} disabled={!name.trim()}>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+          <Button variant="soft" color="gray" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" variant="solid" loading={loading} disabled={!name.trim()}>
             Create Project
           </Button>
         </div>
@@ -155,7 +155,7 @@ export default function Projects() {
                     <Button variant="ghost" size="sm" onClick={e => e.stopPropagation()} icon={MoreVertical} />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent onClick={e => e.stopPropagation()}>
-                    <DropdownMenuItem variant="danger" onClick={e => handleDelete(e, p.id)}>
+                    <DropdownMenuItem color="red" onClick={e => handleDelete(e, p.id)}>
                       <Trash2 size={14} style={{ marginRight: 6 }} /> Delete Project
                     </DropdownMenuItem>
                   </DropdownMenuContent>
