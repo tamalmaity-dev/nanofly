@@ -22,7 +22,7 @@
 
 ---
 
-## ⚡ Why NanoFly?
+## ⚡ About NanoFly Project
 
 * **Zero Heavy Dependencies**: Unlike other self-hosted PaaS solutions, NanoFly is compiled into a single lightweight Go binary with an embedded SQLite database. No JVM, no heavy footprint.
 * **Optimized for Low-End Hardware**: Fully optimized to run smoothly on low-resource environments (e.g. Raspberry Pi 4/5, $4 VPS instances).
@@ -31,7 +31,7 @@
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Installation
 
 Get NanoFly running on your server with a single command:
 
