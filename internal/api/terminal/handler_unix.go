@@ -72,7 +72,7 @@ func WS(w http.ResponseWriter, r *http.Request) {
 	defer cmd.Process.Kill() //nolint:errcheck
 
 	if target != "container" {
-		_, _ = ptmx.Write([]byte("cd /\nclear\n"))
+		_, _ = ptmx.Write([]byte("export PS1='\\[\\033[1;32m\\]\\u@\\h\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[0m\\]\\\\$ '\ncd /\nclear\n"))
 	}
 
 	// PTY → WebSocket

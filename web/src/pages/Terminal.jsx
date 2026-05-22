@@ -29,8 +29,8 @@ export default function Terminal() {
     // ── 2. Create xterm instance ──────────────────────────────────────────
     const term = new XTerm({
       theme: {
-        background: '#000000',
-        foreground: '#ffffff',
+        background: '#0c0c0c',
+        foreground: '#cccccc',
         cursor: '#ffffff',
         selectionBackground: 'rgba(255, 255, 255, 0.2)',
         black: '#000000',
@@ -40,7 +40,7 @@ export default function Terminal() {
         blue: '#00d2ff',
         magenta: '#d8b4fe',
         cyan: '#00ffff',
-        white: '#ffffff',
+        white: '#cccccc',
         brightBlack: '#64748b',
         brightRed: '#ef4444',
         brightGreen: '#4af626',
@@ -198,7 +198,7 @@ export default function Terminal() {
         {/* xterm container */}
         <div
           ref={containerRef}
-          style={{ flex: 1, padding: '6px', overflow: 'hidden', background: '#000000' }}
+          style={{ flex: 1, padding: '6px', overflow: 'hidden', background: '#0c0c0c' }}
           onClick={() => xtermRef.current?.focus()}
         />
       </div>
