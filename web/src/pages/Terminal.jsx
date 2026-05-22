@@ -29,32 +29,32 @@ export default function Terminal() {
     // ── 2. Create xterm instance ──────────────────────────────────────────
     const term = new XTerm({
       theme: {
-        background: '#0d1117',
-        foreground: '#e2e8f0',
-        cursor: '#22f7a8',
-        selectionBackground: '#2d4a74',
-        black: '#0b1020',
-        red: '#ff5c7a',
-        green: '#22f7a8',
-        yellow: '#ffd166',
-        blue: '#5b8cff',
-        magenta: '#c084fc',
-        cyan: '#38d9ff',
-        white: '#e2e8f0',
-        brightBlack: '#556070',
-        brightRed: '#ff7b93',
-        brightGreen: '#69f0bd',
-        brightYellow: '#ffe08a',
-        brightBlue: '#82a8ff',
+        background: '#000000',
+        foreground: '#ffffff',
+        cursor: '#ffffff',
+        selectionBackground: 'rgba(255, 255, 255, 0.2)',
+        black: '#000000',
+        red: '#ef4444',
+        green: '#4af626',
+        yellow: '#eab308',
+        blue: '#00d2ff',
+        magenta: '#d8b4fe',
+        cyan: '#00ffff',
+        white: '#ffffff',
+        brightBlack: '#64748b',
+        brightRed: '#ef4444',
+        brightGreen: '#4af626',
+        brightYellow: '#eab308',
+        brightBlue: '#00d2ff',
         brightMagenta: '#d8b4fe',
-        brightCyan: '#7de7ff',
+        brightCyan: '#00ffff',
         brightWhite: '#ffffff',
       },
       fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
       fontSize: 14,
       lineHeight: 1.6,
       cursorBlink: true,
-      cursorStyle: 'bar',
+      cursorStyle: 'block',
       scrollback: 5000,
       allowTransparency: true,
     });
@@ -198,7 +198,7 @@ export default function Terminal() {
         {/* xterm container */}
         <div
           ref={containerRef}
-          style={{ flex: 1, padding: '6px', overflow: 'hidden', background: '#0d1117' }}
+          style={{ flex: 1, padding: '6px', overflow: 'hidden', background: '#000000' }}
           onClick={() => xtermRef.current?.focus()}
         />
       </div>

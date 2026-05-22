@@ -5,6 +5,7 @@ export const SelectRoot = Select.Root;
 export const SelectTrigger = Select.Trigger;
 
 
+// Set position="popper" prop to position the select menu below the trigger.
 
 export const SelectContent = React.forwardRef(({ children, position = 'popper', sideOffset = 4, ...props }, ref) => (
   <Select.Content ref={ref} position={position} sideOffset={sideOffset} {...props}>
