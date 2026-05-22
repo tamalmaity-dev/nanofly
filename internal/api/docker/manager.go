@@ -336,9 +336,23 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	oldName := "nf-app-" + name
 	m.RemoveContainer(ctx, oldName) //nolint:errcheck
 
+	// Inspect image config to detect exposed ports
+	exposedPort := containerPort
+	if inspect, err := m.cli.ImageInspect(ctx, img); err == nil {
+		if inspect.Config != nil && len(inspect.Config.ExposedPorts) > 0 {
+			for p := range inspect.Config.ExposedPorts {
+				var portVal int
+				if _, err := fmt.Sscanf(p.Port(), "%d", &portVal); err == nil && portVal > 0 {
+					exposedPort = portVal
+					break
+				}
+			}
+		}
+	}
+
 	portBinding := nat.PortMap{}
-	if hostPort > 0 && containerPort > 0 {
-		portBinding[nat.Port(fmt.Sprintf("%d/tcp", containerPort))] = []nat.PortBinding{
+	if hostPort > 0 && exposedPort > 0 {
+		portBinding[nat.Port(fmt.Sprintf("%d/tcp", exposedPort))] = []nat.PortBinding{
 			{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", hostPort)},
 		}
 	}

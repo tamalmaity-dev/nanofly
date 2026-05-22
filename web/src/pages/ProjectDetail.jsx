@@ -2607,6 +2607,197 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   );
 }
 
+// ── Connection Details Panel (Databases) ──────────────────────────────────────
+function ConnectionDetailsPanel({ service }) {
+  const [envVars, setEnvVars] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    servicesApi.getEnvVars(service.id)
+      .then(vars => {
+        setEnvVars(vars || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [service.id]);
+
+  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}><div className="spinner" /></div>;
+
+  const connStringObj = envVars.find(v => v.key === 'CONNECTION_STRING');
+  const connString = connStringObj ? connStringObj.value : '';
+
+  // Parse connection details from the connection string
+  let host = 'localhost';
+  let port = service.port || 5432;
+  let username = 'nanofly';
+  let password = '';
+  let dbName = service.name ? service.name.toLowerCase().replace(/-/g, '_') : 'nanofly';
+
+  const type = (service.image || '').split(':')[0] || 'postgres';
+
+  if (connString) {
+    try {
+      if (connString.startsWith('redis://')) {
+        const parts = connString.replace('redis://', '').split(':');
+        if (parts.length > 1) {
+          const hostPort = parts[parts.length - 1];
+          port = parseInt(hostPort, 10) || port;
+        }
+        username = '(none)';
+      } else if (connString.startsWith('postgres://') || connString.startsWith('mysql://') || connString.startsWith('mongodb://') || connString.startsWith('clickhouse://')) {
+        const urlStr = connString.replace('mongodb://', 'http://').replace('postgres://', 'http://').replace('mysql://', 'http://').replace('clickhouse://', 'http://');
+        const parsed = new URL(urlStr);
+        host = 'localhost';
+        port = parseInt(parsed.port, 10) || port;
+        username = parsed.username || 'nanofly';
+        password = parsed.password || '';
+        dbName = parsed.pathname ? parsed.pathname.replace('/', '') : dbName;
+      }
+    } catch (e) {
+      console.error('Error parsing connection string:', e);
+    }
+  }
+
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Generate connection CLI commands
+  let cliCmd = '';
+  switch (type) {
+    case 'postgres':
+      cliCmd = `PGPASSWORD="${password}" psql -h ${host} -p ${port} -U ${username} -d ${dbName}`;
+      break;
+    case 'mysql':
+    case 'mariadb':
+      cliCmd = `mysql -h ${host} -P ${port} -u ${username} -p"${password}" ${dbName}`;
+      break;
+    case 'redis':
+    case 'keydb':
+    case 'dragonfly':
+      cliCmd = `redis-cli -h ${host} -p ${port}`;
+      break;
+    case 'mongo':
+      cliCmd = `mongosh "mongodb://${username}:${password}@${host}:${port}/${dbName}?authSource=admin"`;
+      break;
+    case 'clickhouse':
+      cliCmd = `clickhouse-client --host ${host} --port ${port} --user ${username} --password "${password}" --database ${dbName}`;
+      break;
+    default:
+      cliCmd = `conn -h ${host} -p ${port}`;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        {/* Credentials Card */}
+        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+          <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Key size={14} color="var(--accent)" /> Access Credentials
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Database Host</span>
+              <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{host}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>External Port</span>
+              <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{port}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Database Name</span>
+              <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{dbName}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Username</span>
+              <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{username}</span>
+            </div>
+            {type !== 'redis' && type !== 'keydb' && type !== 'dragonfly' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Password</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                    {showPassword ? password : '••••••••••••••••'}
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => setShowPassword(!showPassword)} icon={showPassword ? EyeOff : Eye} style={{ padding: 4 }} />
+                  <Button variant="ghost" size="sm" onClick={() => handleCopy(password)} icon={Copy} style={{ padding: 4 }} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Engine Information Card */}
+        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Database size={14} color="var(--accent)" /> Engine Details
+            </h4>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <ServiceLogo type="database" name={service.name} image={service.image} size={32} />
+              <div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                  {type} Engine
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                  {service.image || 'latest'}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.18)', borderRadius: 8, padding: '0.75rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            This database is managed inside Docker. The external port is mapped to allow connections from local and external applications.
+          </div>
+        </div>
+      </div>
+
+      {/* Connection Strings and CLI commands */}
+      <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+        <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+          Connection URLs
+        </h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem' }}>Connection URI</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input 
+                className="form-input form-input-sm" 
+                type={showPassword ? 'text' : 'password'} 
+                value={connString || 'Generating connection URL...'} 
+                readOnly 
+                style={{ fontFamily: 'monospace', fontSize: '0.8rem', flex: 1 }} 
+              />
+              <Button variant="outline" size="sm" onClick={() => handleCopy(connString)} icon={Copy}>
+                {copied ? 'Copied' : 'Copy'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem' }}>CLI Connection Command</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input 
+                className="form-input form-input-sm" 
+                value={cliCmd} 
+                readOnly 
+                style={{ fontFamily: 'monospace', fontSize: '0.8rem', flex: 1 }} 
+              />
+              <Button variant="outline" size="sm" onClick={() => handleCopy(cliCmd)} icon={Copy}>
+                Copy
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ProjectDetail ────────────────────────────────────────────────────────
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -2757,16 +2948,20 @@ export default function ProjectDetail() {
             value={activeTab}
             onValueChange={setActiveTab}
             items={[
-              { id: 'deployments', label: 'Deployments' },
+              ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
+              ...(selectedSvc.type !== 'database' ? [{ id: 'deployments', label: 'Deployments' }] : []),
               { id: 'logs', label: 'Logs' },
-              { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+              ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
               { id: 'monitoring', label: 'Monitoring', icon: Cpu },
               ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
-              { id: 'envvars', label: 'Environment Variables' },
+              ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
               { id: 'settings', label: 'Settings', icon: Settings },
             ]}
           >
+            <TabsContent value="connection">
+              <ConnectionDetailsPanel service={selectedSvc} />
+            </TabsContent>
             <TabsContent value="deployments">
               <DeploymentsPanel serviceId={activeSvc} />
             </TabsContent>
@@ -2867,7 +3062,7 @@ export default function ProjectDetail() {
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Databases</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {dbs.map(s => (
-                      <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
+                      <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('connection'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                         <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
                       </div>
                     ))}
