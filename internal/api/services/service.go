@@ -69,6 +69,7 @@ type Service struct {
 	RunFile          string `json:"run_file,omitempty"`
 	RequirementsFile string `json:"requirements_file,omitempty"`
 	UseVenv          bool   `json:"use_venv"`
+	DockerArgs       string `json:"docker_args,omitempty"`
 	ConnString       string `json:"conn_string,omitempty"` // databases only (encrypted stub)
 
 	// Real-time resource metrics (populated in memory)
@@ -148,7 +149,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
 		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
-		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1)
+		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
+		       COALESCE(s.docker_args,'')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -170,7 +172,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.Port, &updatedAt, &createdAt,
 			&s.GitRepoURL, &s.GitBranch,
 			&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
-			&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv,
+			&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
 		); err != nil {
 			return nil, err
 		}
@@ -210,7 +212,8 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
 		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
-		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1)
+		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
+		       COALESCE(s.docker_args,'')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -219,7 +222,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.Port, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
 		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
-		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv,
+		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
 	)
 	if err != nil {
 		return nil, err
@@ -264,6 +267,7 @@ type CreateAppReq struct {
 	RunFile          string
 	RequirementsFile string
 	UseVenv          bool
+	DockerArgs       string
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -272,13 +276,13 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 	err := m.db.QueryRowContext(ctx, `
 		INSERT INTO services (
 			project_id, name, type, status, port, image,
-			start_command, install_command, app_directory, run_file, requirements_file, use_venv
+			start_command, install_command, app_directory, run_file, requirements_file, use_venv, docker_args
 		)
-		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`, req.ProjectID, req.Name, req.Port, req.Image,
 		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
-		defaultRequirementsFile(req.RequirementsFile), req.UseVenv,
+		defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating service: %w", err)
@@ -658,6 +662,10 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		if !hasPortEnv {
 			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", svc.Port))
 		}
+	}
+	// Append custom docker run arguments
+	if svc.DockerArgs != "" {
+		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
 	runArgs = append(runArgs, imageTag)
 
@@ -1186,6 +1194,7 @@ type UpdateServiceReq struct {
 	RunFile          string `json:"run_file"`
 	RequirementsFile string `json:"requirements_file"`
 	UseVenv          bool   `json:"use_venv"`
+	DockerArgs       string `json:"docker_args"`
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -1194,10 +1203,10 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		UPDATE services
 		SET name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
-		    updated_at = CURRENT_TIMESTAMP
+		    docker_args = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, req.Name, req.Image, req.Port, req.StartCommand, req.InstallCommand,
-		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, serviceID)
+		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}
@@ -1354,6 +1363,10 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 			}
 		}
 
+		// Append custom docker run arguments
+		if svc.DockerArgs != "" {
+			runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
+		}
 		runArgs = append(runArgs, imageTag)
 
 		exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
@@ -1498,6 +1511,10 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		}
 	}
 
+	// Append custom docker run arguments before image
+	if svc.DockerArgs != "" {
+		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
+	}
 	runArgs = append(runArgs, baseImage)
 	if len(runCmdArgs) > 0 {
 		runArgs = append(runArgs, runCmdArgs...)

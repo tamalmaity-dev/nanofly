@@ -498,6 +498,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
     useVenv: true,
     startCommand: '',
     installCommand: '',
+    dockerArgs: '',
     envText: '',
   });
   const [loading, setLoading] = useState(false);
@@ -529,6 +530,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           use_venv: !!form.useVenv,
           start_command: form.startCommand.trim(),
           install_command: form.installCommand.trim(),
+          docker_args: form.dockerArgs.trim(),
           port: Number(form.port) || 0,
           env_vars: envVars,
         });
@@ -911,6 +913,17 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         </label>
                       </div>
                     )}
+                    <div className="form-group">
+                      <label className="form-label">Docker Run Arguments</label>
+                      <input
+                        className="form-input"
+                        value={form.dockerArgs}
+                        onChange={set('dockerArgs')}
+                        placeholder="e.g. --privileged --device /dev/i2c-1"
+                        style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}
+                      />
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Extra flags for <code>docker run</code>. Use for hardware access, custom networks, etc.</p>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -1001,6 +1014,17 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         </label>
                       </div>
                     )}
+                    <div className="form-group">
+                      <label className="form-label">Docker Run Arguments</label>
+                      <input
+                        className="form-input"
+                        value={form.dockerArgs}
+                        onChange={set('dockerArgs')}
+                        placeholder="e.g. --privileged --device /dev/i2c-1"
+                        style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}
+                      />
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Extra flags for <code>docker run</code>. Use for hardware access, custom networks, etc.</p>
+                    </div>
                   </>
                 )}
 
@@ -1814,6 +1838,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [useVenv, setUseVenv] = useState(service.use_venv !== false);
   const [startCommand, setStartCommand] = useState(service.start_command || '');
   const [installCommand, setInstallCommand] = useState(service.install_command || '');
+  const [dockerArgs, setDockerArgs] = useState(service.docker_args || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -1835,6 +1860,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setUseVenv(service.use_venv !== false);
     setStartCommand(service.start_command || '');
     setInstallCommand(service.install_command || '');
+    setDockerArgs(service.docker_args || '');
 
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
     setDomainVal(matched ? matched.domain : '');
@@ -1905,6 +1931,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         use_venv: !!useVenv,
         start_command: startCommand.trim(),
         install_command: installCommand.trim(),
+        docker_args: dockerArgs.trim(),
       });
 
       // Update domain and direction in domains_v2 if modified
@@ -2040,6 +2067,63 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
                   Generate Python virtual environment during build
                 </label>
+              )}
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Docker Run Arguments</label>
+                <input
+                  className="form-input form-input-sm"
+                  value={dockerArgs}
+                  onChange={e => setDockerArgs(e.target.value)}
+                  placeholder="e.g. --privileged --device /dev/i2c-1 --network host"
+                  style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78rem' }}
+                />
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Extra flags appended to <code>docker run</code> on each deploy. Useful for device access, network modes, etc.</p>
+              </div>
+              {service.git_repo_url?.startsWith('file://') && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Button
+                    variant="outline" color="amber" size="sm"
+                    onClick={async () => {
+                      const localPath = service.git_repo_url.replace('file://', '');
+                      const builderType = parseBuilderValue(gitBuilder).type;
+                      const baseImage = gitBuilder.includes(':') ? gitBuilder : (
+                        builderType === 'python' ? 'python:3.11-slim' :
+                        builderType === 'node' ? 'node:22-alpine' :
+                        builderType === 'go' ? 'golang:1.22-alpine' :
+                        builderType === 'php' ? 'php:8.2-apache' : 'ubuntu:22.04'
+                      );
+                      const runCmd = startCommand.trim() || (
+                        builderType === 'python' ? `python ${runFile || 'app.py'}` :
+                        builderType === 'node' ? 'npm start' :
+                        builderType === 'go' ? 'go run .' :
+                        builderType === 'php' ? 'apache2-foreground' : './start.sh'
+                      );
+                      const installCmd = installCommand.trim() || (
+                        builderType === 'python' ? 'pip install -r requirements.txt' :
+                        builderType === 'node' ? 'npm install --production' :
+                        builderType === 'go' ? 'go mod download' : ''
+                      );
+                      const portLine = service.port > 0 ? `EXPOSE ${service.port}\nENV PORT=${service.port}` : '';
+                      const installLine = installCmd ? `RUN ${installCmd}` : '';
+                      const content = [
+                        `FROM ${baseImage}`,
+                        'WORKDIR /app',
+                        'COPY . .',
+                        installLine,
+                        portLine,
+                        `CMD ["sh", "-c", "${runCmd}"]`,
+                      ].filter(Boolean).join('\n');
+                      try {
+                        const { filesApi } = await import('../api/client');
+                        await filesApi.save(localPath + '/Dockerfile', content);
+                        alert('Dockerfile created at ' + localPath + '/Dockerfile');
+                      } catch (e) { alert('Failed: ' + e.message); }
+                    }}
+                  >
+                    📄 Initialize Dockerfile Template
+                  </Button>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Creates a starter Dockerfile in the project folder</span>
+                </div>
               )}
             </>
           ) : (

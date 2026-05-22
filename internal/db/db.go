@@ -162,6 +162,7 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN run_file TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN requirements_file TEXT DEFAULT 'requirements.txt'")
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN use_venv INTEGER DEFAULT 1")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_args TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN builder TEXT DEFAULT 'auto'")
 
 	return tx.Commit()

@@ -63,6 +63,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		RunFile          string   `json:"run_file"`
 		RequirementsFile string   `json:"requirements_file"`
 		UseVenv          bool     `json:"use_venv"`
+		DockerArgs       string   `json:"docker_args"`
 		EnvVars          []EnvVar `json:"env_vars"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -96,6 +97,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		RunFile:          req.RunFile,
 		RequirementsFile: req.RequirementsFile,
 		UseVenv:          req.UseVenv,
+		DockerArgs:       req.DockerArgs,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
