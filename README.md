@@ -5,12 +5,12 @@
 <h1 align="center">NanoFly</h1>
 
 <p align="center">
-  <strong>An open-source & self-hostable alternative to Vercel, Netlify & Heroku.</strong>
+  <strong>A premium, self-hostable, lightweight PaaS. The open-source alternative to Vercel, Netlify, and Heroku.</strong>
 </p>
 
 <p align="center">
-  Manage your servers, deploy applications & databases on your own hardware.<br/>
-  You only need an SSH connection. Works on VPS, bare metal, and Raspberry Pi.
+  Deploy applications, build from Git repositories, and provision databases in seconds on your own hardware. 
+  Perfect for VPS, bare-metal servers, and Raspberry Pi.
 </p>
 
 <p align="center">
@@ -22,55 +22,64 @@
 
 ---
 
-## 🚀 Getting Started
+## ⚡ Why NanoFly?
 
-To install NanoFly on your server, run the following command:
+* **Zero Heavy Dependencies**: Unlike other self-hosted PaaS solutions, NanoFly is compiled into a single lightweight Go binary with an embedded SQLite database. No JVM, no heavy footprint.
+* **Optimized for Low-End Hardware**: Fully optimized to run smoothly on low-resource environments (e.g. Raspberry Pi 4/5, $4 VPS instances).
+* **One-Click Deployments**: Deploy applications directly from Git branches or provision database clusters in seconds.
+* **Premium Dashboard**: A modern, interactive dark interface designed with accessibility, speed, and real-time state synchronization.
+
+---
+
+## 🚀 Quick Start
+
+Get NanoFly running on your server with a single command:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/install.sh | sudo bash
 ```
 
-Once execution completes, NanoFly is set up as a system service. Open the URL shown in your terminal to create your admin account and start deploying.
+Once installed:
+1. **Access the Panel**: Open your browser and navigate to the address shown in the installation completion logs.
+2. **Create Admin**: Complete the initial admin setup to access your dashboard.
+3. **Connect & Deploy**: Start deploying applications from GitHub, managing environment variables, or creating databases.
 
-> **System Requirements**
-> - Ubuntu 20.04+, Debian 11+, or Rocky Linux 8+
-> - Docker Engine installed and running
-> - Supports **x86_64** and **ARM64** architectures (including Raspberry Pi 4/5)
+### 📋 System Requirements
+* **OS**: Ubuntu 20.04+, Debian 11+, or Rocky Linux 8+
+* **Engine**: Docker Engine installed and active
+* **Arch**: Supports **x86_64** and **ARM64** (Raspberry Pi 4/5)
 
 ---
 
 ## ✨ Features
 
 ### 🐳 Application Deployment
-- **Direct GitHub Integration:** Connect your repository and deploy branches automatically.
-- **Docker-ready Builds:** Built-in builder to build your Dockerfiles, run build command steps, and handle deployments.
-- **Streaming Logs:** Inspect compilation and runtime logs in real-time.
-- **Environment Management:** Easily define, update, and hide environment secrets for your projects.
+* **Git Integrations**: Hook directly to GitHub repositories for branch deployments.
+* **Log Streaming**: Monitor container building and application execution output in real-time.
+* **Configuration Panel**: Secure environment variable inputs with visibility toggles and clipboard copying.
+* **Lightweight & ARM Compatible**: Specifically built to run efficiently on low-resource setups with minimal overhead.
 
-### 🐘 One-Click Databases
-- **Major Engines Supported:** Provision **PostgreSQL**, **MySQL**, **MariaDB**, **Redis**, **MongoDB**, **KeyDB**, or **ClickHouse** instantly.
-- **Auto-generated Credentials:** Zero manual config required. NanoFly handles root user generation and exposes clean connection strings.
+### 🐘 Instantly Provision Databases
+Create sandboxed database containers instantly with root-user auto-generation and clean integration strings. Supported engines:
+* PostgreSQL, MySQL, MariaDB
+* Redis, KeyDB, MongoDB, ClickHouse
 
-### 📟 Interactive Web Terminal
-- **PTY integration:** Full-powered shell inside your browser window.
-- **Responsive Layout:** Automatically scales row/column bounds. Fully styled with custom themes.
+### 📟 Native Web Terminal
+* **Responsive Shell**: Embedded terminal using `xterm.js` and unix PTY.
+* **Seamless Shell Access**: Run terminal commands directly from the dashboard on target hosts or active Docker containers, styled with premium dark terminal colors.
 
-### 📊 Telemetry & Health Checks
-- Live dashboards for CPU, memory, storage utilization, and CPU temperature.
-- Real-time service state monitoring (starting, active, stopped, restarting).
+### 📊 Real-Time Server Telemetry
+* Keep track of host performance with animated area charts.
+* CPU utilization, RAM usage, storage volume overhead, and SoC CPU temperature.
 
-### ⚡ Resource Optimized
-- Designed specifically for low-end devices and Raspberry Pis.
-- Ultra lightweight single-binary Go backend using an embedded SQLite database.
-
-### 🔄 Auto Updates
-- Keep your panel updated. Pull latest beta and stable updates directly from the dashboard settings.
+### 🔄 Auto-Updating Dashboard
+* Update panel versions (stable and beta releases) with a single click directly from settings.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions of all forms! Feel free to open issues, submit pull requests, or start discussions on our GitHub repository.
+Contributions of any kind are welcome! Feel free to report bugs, suggest features, or submit pull requests.
 
 ---
 
