@@ -51,6 +51,7 @@ type Service struct {
 	ID          string      `json:"id"`
 	ProjectID   string      `json:"project_id"`
 	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
 	Type        ServiceType `json:"type"`
 	Status      string      `json:"status"`
 	Image       string      `json:"image"`
@@ -280,7 +281,7 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 // List returns all services for a project.
 func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT s.id, s.project_id, s.name, s.type, s.status, 
+		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), s.type, s.status, 
 		       COALESCE(s.port,0), COALESCE(s.updated_at,''), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
@@ -306,7 +307,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		var s Service
 		var updatedAt, createdAt string
 		if err := rows.Scan(
-			&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
+			&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.Type, &s.Status,
 			&s.Port, &updatedAt, &createdAt,
 			&s.GitRepoURL, &s.GitBranch,
 			&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
@@ -367,7 +368,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	var s Service
 	var createdAt string
 	err := m.db.QueryRowContext(ctx, `
-		SELECT s.id, s.project_id, s.name, s.type, s.status,
+		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), s.type, s.status,
 		       COALESCE(s.port,0), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
@@ -380,7 +381,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
 	`, id).Scan(
-		&s.ID, &s.ProjectID, &s.Name, &s.Type, &s.Status,
+		&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.Type, &s.Status,
 		&s.Port, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
 		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
@@ -1424,6 +1425,7 @@ func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (strin
 // UpdateServiceReq defines request parameters to edit service settings.
 type UpdateServiceReq struct {
 	Name                 string `json:"name"`
+	Description          string `json:"description"`
 	Image                string `json:"image"`
 	Port                 int    `json:"port"`
 	GitRepoURL           string `json:"git_repo_url"`
@@ -1446,11 +1448,11 @@ type UpdateServiceReq struct {
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE services
-		SET name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
+		SET name = ?, description = ?, image = ?, port = ?, start_command = ?, install_command = ?,
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
 		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, req.Name, req.Image, req.Port, req.StartCommand, req.InstallCommand,
+	`, req.Name, req.Description, req.Image, req.Port, req.StartCommand, req.InstallCommand,
 		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 		req.DockerfileContent, req.DockerComposeContent, serviceID)
 	if err != nil {

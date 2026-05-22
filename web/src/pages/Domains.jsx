@@ -2,13 +2,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Globe, Plus, ShieldCheck, ShieldAlert, Clock, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';
 import { domainsApi } from '../api/client';
-import { Modal, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
-
-function SSLBadge({ status }) {
-  if (status === 'active') return <span className="badge badge-green"><ShieldCheck size={11} /> Active</span>;
-  if (status === 'pending') return <span className="badge badge-yellow"><Clock size={11} /> Pending</span>;
-  return <span className="badge badge-red"><ShieldAlert size={11} /> Error</span>;
-}
+import { Modal, Button, StatusBadge, SelectRoot, SelectTrigger, SelectContent, SelectItem, useToast } from '../components/ui';
+// Using shared StatusBadge component
 
 function AddDomainModal({ open, onOpenChange, onAdded }) {
   const [domain, setDomain] = useState('');
@@ -86,6 +81,7 @@ function AddDomainModal({ open, onOpenChange, onAdded }) {
 
 // domain management page
 export default function Domains() {
+  const toast = useToast();
   const [showModal, setShowModal] = useState(false);
   const [domains, setDomains] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,13 +126,13 @@ export default function Domains() {
       const serverIPs = res?.server_ips ?? res?.data?.server_ips;
       const errorMsg = res?.error ?? res?.data?.error;
       if (verified) {
-        alert(`✅ DNS verified! Domain is correctly pointing to this server.`);
+        toast.success(`DNS verified! Domain is correctly pointing to this server.`);
       } else if (errorMsg) {
-        alert(`❌ DNS lookup failed: ${errorMsg}\n\nMake sure the domain resolves properly. For sslip.io domains this should be automatic.`);
+        toast.error(`DNS lookup failed: ${errorMsg}\n\nMake sure the domain resolves properly. For sslip.io domains this should be automatic.`);
       } else {
         const dips = domainIPs?.join(', ') || 'none';
         const sips = serverIPs?.join(', ') || 'none';
-        alert(`❌ DNS not verified.\n\nDomain resolves to: ${dips}\nServer IPs: ${sips}\n\nUpdate your DNS A record to point to this server.`);
+        toast.error(`DNS not verified.\n\nDomain resolves to: ${dips}\nServer IPs: ${sips}\n\nUpdate your DNS A record to point to this server.`);
       }
       await fetchDomains();
     } catch (err) {
@@ -225,7 +221,7 @@ export default function Domains() {
                       {d.direction === 'both' ? 'Both' : d.direction === 'www' ? 'www only' : 'non-www only'}
                     </span>
                   </td>
-                  <td><SSLBadge status={d.tls_status} /></td>
+                  <td><StatusBadge type="ssl" status={d.tls_status} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <Button variant="ghost" size="sm" title="Verify DNS" onClick={() => handleVerify(d.id)} icon={CheckCircle2} />

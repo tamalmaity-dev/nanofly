@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Plus, Trash2, LayoutGrid, LayoutList, MoreVertical } from 'lucide-react';
 import { projectsApi } from '../api/client';
-import { Modal, Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../components/ui';
+import { Modal, Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, useToast } from '../components/ui';
 
 // ── Create Project Modal ────────────────────────────────────────────────────────
 function CreateProjectModal({ open, onOpenChange, onSuccess }) {
@@ -69,6 +69,7 @@ function CreateProjectModal({ open, onOpenChange, onSuccess }) {
 // ── Main Projects Page ──────────────────────────────────────────────────────────
 export default function Projects() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -97,7 +98,7 @@ export default function Projects() {
       await projectsApi.delete(id);
       setProjects(prev => prev.filter(p => p.id !== id));
     } catch (err) {
-      alert(err.message || 'Failed to delete');
+      toast.error(err.message || 'Failed to delete project');
     }
   };
 
@@ -120,7 +121,23 @@ export default function Projects() {
       </div>
 
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}><div className="spinner" /></div>
+        <div className={viewMode === 'grid' ? "projects-grid fade-in" : "projects-list fade-in"}>
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="card project-card" style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className="skeleton-circle" style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)' }}></div>
+                  <div className="skeleton-text" style={{ width: 120, height: 20 }}></div>
+                </div>
+              </div>
+              <div className="skeleton-text" style={{ width: '80%', height: 14, marginTop: 8 }}></div>
+              <div style={{ marginTop: 'auto', display: 'flex', gap: 12, paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
+                <div className="skeleton-text" style={{ width: 60, height: 16 }}></div>
+                <div className="skeleton-text" style={{ width: 60, height: 16 }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : projects.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon"><FolderOpen size={32} /></div>

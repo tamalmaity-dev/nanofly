@@ -6,10 +6,11 @@ import {
   LayoutGrid, LayoutList, AlertTriangle
 } from 'lucide-react';
 import { filesApi } from '../api/client';
-import { Modal, Button } from '../components/ui';
+import { Modal, Button, useToast } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 
 export default function FileManager() {
+  const toast = useToast();
   const [currentPath, setCurrentPath] = useState('/');
   const [rootPath, setRootPath] = useState('');
   const [items, setItems] = useState([]);
@@ -125,7 +126,7 @@ export default function FileManager() {
       }
       loadDirectory(currentPath);
     } catch (err) {
-      alert(err.message || 'Failed to delete item');
+      toast.error(err.message || 'Failed to delete item');
     }
   };
 

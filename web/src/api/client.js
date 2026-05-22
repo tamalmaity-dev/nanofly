@@ -79,6 +79,7 @@ export const servicesApi = {
   restart:       (id)              => post(`/services/${id}/restart`),
   deployments:   (id)              => get(`/services/${id}/deployments`),
   getLogs:       (id)              => get(`/services/${id}/logs`),
+  getMetrics:    (id)              => get(`/services/${id}/metrics`),
   getEnvVars:    (id)              => get(`/services/${id}/envvars`),
   upsertEnvVar:  (id, key, value)  => post(`/services/${id}/envvars`, { key, value }),
   deleteEnvVar:  (id, key)         => del(`/services/${id}/envvars/${key}`),

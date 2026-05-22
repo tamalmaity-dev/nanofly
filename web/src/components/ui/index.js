@@ -13,3 +13,5 @@ export * from './RadioCards';
 export * from './Progress';
 export * from './Separator';
 export * from './Callout';
+export * from './StatusBadge';
+export * from './Tooltip';

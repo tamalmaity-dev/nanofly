@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Activity, ShieldCheck, GitBranch, LogIn, Settings, Trash2, Plus, Server, Globe, RefreshCw, Loader2 } from 'lucide-react';
 import { activityApi } from '../api/client';
 import { Button } from '../components/ui';
+import { timeAgo } from '../utils/formatters';
 
 const TYPE_CONFIG = {
   login:    { icon: LogIn,       color: 'var(--blue)',       label: 'Auth' },
@@ -15,21 +16,6 @@ const TYPE_CONFIG = {
   domain:   { icon: Globe,       color: 'var(--accent)',     label: 'Domain' },
   info:     { icon: Activity,    color: 'var(--text-muted)', label: 'Info' },
 };
-
-function timeAgo(dateStr) {
-  try {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = Math.floor((now - date) / 1000);
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-    return date.toLocaleDateString();
-  } catch {
-    return dateStr;
-  }
-}
 
 export default function ActivityLog() {
   const [events, setEvents]   = useState([]);

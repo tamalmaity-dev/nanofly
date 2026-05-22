@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Database, Plus, RefreshCw, Copy, Eye, EyeOff, Trash2, X } from 'lucide-react';
 import { servicesApi, projectsApi } from '../api/client';
 import { Modal, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
+import { ServiceLogo } from '../components/ServiceLogo';
 
 const DB_TYPES = [
   {
@@ -76,7 +77,9 @@ function CreateModal({ projects, open, onOpenChange, onCreated }) {
       <div className="db-type-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(100px,1fr))', marginBottom: '1rem' }}>
         {DB_TYPES.map(t => (
           <div key={t.id} className={`db-type-card ${selectedType.id === t.id ? 'selected' : ''}`} onClick={() => selectType(t)}>
-            <div className="db-type-icon" style={{ fontSize: '1.5rem' }}>{t.icon}</div>
+            <div className="db-type-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '8px' }}>
+              <ServiceLogo type="database" image={t.id} size={32} />
+            </div>
             <div className="db-type-name" style={{ fontSize: '0.8rem' }}>{t.name}</div>
           </div>
         ))}
@@ -231,8 +234,8 @@ export default function Databases() {
                 return (
                   <tr key={db.id}>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: '1.25rem' }}>{info.icon}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <ServiceLogo type="database" image={typeId} size={20} />
                         <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{db.name}</span>
                       </div>
                     </td>

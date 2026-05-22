@@ -4,6 +4,21 @@ This document tracks all version iterations, key fixes, and feature additions ch
 
 ---
 
+## 🚀 v0.3.11-beta — UI Overhaul, Devicon Logos, Quick Access Sidebar, Build Progress & Mobile Responsiveness
+
+### 🌟 Key Features
+*   **UI Overhaul (Beta)**: Complete visual redesign with new typography, spacing, and a modern "Soft Edge" card aesthetic.
+*   **Devicon Support**: Integrated Devicon CDN to automatically fetch official vector logos for Docker, Node.js, Python, and all supported databases (Postgres, MySQL, MongoDB, Redis, etc.). Fallback system icons included.
+*   **Quick Access Sidebar**: The "Services" list now features a sidebar with one-click Start/Stop controls, "View Logs", and "Delete" actions, removing the need to navigate to detail pages for basic management.
+*   **Real-Time Build Progress**: Enhanced build modals now display live progress indicators (percentage bars and status chips) during the build process.
+*   **System Monitoring**: Live CPU/RAM usage is now displayed on the Dashboard Overview page with interactive charts.
+
+### 🛠️ Bug Fixes & Enhancements
+*   **Build Status Display**: Fixed an issue where the build card would only show "Building" status indefinitely. It now correctly shows the final state (Success/Failed) with elapsed time.
+*   **Responsive Design**: Improved mobile layout and sidebar handling for smaller screens.
+*   **Service Detail Navigation**: Added "Back to Services" breadcrumbs and removed the Terminal tab for databases.
+
+
 ## 🚀 v0.3.10 — Advanced Orchestration, Docker Compose, Git Deploy Keys & Real-Time Monitoring
 
 ### 🌟 Key Features

@@ -2,13 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Server, Play, Square, RefreshCw, Search, AlertCircle } from 'lucide-react';
 import { systemdApi } from '../api/client';
-import { Button } from '../components/ui';
-
-function StatusBadge({ status }) {
-  if (status === 'running') return <span className="badge badge-green">● running</span>;
-  if (status === 'failed')  return <span className="badge badge-red">● failed</span>;
-  return <span className="badge badge-gray">○ stopped</span>;
-}
+import { Button, StatusBadge } from '../components/ui';
 
 export default function Services() {
   const [services, setServices] = useState([]);

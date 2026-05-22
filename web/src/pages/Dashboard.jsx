@@ -4,19 +4,10 @@ import { Cpu, MemoryStick, HardDrive, Thermometer, Wifi, Clock, Server, ArrowUpC
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { connectMetricsWS, metricsApi, updateApi } from '../api/client';
+import { fmtUptime } from '../utils/formatters';
 import { Button } from '../components/ui';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function fmtUptime(seconds) {
-  if (!seconds) return '—';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
 function colorClass(pct) {
   if (pct >= 90) return 'danger';
   if (pct >= 70) return 'warning';

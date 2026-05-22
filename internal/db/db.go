@@ -79,6 +79,7 @@ func (db *DB) migrate() error {
 		id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
 		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 		name       TEXT NOT NULL,
+		description TEXT DEFAULT '',
 		type       TEXT NOT NULL,
 		status     TEXT NOT NULL DEFAULT 'stopped',
 		image      TEXT,
@@ -168,6 +169,7 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN builder TEXT DEFAULT 'auto'")
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN git_token TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN ssh_key TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN description TEXT DEFAULT ''")
 
 	return tx.Commit()
 }

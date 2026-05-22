@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi, filesApi, terminalWsUrl } from '../api/client';
 import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare } from 'lucide-react';
-import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
+import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import CodeEditor from '../components/CodeEditor';
+import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
 
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13', 'postgres:12', 'postgres:latest'],
@@ -31,6 +32,8 @@ const getDbKey = (typeStr) => {
   return typeStr.split(':')[0];
 };
 
+
+// Extracted to components/ServiceLogo.jsx
 const RUNTIME_VERSIONS = {
   node: [
     { value: 'node:24-alpine', label: 'Node.js 24 Alpine (Latest)' },
@@ -737,7 +740,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
               
               {/* Git Based */}
               <div>
-                <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '1.05rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
                   <GitBranch size={14} color="var(--accent)" /> Git Based
                 </h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
@@ -749,28 +752,28 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         background: 'var(--bg-base)',
                         border: '1px solid var(--border)',
                         borderRadius: 'var(--radius)',
-                        padding: '0.85rem 1rem',
+                        padding: '1rem 1.25rem',
                         cursor: 'pointer',
                         transition: 'all 0.2s',
                       }}
                       className="hover-glow"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <div style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '6px',
-                          background: 'var(--bg-elevated)',
+                          
+                          
+                          
+                          
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0
                         }}>
-                          <ResourceIcon type={r.id} size={15} />
+                          <ResourceIcon type={r.id} size={32} />
                         </div>
-                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                        <span style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{r.title}</span>
                       </div>
-                      <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -778,7 +781,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
 
               {/* Docker / Folder Based */}
               <div>
-                <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '1.05rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
                   <Package size={14} color="var(--accent)" /> Docker & Folder Based
                 </h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
@@ -790,28 +793,28 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         background: 'var(--bg-base)',
                         border: '1px solid var(--border)',
                         borderRadius: 'var(--radius)',
-                        padding: '0.85rem 1rem',
+                        padding: '1rem 1.25rem',
                         cursor: 'pointer',
                         transition: 'all 0.2s',
                       }}
                       className="hover-glow"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <div style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '6px',
-                          background: 'var(--bg-elevated)',
+                          
+                          
+                          
+                          
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0
                         }}>
-                          <ResourceIcon type={r.id} size={15} />
+                          <ResourceIcon type={r.id} size={32} />
                         </div>
-                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                        <span style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{r.title}</span>
                       </div>
-                      <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -821,7 +824,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
 
             {/* DB Section */}
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.25rem', marginBottom: '1rem' }}>
-              <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
+              <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '1.05rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
                 <Database size={14} color="var(--accent)" /> Databases
               </h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
@@ -833,28 +836,28 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                       background: 'var(--bg-base)',
                       border: '1px solid var(--border)',
                       borderRadius: 'var(--radius)',
-                      padding: '0.85rem 1rem',
+                      padding: '1rem 1.25rem',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
                     className="hover-glow"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                       <div style={{
-                        width: '28px',
-                        height: '28px',
-                        borderRadius: '6px',
-                        background: 'var(--bg-elevated)',
+                        
+                        
+                        
+                        
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         flexShrink: 0
                       }}>
-                        <ResourceIcon type={r.dbType} size={15} />
+                        <ResourceIcon type={r.dbType} size={32} />
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{r.title}</span>
+                      <span style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{r.title}</span>
                     </div>
-                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.35, margin: 0 }}>{r.desc}</p>
                   </div>
                 ))}
               </div>
@@ -1010,7 +1013,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         placeholder="e.g. --privileged --device /dev/i2c-1"
                         style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}
                       />
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Extra flags for <code>docker run</code>. Use for hardware access, custom networks, etc.</p>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Extra flags for <code>docker run</code>. Use for hardware access, custom networks, etc.</p>
                     </div>
                   </>
                 ) : (
@@ -1154,7 +1157,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         placeholder="e.g. --privileged --device /dev/i2c-1"
                         style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}
                       />
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Extra flags for <code>docker run</code>. Use for hardware access, custom networks, etc.</p>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Extra flags for <code>docker run</code>. Use for hardware access, custom networks, etc.</p>
                     </div>
                   </>
                 )}
@@ -1369,9 +1372,7 @@ function MonitoringPanel({ serviceId }) {
     let active = true;
     const fetchMetrics = async () => {
       try {
-        const res = await fetch(`/api/services/${serviceId}/metrics`);
-        if (!res.ok) throw new Error('Failed to fetch container metrics');
-        const data = await res.json();
+        const data = await servicesApi.getMetrics(serviceId);
         if (active) {
           setMetrics(data);
           setError(null);
@@ -1398,7 +1399,7 @@ function MonitoringPanel({ serviceId }) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: 12 }}>
         <div className="spinner" style={{ borderTopColor: 'var(--accent)' }} />
-        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading live metrics...</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: '1.05rem' }}>Loading live metrics...</span>
       </div>
     );
   }
@@ -1444,7 +1445,7 @@ function MonitoringPanel({ serviceId }) {
               {cpu.toFixed(2)}%
             </span>
           </div>
-          <div style={{ width: '100%', height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: 6,  borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ width: `${Math.min(cpu, 100)}%`, height: '100%', background: getCpuColor(cpu), transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }} />
           </div>
         </div>
@@ -1498,6 +1499,8 @@ function MonitoringPanel({ serviceId }) {
 function DeploymentsPanel({ serviceId }) {
   const [deps, setDeps] = useState([]);
   const [open, setOpen] = useState(null);
+  const [loading, setLoading] = useState(true);
+
   const logRef = useCallback(node => {
     if (node) node.scrollTop = node.scrollHeight;
   }, []);
@@ -1507,7 +1510,7 @@ function DeploymentsPanel({ serviceId }) {
       setDeps(d || []);
       // Auto-open the latest deployment
       if (d && d.length > 0 && open === null) setOpen(d[0].id);
-    }).catch(() => { });
+    }).catch(() => { }).finally(() => setLoading(false));
   }, [serviceId, open]);
 
   useEffect(() => {
@@ -1553,7 +1556,7 @@ function DeploymentsPanel({ serviceId }) {
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          fontSize: '0.85rem',
+          fontSize: '1.05rem',
           color: '#f59e0b',
         }}>
           <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>⚙️</span>
@@ -1561,11 +1564,21 @@ function DeploymentsPanel({ serviceId }) {
         </div>
       )}
 
-      {deps.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} className="card fade-in" style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="skeleton-circle" style={{ width: 14, height: 14 }}></div>
+              <div className="skeleton-text" style={{ width: 180, height: 16 }}></div>
+              <div className="skeleton-text" style={{ width: 100, height: 16, marginLeft: 'auto' }}></div>
+            </div>
+          ))}
+        </div>
+      ) : deps.length === 0 ? (
+        <div className="card fade-in" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
           No deployments yet. Click <strong>Redeploy</strong> to start.
         </div>
-      )}
+      ) : null}
 
       {deps.map(d => (
         <div key={d.id} className="card" style={{ marginBottom: '0.75rem', padding: 0, overflow: 'hidden', border: open === d.id ? '1px solid var(--accent)' : '1px solid var(--border)' }}>
@@ -1626,7 +1639,7 @@ function DeploymentsPanel({ serviceId }) {
                   )}
                 </pre>
               ) : (
-                <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center' }}>
+                <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '1.05rem', textAlign: 'center' }}>
                   {(d.status === 'building' || d.status === 'deploying') ? '⚙️ Starting build, logs will appear shortly...' : 'No log output.'}
                 </div>
               )}
@@ -1638,174 +1651,7 @@ function DeploymentsPanel({ serviceId }) {
   );
 }
 
-// ── Service Logo Component ───────────────────────────────────────────────────
-function ServiceLogo({ type, name, image, builder, size = 18 }) {
-  const imgLower = (image || '').toLowerCase();
-  const builderLower = (builder || '').toLowerCase();
-  const nameLower = (name || '').toLowerCase();
-
-  let logoKey = '';
-  if (type === 'database') {
-    if (imgLower.includes('postgres')) logoKey = 'postgres';
-    else if (imgLower.includes('mysql')) logoKey = 'mysql';
-    else if (imgLower.includes('maria')) logoKey = 'mariadb';
-    else if (imgLower.includes('redis')) logoKey = 'redis';
-    else if (imgLower.includes('mongo')) logoKey = 'mongo';
-    else if (imgLower.includes('clickhouse')) logoKey = 'clickhouse';
-    else if (imgLower.includes('keydb')) logoKey = 'keydb';
-    else if (imgLower.includes('dragonfly')) logoKey = 'dragonfly';
-    else logoKey = 'database';
-  } else {
-    if (imgLower.includes('wordpress') || nameLower.includes('wordpress')) logoKey = 'wordpress';
-    else if (builderLower.includes('node') || nameLower.includes('node')) logoKey = 'node';
-    else if (builderLower.includes('python') || nameLower.includes('python')) logoKey = 'python';
-    else if (builderLower.includes('go') || nameLower.includes('go')) logoKey = 'go';
-    else if (builderLower.includes('php') || nameLower.includes('php')) logoKey = 'php';
-    else if (imgLower.includes('docker') || builderLower.includes('docker') || nameLower.includes('docker')) logoKey = 'docker';
-    else logoKey = 'app';
-  }
-
-  switch (logoKey) {
-    case 'postgres':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#336791" d="M110.2 59c-1.6-4.7-6.2-7.5-6.2-7.5s-2.9-2.3-9-4c-6-1.7-16-1.7-22.3 2-6.3 3.6-11.8 10.3-15.6 17.5-3.8 7.3-5.2 15-5.2 15s-2 6-8.3 8.3c-6.4 2.4-14.7 1.4-14.7 1.4S23 93 17 97.4c-6 4.3-8 9-8 9s12 1.6 22.8-5c10.7-6.7 15.6-14.5 15.6-14.5s4-4.8 11.2-5c7.2-.3 15 2.2 15 2.2s6 2.3 9.4 6.7c3.5 4.5 4.3 10.3 4.3 10.3s1.2 5.5 5.5 8c4.3 2.7 11.6 3 11.6 3s10-.4 14.7-4.6c4.6-4.2 5.6-10.4 5.6-10.4s1-5.7.5-12.7c-.5-7-2.6-14.6-4.6-18.7z" />
-          <path fill="#FFF" d="M83.4 57.3c-.6-.7-1.4-1.2-2.3-1.4-1-.3-2 .2-2.5 1.1-.5.9-.3 2.1.4 2.8.7.7 1.7.9 2.6.7.9-.2 1.5-.9 1.8-1.7.2-.5.2-1 .1-1.5z" />
-        </svg>
-      );
-    case 'mysql':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#00758F" d="M96.7 54.3c-1.4-3.4-3.5-6.5-6.2-9.1-3.6-3.4-7.9-6-12.6-7.8-8.2-3.1-17.1-4.2-25.8-3.1-4.4.5-8.7 1.6-12.7 3.2-3.2 1.3-6.2 3.1-8.7 5.3-2.6 2.3-4.6 5.1-6.1 8.2-1.4 3.1-2.2 6.5-2.2 9.9 0 4.1 1.1 8.1 3.2 11.7l1.5 2.4c.5.8 1.1 1.6 1.8 2.3 2.1 2.3 4.7 4.1 7.6 5.3 4.1 1.7 8.5 2.7 13 2.9 6.2.3 12.4-.6 18.2-2.8 4.2-1.6 8.1-3.9 11.4-6.8l3.1-2.9c3.3-3.3 5.9-7.2 7.7-11.5 1.4-3.4 2.2-7 2.2-10.7-.1-1.4-.4-2.8-1.4-4z" />
-          <path fill="#F29111" d="M38.7 41.5c-3.1 1.5-6 3.6-8.4 6.1s-4.3 5.4-5.5 8.7c-1 2.7-1.4 5.6-1.2 8.5.1 2.3.6 4.6 1.4 6.7 1.3 3.3 3.3 6.3 5.9 8.8 2 2 4.4 3.5 7.1 4.5 3.3 1.2 6.8 1.8 10.3 1.8h3.3c3.4 0 6.9-.6 10.1-1.8 2.7-1 5.1-2.5 7.1-4.5 2.6-2.5 4.6-5.5 5.9-8.8.8-2.1 1.3-4.4 1.4-6.7.2-2.9-.2-5.8-1.2-8.5-1.2-3.3-3.1-6.2-5.5-8.7s-5.3-4.6-8.4-6.1c-3.2-1.5-6.7-2.3-10.2-2.3s-7 .8-10.1 2.3z" opacity="0.3" />
-        </svg>
-      );
-    case 'mariadb':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#003545" d="M106.3 75.3c-.6-1.5-1.4-2.9-2.4-4.2-1.7-2.1-3.8-3.8-6.2-5-4.1-2.1-8.7-3-13.3-2.6-6 .5-11.7 2.6-16.7 6.1-4.1 2.9-7.5 6.6-9.9 10.9-2.1 3.7-3.2 7.8-3.2 12 0 4 .9 7.9 2.7 11.5l1 1.7c1.3 2.1 3.1 3.9 5.2 5.2 4.1 2.5 8.8 3.8 13.6 3.8h.3c5.3 0 10.5-1.6 14.9-4.6 3.7-2.5 6.7-5.8 8.7-9.7 1.7-3.3 2.6-7 2.6-10.8 0-4.1-1.1-8.1-3.2-11.7l-1.1-1.6z" />
-          <path fill="#00E5FF" d="M60.7 35.3c-2.4 1.1-4.6 2.7-6.4 4.6s-3.2 4.2-4.1 6.7c-.8 2.1-1.1 4.3-1 6.5.1 1.8.5 3.5 1.1 5.1 1 2.5 2.5 4.8 4.5 6.7 1.5 1.5 3.3 2.7 5.4 3.5 2.5.9 5.2 1.4 7.9 1.4h2.5c2.6 0 5.3-.5 7.7-1.4 2.1-.8 3.9-2 5.4-3.5 2-1.9 3.5-4.2 4.5-6.7.6-1.6 1-3.3 1.1-5.1.1-2.2-.2-4.4-1-6.5-.9-2.5-2.4-4.8-4.1-6.7s-4-3.5-6.4-4.6c-2.5-1.1-5.1-1.7-7.8-1.7s-5.3.6-7.7 1.7z" />
-        </svg>
-      );
-    case 'redis':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#D82C20" d="M64 8l54 31v44L64 120 10 83V39L64 8z" />
-          <path fill="#A31F17" d="M64 8L10 39v44l54 37V8z" opacity="0.15" />
-          <path fill="#FFF" d="M64 35l36 21v21L64 98 28 77V56l36-21z" opacity="0.3" />
-          <path fill="#D82C20" d="M64 45L88 59v14L64 87 40 73V59l24-14z" />
-        </svg>
-      );
-    case 'mongo':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#13AA52" d="M64.4 12.5c0 0-25.5 30-22.3 59.7 3.2 29.8 22.3 43.3 22.3 43.3s19.1-13.5 22.3-43.3c3.2-29.7-22.3-59.7-22.3-59.7zm-2.7 17.5c-.3 15-4.5 45.4-.5 73.1C55 84.7 48 57.3 61.7 30zm5.4 0c13.7 27.3 6.7 54.7.5 73.1 4-27.7-.2-58.1-.5-73.1z" />
-          <path fill="#118D4B" d="M64.4 12.5v103s19.1-13.5 22.3-43.3c3.2-29.7-22.3-59.7-22.3-59.7z" opacity="0.15" />
-        </svg>
-      );
-    case 'clickhouse':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <rect x="20" y="20" width="16" height="88" fill="#FCAA08" rx="2" />
-          <rect x="44" y="20" width="16" height="52" fill="#FCAA08" rx="2" />
-          <rect x="68" y="20" width="16" height="88" fill="#F04F23" rx="2" />
-          <rect x="92" y="20" width="16" height="70" fill="#F04F23" rx="2" />
-        </svg>
-      );
-    case 'keydb':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <rect x="14" y="14" width="100" height="100" rx="20" fill="#202538" />
-          <circle cx="64" cy="40" r="22" stroke="#4F6EF7" strokeWidth="8" fill="none" />
-          <path d="M64 62v46h16v-12h-8v-8h8v-8H64z" fill="#4F6EF7" />
-          <path d="M64 25l-12 25h12l-6 18 18-28h-12z" fill="#F59E0B" />
-        </svg>
-      );
-    case 'dragonfly':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <circle cx="64" cy="64" r="54" fill="#FEF2F2" />
-          <path d="M64 25c-2 0-3 10-3 30s1 45 3 45 3-25 3-45-1-30-3-30z" fill="#EF4444" />
-          <path d="M64 50c0-1-15-8-35-8s-20 4-20 4 5 4 20 4 35-3 35-4zm0 0c0-1 15-8 35-8s20 4 20 4-5 4-20 4-35-3-35-4z" fill="#F87171" opacity="0.8" />
-        </svg>
-      );
-    case 'node':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#339933" d="M115.4 35.8L66.7 7.7c-1.7-1-3.8-1-5.5 0L12.6 35.8c-1.7 1-2.8 2.8-2.8 4.8v56.2c0 2 1.1 3.8 2.8 4.8l48.6 28.1c1.7 1 3.8 1 5.5 0l48.6-28.1c1.7-1 2.8-2.8 2.8-4.8V40.6c.1-2-1-3.8-2.7-4.8zM64 113.8V82.3c-.9-.4-1.7-1-2.4-1.7L43.8 62.9c-1.8-1.8-1.8-4.7 0-6.5l17.8-17.8c.7-.7 1.5-1.2 2.4-1.6V5.5c2 0 4 .5 5.7 1.5l48.6 28.1c1.7 1 2.8 2.8 2.8 4.8v56.2c0 2-1.1 3.8-2.8 4.8L74.8 129c-1.8 1-3.8 1-5.5.1V113.8c-.8 0-1.6-.2-2.3-.6-1.2-.5-2.2-1.4-3-2.5z" />
-        </svg>
-      );
-    case 'python':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#3776AB" d="M64 8c-15.6 0-24.8 6.8-24.8 21.2v9.3h25.4V42H39.2C23.6 42 16 49.6 16 65.2c0 15.6 7.1 22.1 20.3 22.1h6.9v-9.7c0-11 8.9-19.9 19.9-19.9h25.7V34c0-14.4-12.8-26-24.8-26zm-11.7 8.3c2.4 0 4.3 1.9 4.3 4.3s-1.9 4.3-4.3 4.3-4.3-1.9-4.3-4.3 1.9-4.3 4.3-4.3z" />
-          <path fill="#FFE052" d="M64 120c15.6 0 24.8-6.8 24.8-21.2v-9.3H63.4v-3.5h25.4C104.4 86 112 78.4 112 62.8c0-15.6-7.1-22.1-20.3-22.1h-6.9v9.7c0 11-8.9 19.9-19.9 19.9H39.2V94c0 14.4 12.8 26 24.8 26zm11.7-8.3c-2.4 0-4.3-1.9-4.3-4.3s1.9-4.3 4.3-4.3 4.3 1.9 4.3 4.3-1.9 4.3-4.3 4.3z" />
-        </svg>
-      );
-    case 'go':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <rect width="128" height="128" rx="24" fill="#00ADD8" />
-          <text x="64" y="86" fill="#FFF" fontSize="52" fontWeight="bold" fontFamily="sans-serif" textAnchor="middle">GO</text>
-        </svg>
-      );
-    case 'php':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <ellipse cx="64" cy="64" rx="58" ry="38" fill="#777BB4" />
-          <text x="64" y="76" fill="#FFF" fontSize="36" fontWeight="bold" fontFamily="sans-serif" textAnchor="middle">PHP</text>
-        </svg>
-      );
-    case 'docker':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <path fill="#2496ED" d="M123.6 57.6c-.6-.4-1.3-.7-2.1-.9-.8-.2-1.7-.2-2.5 0-1.8.5-3.4 1.7-4.4 3.2-1 1.5-1.4 3.3-1.2 5.1.2 1.8 1.1 3.4 2.5 4.5s3.2 1.5 5 1.1c1.8-.4 3.3-1.5 4.2-3.1.9-1.6 1.1-3.4 0.6-5.1-.3-1.8-1.2-3.4-2.1-4.8zM106.8 62.4c-4.2-3.4-9.3-5.3-14.7-5.3H87c-1 0-1.9.4-2.6 1.1-.7.7-1.1 1.6-1.1 2.6v17c0 4.1-1.6 8-4.6 11-2.9 2.9-6.9 4.6-11 4.6H54c-1.5 0-2.9-.6-4-1.7-1-1-1.7-2.5-1.7-4v-6.3c0-1-.4-1.9-1.1-2.6-.7-.7-1.6-1.1-2.6-1.1H29.3c-2.3 0-4.5 1-6 2.7-1.5 1.7-2.3 4-2.3 6.3V91c0 8 3.2 15.6 8.8 21.2 5.6 5.6 13.2 8.8 21.2 8.8h25.4c11.3 0 22.2-4.5 30.2-12.5s12.5-18.9 12.5-30.2v-11c0-1.5-.6-2.9-1.7-4-1.1-1.1-2.6-1.7-4.1-1.7l-6 .1z" />
-          <rect x="26" y="32" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="42" y="32" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="58" y="32" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="74" y="32" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="34" y="16" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="50" y="16" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="66" y="16" width="12" height="12" fill="#2496ED" rx="2" />
-          <rect x="58" y="0" width="12" height="12" fill="#2496ED" rx="2" />
-        </svg>
-      );
-    case 'wordpress':
-      return (
-        <svg viewBox="0 0 128 128" width={size} height={size}>
-          <circle cx="64" cy="64" r="58" fill="#21759B" />
-          <path fill="#FFF" d="M64 12C35.3 12 12 35.3 12 64s23.3 52 52 52 52-23.3 52-52S92.7 12 64 12zm0 10c8.2 0 15.8 2.3 22.3 6.3l-16 43.7L57.2 38.6c1.8-1 3.8-1.6 6.8-1.6 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1h-12c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2.4 0 3.7.8 5 4.3l10 27.6-13.6 37L35.7 45.4c1-.4 2-.6 3.3-.6 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1h-8.8c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2.2 0 3.2.4 4.5 4.2l12 36-9 24.6C29.3 98.4 22 82 22 64c0-23.2 18.8-42 42-42zm3 90C45.3 102 29 84.8 29 64.6c0-1.8.2-3.6.5-5.3l23 63C55.4 102.3 59 102 67 102zm7.6-32.3c2.4-7.3 4.2-14.7 6.4-22.3.8-2.6 1.4-4 2.8-4 1 0 1.6.4 1.6 1s-.4 1-1 2.8c-1.6 5.3-3.2 10.6-5 16l8.8 24.7C99.2 102.8 106 84.2 106 64c0-19.4-13-35.8-31-40.6l23.5 64.5c2-6 3.6-12 5-18 1-3.6 1.6-5 3.3-5 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1h-8.8c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2 0 2.8.4 3.7 3.4l-7.3 22-8.3-25.4c1.2-3 2-3 3.6-3 1.2 0 1.8-.4 1.8-1s-.6-1-2.2-1H67c-1.6 0-2.2.4-2.2 1s.6 1 1.8 1c2 0 2.7.2 3.8 3.3l12 36.7-7.8 21.8z" />
-        </svg>
-      );
-    default:
-      return type === 'database' ? <Database size={size} color="var(--accent)" /> : <Package size={size} color="var(--accent)" />;
-  }
-}
-
-// ── Resource Icon Component ──────────────────────────────────────────────────
-function ResourceIcon({ type, size = 18 }) {
-  if (type === 'postgres') return <ServiceLogo type="database" image="postgres" size={size} />;
-  if (type === 'mysql') return <ServiceLogo type="database" image="mysql" size={size} />;
-  if (type === 'mariadb') return <ServiceLogo type="database" image="mariadb" size={size} />;
-  if (type === 'redis') return <ServiceLogo type="database" image="redis" size={size} />;
-  if (type === 'keydb') return <ServiceLogo type="database" image="keydb" size={size} />;
-  if (type === 'dragonfly') return <ServiceLogo type="database" image="dragonfly" size={size} />;
-  if (type === 'mongo') return <ServiceLogo type="database" image="mongo" size={size} />;
-  if (type === 'clickhouse') return <ServiceLogo type="database" image="clickhouse" size={size} />;
-
-  if (type === 'git-public') return <Globe size={size} color="var(--accent)" />;
-  if (type === 'local-folder') return <Folder size={size} color="var(--accent)" />;
-  if (type === 'wordpress') return <ServiceLogo type="app" image="wordpress" size={size} />;
-  if (type === 'python-template') return <ServiceLogo type="app" builder="python" size={size} />;
-  if (type === 'node-template') return <ServiceLogo type="app" builder="node" size={size} />;
-  if (type === 'git-private-app') return <Key size={size} color="var(--accent)" />;
-  if (type === 'git-private-key') return <Lock size={size} color="var(--accent)" />;
-  if (type === 'dockerfile') return <FileCode size={size} color="var(--accent)" />;
-  if (type === 'docker-compose') return <Sliders size={size} color="var(--accent)" />;
-  if (type === 'docker-image') return <ServiceLogo type="app" image="docker" size={size} />;
-
-  return <Package size={size} color="var(--accent)" />;
-}
+// Extracted to components/ServiceLogo.jsx
 
 // ── Service Card ──────────────────────────────────────────────────────────────
 function ServiceCard({ svc, onDeploy, onDelete }) {
@@ -1819,40 +1665,24 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
   };
 
   return (
-    <div className="card hover-glow" style={{ padding: '1rem 1.25rem' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <ServiceLogo type={svc.type} name={svc.name} image={svc.image} builder={svc.git_builder} size={20} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{svc.name}</span>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)' }} />
-            <span style={{ fontSize: '0.8rem', color: statusColor[svc.status] || 'var(--text-muted)', textTransform: 'capitalize' }}>{svc.status}</span>
-            {svc.type === 'database' && <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>{svc.image || 'database'}</span>}
+    <div className="card hover-glow" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{svc.name}</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)', boxShadow: `0 0 6px ${statusColor[svc.status] || 'transparent'}` }} title={svc.status} />
+      </div>
+      
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+        {svc.description || (svc.type === 'database' ? `This is NanoFly's ${svc.name} database.` : `This is the ${svc.name} application.`)}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        {svc.git_repo_url && (
+          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}>
+            {svc.git_repo_url.replace('https://github.com/', '').replace('file://', '')}
           </div>
-          <div style={{ display: 'flex', gap: 12, fontSize: '0.8125rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-            {svc.git_repo_url && <span><GitBranch size={11} style={{ display: 'inline' }} /> {svc.git_repo_url.replace('https://github.com/', '')}</span>}
-            {svc.port > 0 && <span><Globe size={11} style={{ display: 'inline' }} /> :{svc.port}</span>}
-          </div>
-          {svc.status === 'running' && svc.cpu_percent !== undefined && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(79,110,247,0.06)', padding: '2px 6px', borderRadius: 4 }}>
-                <Cpu size={11} style={{ color: 'var(--accent)' }} />
-                CPU: <strong style={{ color: 'var(--text-primary)' }}>{(svc.cpu_percent || 0).toFixed(1)}%</strong>
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(79,110,247,0.06)', padding: '2px 6px', borderRadius: 4 }}>
-                <Database size={11} style={{ color: 'var(--accent)' }} />
-                RAM: <strong style={{ color: 'var(--text-primary)' }}>{svc.memory_usage || '0 B'}</strong>
-              </span>
-            </div>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          <Button variant="primary" size="sm" onClick={handleDeploy} disabled={deploying} loading={deploying} icon={Play}>
-            {svc.type === 'database' ? 'Recreate' : 'Deploy'}
-          </Button>
-          <Button variant="ghost" size="sm" style={{ color: 'var(--red)' }} onClick={(e) => { e.stopPropagation(); onDelete(svc.id); }} icon={Trash2} />
+        )}
+        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}>
+          Server: localhost{svc.port > 0 ? `:${svc.port}` : ''}
         </div>
       </div>
     </div>
@@ -1974,7 +1804,7 @@ function ContainerTerminalPanel({ service }) {
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px',  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
             <span style={{ fontSize: '0.75rem', color: statusColor, textTransform: 'capitalize' }}>{status}</span>
           </div>
@@ -2067,7 +1897,7 @@ function WebhookPanel({ serviceId }) {
           readOnly
           className="form-input"
           value={webhookUrl}
-          style={{ fontFamily: 'monospace', fontSize: '0.8rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', flex: 1 }}
+          style={{ fontFamily: 'monospace', fontSize: '0.8rem',  border: '1px solid var(--border)', flex: 1 }}
         />
         <Button variant="ghost" size="sm" onClick={copyToClipboard} style={{ height: 38, width: 38 }} icon={copied ? Check : Copy} />
       </div>
@@ -2092,7 +1922,9 @@ function WebhookPanel({ serviceId }) {
 
 // ── Settings Panel ────────────────────────────────────────────────────────────
 function SettingsPanel({ service, project, domains = [], onUpdate }) {
+  const toast = useToast();
   const [name, setName] = useState(service.name);
+  const [description, setDescription] = useState(service.description || '');
   const [image, setImage] = useState(service.image || '');
   const [port, setPort] = useState(service.port || '');
   const [gitUrl, setGitUrl] = useState(service.git_repo_url || '');
@@ -2119,6 +1951,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 
   useEffect(() => {
     setName(service.name);
+    setDescription(service.description || '');
     setImage(service.image || '');
     setPort(service.port || '');
     setGitUrl(service.git_repo_url || '');
@@ -2194,6 +2027,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     try {
       await servicesApi.update(service.id, {
         name: name.trim(),
+        description: description.trim(),
         image: image.trim(),
         port: Number(port) || 0,
         git_repo_url: gitUrl.trim(),
@@ -2254,6 +2088,11 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       <div className="form-group">
         <label className="form-label" style={{ fontSize: '0.75rem' }}>Resource Name</label>
         <input className="form-input form-input-sm" value={name} onChange={e => setName(e.target.value)} />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label" style={{ fontSize: '0.75rem' }}>Description</label>
+        <input className="form-input form-input-sm" value={description} onChange={e => setDescription(e.target.value)} placeholder="A short description of this service" />
       </div>
 
       {service.type === 'database' ? (
@@ -2412,7 +2251,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   placeholder="e.g. --privileged --device /dev/i2c-1 --network host"
                   style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78rem' }}
                 />
-                <p style={{ margin: '4px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Extra flags appended to <code>docker run</code> on each deploy. Useful for device access, network modes, etc.</p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Extra flags appended to <code>docker run</code> on each deploy. Useful for device access, network modes, etc.</p>
               </div>
               {service.git_repo_url?.startsWith('file://') && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2451,13 +2290,13 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                       try {
                         const { filesApi } = await import('../api/client');
                         await filesApi.save(localPath + '/Dockerfile', content);
-                        alert('Dockerfile created at ' + localPath + '/Dockerfile');
-                      } catch (e) { alert('Failed: ' + e.message); }
+                        toast.success('Dockerfile created successfully');
+                      } catch (e) { toast.error('Failed to create Dockerfile: ' + e.message); }
                     }}
                   >
                     📄 Initialize Dockerfile Template
                   </Button>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Creates a starter Dockerfile in the project folder</span>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Creates a starter Dockerfile in the project folder</span>
                 </div>
               )}
             </>
@@ -2625,7 +2464,7 @@ function ConnectionDetailsPanel({ service }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
         {/* Credentials Card */}
         <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-          <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <Key size={14} color="var(--accent)" /> Access Credentials
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2663,7 +2502,7 @@ function ConnectionDetailsPanel({ service }) {
         {/* Engine Information Card */}
         <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
-            <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Database size={14} color="var(--accent)" /> Engine Details
             </h4>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -2686,7 +2525,7 @@ function ConnectionDetailsPanel({ service }) {
 
       {/* Connection Strings and CLI commands */}
       <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-        <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+        <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>
           Connection URLs
         </h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2729,6 +2568,7 @@ function ConnectionDetailsPanel({ service }) {
 // ── Main ProjectDetail ────────────────────────────────────────────────────────
 export default function ProjectDetail() {
   const { id } = useParams();
+  const toast = useToast();
   const [project, setProject] = useState(null);
   const [services, setServices] = useState([]);
   const [domains, setDomains] = useState([]);
@@ -2821,50 +2661,74 @@ export default function ProjectDetail() {
       <div className="page-content fade-in">
         {/* Resource Header */}
         <div className="page-header" style={{ marginBottom: '1.25rem' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <Button variant="ghost" size="sm" onClick={() => setActiveSvc(null)} style={{ padding: '2px 8px', color: 'var(--accent)' }}>
-                &larr; Projects
-              </Button>
-              <ChevronRight size={14} color="var(--text-muted)" />
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{project?.name}</span>
-              <ChevronRight size={14} color="var(--text-muted)" />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.95rem' }}>{selectedSvc.name}</span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: 4, marginLeft: 4 }}>localhost</span>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)', display: 'inline-block', marginLeft: 8 }} />
-              <span style={{ fontSize: '0.78rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Breadcrumbs */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '1.05rem', color: 'var(--text-muted)' }}>
+              <div 
+                onClick={() => navigate('/projects')} 
+                style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
+                className="hover-text-accent"
+              >
+                Projects
+              </div>
+              <ChevronRight size={14} />
+              <div 
+                onClick={() => setActiveSvc(null)} 
+                style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
+                className="hover-text-accent"
+              >
+                {project?.name || 'Project'}
+              </div>
+              <ChevronRight size={14} />
+              <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                {selectedSvc.name}
+              </div>
             </div>
-            <div className="page-subtitle" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span>Type: <strong style={{ color: 'var(--text-primary)' }}>{selectedSvc.type === 'database' ? `${selectedSvc.image || 'Database'}` : 'Application'}</strong></span>
+            
+            {/* Title & Status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <ServiceLogo type={selectedSvc.type} name={selectedSvc.name} image={selectedSvc.image} builder={selectedSvc.git_builder} size={28} />
+              <h2 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--text-primary)', lineHeight: 1 }}>{selectedSvc.name}</h2>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)',  padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace' }}>localhost</span>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)' }} />
+              <span style={{ fontSize: '1.05rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
+            </div>
+
+            {/* Metadata Subtitle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                <Package size={14} color="var(--accent)" /> {selectedSvc.type === 'database' ? `${selectedSvc.image || 'Database'}` : 'Application'}
+              </span>
               {selectedSvc.git_repo_url && (
-                <span>&bull;&nbsp;&nbsp;Repository: <strong style={{ color: 'var(--text-primary)' }}>{selectedSvc.git_repo_url.replace('https://github.com/', '')} ({selectedSvc.git_branch})</strong></span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                  <GitBranch size={14} color="var(--blue)" /> {selectedSvc.git_repo_url.replace('https://github.com/', '')} ({selectedSvc.git_branch})
+                </span>
               )}
               {selectedSvc.port > 0 && (
-                <span>&bull;&nbsp;&nbsp;Container Port: <strong style={{ color: 'var(--text-primary)' }}>:{selectedSvc.port}</strong></span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                  <Globe size={14} color="var(--green)" /> :{selectedSvc.port}
+                </span>
               )}
               {serviceUrl && (
-                <>
-                  <span>&bull;&nbsp;&nbsp;Access URL:</span>
-                  <a href={serviceUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '2px 8px', borderRadius: 4, textDecoration: 'none', fontWeight: 500, fontSize: '0.78rem' }}>
-                    <ExternalLink size={11} /> {serviceUrl}
-                  </a>
-                </>
+                <a href={serviceUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6,  background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
+                  <ExternalLink size={13} /> {serviceUrl}
+                </a>
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Button variant="solid" color="amber" size="sm" onClick={() => handleDeploy(selectedSvc.id)} icon={Play} style={{ fontWeight: 600 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="solid" color="amber" size="md" onClick={() => handleDeploy(selectedSvc.id)} icon={Play} style={{ fontWeight: 600 }}>
               Redeploy
             </Button>
-            <Button variant="outline" color="amber" size="sm" onClick={() => handleRestart(selectedSvc.id)} icon={RefreshCw}>
+            <Button variant="outline" color="amber" size="md" onClick={() => handleRestart(selectedSvc.id)} icon={RefreshCw}>
               Restart
             </Button>
             {selectedSvc.status === 'running' && (
-              <Button variant="outline" color="red" size="sm" onClick={() => handleStop(selectedSvc.id)} icon={X}>
+              <Button variant="outline" color="red" size="md" onClick={() => handleStop(selectedSvc.id)} icon={X}>
                 Stop
               </Button>
             )}
-            <Button variant="ghost" size="sm" style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }} onClick={() => handleDelete(selectedSvc.id)} icon={Trash2}>
+            <Button variant="ghost" size="md" style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }} onClick={() => handleDelete(selectedSvc.id)} icon={Trash2}>
               Delete
             </Button>
           </div>
@@ -2959,7 +2823,7 @@ export default function ProjectDetail() {
             ].map(st => (
               <div key={st.label} className="card" style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: `${st.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <st.icon size={18} color={st.color} />
+                  <st.icon size={28} color={st.color} />
                 </div>
                 <div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700, lineHeight: 1 }}>{st.val}</div>
@@ -2975,7 +2839,7 @@ export default function ProjectDetail() {
               {apps.length > 0 && (
                 <>
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Applications</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                     {apps.map(s => (
                       <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                         <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
@@ -2988,7 +2852,7 @@ export default function ProjectDetail() {
               {dbs.length > 0 && (
                 <>
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Databases</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                     {dbs.map(s => (
                       <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('connection'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                         <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />

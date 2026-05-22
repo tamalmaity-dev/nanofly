@@ -23,8 +23,14 @@ export function ToastProvider({ children }) {
     }, 5000);
   }, []);
 
+  const toastObj = {
+    success: (title, desc) => toast(title, desc, 'success'),
+    error: (title, desc) => toast(title, desc, 'error'),
+    info: (title, desc) => toast(title, desc, 'info'),
+  };
+
   return (
-    <ToastContext.Provider value={toast}>
+    <ToastContext.Provider value={toastObj}>
       <ToastPrimitive.Provider swipeDirection="right">
         {children}
         {toasts.map(t => (
