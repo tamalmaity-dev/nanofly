@@ -586,6 +586,7 @@ export default function FileManager() {
             <CodeEditor
               value={selectedFile.content}
               onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+              language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
             />
             </div>
           ) : editorLoading ? (

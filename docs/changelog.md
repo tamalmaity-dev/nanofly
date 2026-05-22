@@ -18,6 +18,19 @@ This document tracks all version iterations, key fixes, and feature additions ch
 *   **Premium Database Detail View**: Added a high-fidelity "Connection Details" tab for database services displaying host/port details, database engine status, credentials with eye toggle/copy, and copyable connection URIs and CLI commands (e.g. `psql`, `mysql`, `redis-cli`, `mongosh`).
 *   **Intelligent Tab Navigation**: Custom tab filters now hide irrelevant tabs (like Deployments, Terminal, Source Files) for databases and focus the initial dashboard view on connection credentials when clicked.
 
+
+**Summary of Work Done:**
+*   **Resolved compiler error on macOS/Linux (Darwin):** Updated internal/api/docker/manager.go to use the receiver field m.cli (specifically m.cli.ImageInspect) instead of the undefined Client package namespace, resolving the compiler error. We also verified this by successfully cross-compiling for Linux (GOOS=linux go build).
+*   **Fixed WordPress Bad Gateway issue:** Updated the container deployment logic to dynamically inspect the Docker image config for exposed ports (e.g., port 80 for WordPress). NanoFly now automatically maps the public host port to the container's internal exposed port instead of matching them directly, correcting the container networking mismatch.
+*   **Designed & built premium Database Connection Details panel:** Added a beautiful tab to database services in ProjectDetail.jsx showing engine name & status, host/port, database name, user, toggle-to-reveal password, raw connection URI, and copyable CLI connection commands (e.g., `psql`, `mysql`, `redis-cli`, `mongosh`).
+*   **Intelligent Tab Navigation:** Updated the service list and tab controls to hide irrelevant tabs (Deployments, Terminal, Environment Variables) for databases and focus the initial dashboard view on connection credentials when clicked.
+*   **Committed & Updated v0.3.10 on GitHub:** Committed all changes, updated the docs/changelog.md to document the fixes, pushed to main branch, deleted the old remote/local release tag, and pushed the updated release tag v0.3.10 to GitHub.
+
+
+
+
+
+
 ---
 
 ## 🚀 v0.3.1 — Frontend Fixes and Feature Additions

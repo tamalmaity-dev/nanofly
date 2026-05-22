@@ -411,6 +411,7 @@ function SourceFilesPanel({ service }) {
             <CodeEditor
               value={selectedFile?.content || ''}
               onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+              language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
               style={{ height: '450px' }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -935,6 +936,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         <CodeEditor
                           value={form.dockerfileContent}
                           onChange={val => setForm(f => ({ ...f, dockerfileContent: val }))}
+                          language="docker"
                           placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
                           style={{ height: '220px' }}
                         />
@@ -946,6 +948,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         <CodeEditor
                           value={form.dockerComposeContent}
                           onChange={val => setForm(f => ({ ...f, dockerComposeContent: val }))}
+                          language="yaml"
                           placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
                           style={{ height: '220px' }}
                         />
@@ -1077,6 +1080,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         <CodeEditor
                           value={form.dockerfileContent}
                           onChange={val => setForm(f => ({ ...f, dockerfileContent: val }))}
+                          language="docker"
                           placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
                           style={{ height: '220px' }}
                         />
@@ -1088,6 +1092,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                         <CodeEditor
                           value={form.dockerComposeContent}
                           onChange={val => setForm(f => ({ ...f, dockerComposeContent: val }))}
+                          language="yaml"
                           placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
                           style={{ height: '220px' }}
                         />
@@ -2327,6 +2332,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   <CodeEditor
                     value={dockerfileContent}
                     onChange={val => setDockerfileContent(val)}
+                    language="docker"
                     placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
                     style={{ height: '180px' }}
                   />
@@ -2339,6 +2345,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   <CodeEditor
                     value={dockerComposeContent}
                     onChange={val => setDockerComposeContent(val)}
+                    language="yaml"
                     placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
                     style={{ height: '180px' }}
                   />
