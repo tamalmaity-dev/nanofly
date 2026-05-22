@@ -1329,13 +1329,20 @@ code, pre {
   align-items: center !important;
   gap: 8px !important;
   border-radius: var(--radius-sm) !important;
-  padding: 6px 12px !important;
   font-size: 0.8125rem !important;
   font-weight: 500 !important;
   color: var(--text-secondary) !important;
   cursor: pointer !important;
   transition: all var(--transition) !important;
   user-select: none !important;
+}
+
+.rt-DropdownMenuItem {
+  padding: 6px 12px !important;
+}
+
+.rt-SelectItem {
+  padding: 6px 12px 6px 30px !important;
 }
 
 .rt-DropdownMenuItem:hover,
