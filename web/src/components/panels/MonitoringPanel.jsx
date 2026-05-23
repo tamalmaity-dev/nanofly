@@ -88,13 +88,6 @@ export default function MonitoringPanel({ serviceId }) {
     return 'var(--green)';
   };
 
-  const getMemColor = (val) => {
-    const memNum = parseFloat(val) || 0;
-    if (memNum > 800) return 'var(--red)';
-    if (memNum > 400) return 'var(--yellow)';
-    return 'var(--green)';
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
