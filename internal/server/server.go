@@ -134,6 +134,16 @@ func (s *Server) buildRouter() *chi.Mux {
 	r.Post("/api/webhooks/{serviceID}", s.handleWebhook)
 	r.Post("/api/webhooks/github", s.handleGithubWebhook)
 
+	// ── Public GitHub OAuth callbacks (GitHub redirects here — no Bearer token available) ──
+	r.Get("/api/v1/github/app/callback", func(w http.ResponseWriter, r *http.Request) {
+		ghHandler := github.NewHandler(s.githubSvc)
+		ghHandler.ManifestCallback(w, r)
+	})
+	r.Get("/api/v1/github/app/install-callback", func(w http.ResponseWriter, r *http.Request) {
+		ghHandler := github.NewHandler(s.githubSvc)
+		ghHandler.InstallCallback(w, r)
+	})
+
 	// ── Protected API routes ───────────────────────────────────────────────
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.authSvc.RequireAuth)
@@ -186,7 +196,7 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Get("/settings/backups/{name}/download", s.handleBackupDownload)
 		r.Delete("/settings/backups/{name}", s.handleBackupDelete)
 
-		// GitHub Apps
+		// GitHub Apps (authenticated: list, get, delete, create manifest)
 		r.Mount("/github/app", s.githubAppRouter())
 	})
 

@@ -1,17 +1,15 @@
-import React, { Suspense } from 'react';
-const MonitoringPanel = React.lazy(() => import('../components/panels/MonitoringPanel'));
-const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi, filesApi, githubApi, terminalWsUrl } from '../api/client';
 import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
-import { ResponsiveContainer, AreaChart, Area, Tooltip as ChartTooltip, YAxis } from 'recharts';
-import { Terminal as XTerm } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
 import CodeEditor from '../components/CodeEditor';
 import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
+
+// Lazy-loaded heavy panels (xterm + recharts only downloaded when tab is opened)
+const MonitoringPanel = React.lazy(() => import('../components/panels/MonitoringPanel'));
+const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
+
 
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13', 'postgres:12', 'postgres:latest'],
@@ -24,6 +22,8 @@ const DB_VERSIONS = {
   clickhouse: ['clickhouse/clickhouse-server:latest', 'clickhouse/clickhouse-server:24.3'],
 };
 
+
+// helper function to get database key from type string
 const getDbKey = (typeStr) => {
   if (typeStr.includes('postgres')) return 'postgres';
   if (typeStr.includes('mysql')) return 'mysql';
