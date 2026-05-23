@@ -49,20 +49,23 @@ const (
 
 // Service represents a deployed service (app or database).
 type Service struct {
-	ID          string      `json:"id"`
-	ProjectID   string      `json:"project_id"`
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	DBUser      string      `json:"db_user,omitempty"`
-	DBPassword  string      `json:"db_password,omitempty"`
-	DBName      string      `json:"db_name,omitempty"`
-	Type        ServiceType `json:"type"`
-	Status      string      `json:"status"`
-	Image       string      `json:"image"`
-	Port        int         `json:"port"`
-	ContainerID string      `json:"container_id"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ID           string      `json:"id"`
+	ProjectID    string      `json:"project_id"`
+	Name         string      `json:"name"`
+	Description  string      `json:"description,omitempty"`
+	DBUser       string      `json:"db_user,omitempty"`
+	DBPassword   string      `json:"db_password,omitempty"`
+	DBName       string      `json:"db_name,omitempty"`
+	Type         ServiceType `json:"type"`
+	Status       string      `json:"status"`
+	Image        string      `json:"image"`
+	Port         int         `json:"port"`
+	ResourceTier string      `json:"resource_tier"`
+	CustomMemory int64       `json:"custom_memory"`
+	CustomCPU    int64       `json:"custom_cpu"`
+	ContainerID  string      `json:"container_id"`
+	CreatedAt    time.Time   `json:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
 
 	// Joined fields
 	GitRepoURL       string `json:"git_repo_url,omitempty"`
@@ -295,19 +298,11 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 // List returns all services for a project.
 func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), COALESCE(s.db_user,''), COALESCE(s.db_password,''), COALESCE(s.db_name,''), s.type, s.status, 
-		       COALESCE(s.port,0), COALESCE(s.updated_at,''), s.created_at,
-		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
-		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
-		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
-		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
-		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
-		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
-		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id
-		FROM services s
-		LEFT JOIN git_sources g ON g.service_id = s.id
-		WHERE s.project_id = ?
-		ORDER BY s.created_at DESC
+		SELECT id, project_id, name, COALESCE(description,''), COALESCE(db_user,''), COALESCE(db_password,''), COALESCE(db_name,''), 
+		       type, status, COALESCE(image,''), COALESCE(port,0), COALESCE(resource_tier,'micro'), 
+		       COALESCE(custom_memory,0), COALESCE(custom_cpu,0), created_at, updated_at
+		FROM services WHERE project_id = ?
+		ORDER BY created_at DESC
 	`, projectID)
 	if err != nil {
 		return nil, err
@@ -321,15 +316,15 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		var s Service
 		var updatedAt, createdAt string
 		if err := rows.Scan(
-			&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.DBUser, &s.DBPassword, &s.DBName, &s.Type, &s.Status,
-			&s.Port, &updatedAt, &createdAt,
-			&s.GitRepoURL, &s.GitBranch,
-			&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
-			&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
-			&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey, &s.GitHubAppID,
+			&s.ID, &s.ProjectID, &s.Name, &s.Description,
+			&s.DBUser, &s.DBPassword, &s.DBName,
+			&s.Type, &s.Status, &s.Image, &s.Port, &s.ResourceTier,
+			&s.CustomMemory, &s.CustomCPU, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, err
 		}
+		s.CreatedAt = parseSqliteTime(createdAt)
+		s.UpdatedAt = parseSqliteTime(updatedAt)
 		s.CreatedAt = parseSqliteTime(createdAt)
 		s.Type = ServiceType(string(s.Type))
 
@@ -383,7 +378,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	var createdAt string
 	err := m.db.QueryRowContext(ctx, `
 		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), COALESCE(s.db_user,''), COALESCE(s.db_password,''), COALESCE(s.db_name,''), s.type, s.status,
-		       COALESCE(s.port,0), s.created_at,
+		       COALESCE(s.port,0), COALESCE(s.resource_tier,'micro'), COALESCE(s.custom_memory,0), COALESCE(s.custom_cpu,0), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
 		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
@@ -396,7 +391,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		WHERE s.id = ?
 	`, id).Scan(
 		&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.DBUser, &s.DBPassword, &s.DBName, &s.Type, &s.Status,
-		&s.Port, &createdAt,
+		&s.Port, &s.ResourceTier, &s.CustomMemory, &s.CustomCPU, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
 		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
 		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
@@ -472,6 +467,7 @@ type CreateAppReq struct {
 	DockerArgs           string
 	DockerfileContent    string
 	DockerComposeContent string
+	TierName             string
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -479,13 +475,13 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 	var id string
 	err := m.db.QueryRowContext(ctx, `
 		INSERT INTO services (
-			project_id, name, type, status, port, image,
+			project_id, name, type, status, port, image, resource_tier,
 			start_command, install_command, app_directory, run_file, requirements_file, use_venv, docker_args,
 			dockerfile_content, docker_compose_content
 		)
-		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.Port, req.Image,
+	`, req.ProjectID, req.Name, req.Port, req.Image, req.TierName,
 		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
 		defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 		req.DockerfileContent, req.DockerComposeContent,
@@ -523,12 +519,15 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 
 // CreateDBReq defines what's needed to create a managed database.
 type CreateDBReq struct {
-	ProjectID  string
-	Name       string
-	DBType     string // postgres, mysql, redis, mongo
-	DBUser     string `json:"db_user"`
-	DBPassword string `json:"db_password"`
-	DBName     string `json:"db_name"`
+	ProjectID     string
+	Name          string
+	DBType        string // postgres, mysql, redis, mongo
+	DBUser        string `json:"db_user"`
+	DBPassword    string `json:"db_password"`
+	DBName        string `json:"db_name"`
+	TierName      string `json:"tier_name"`
+	CustomMemory  int64  `json:"custom_memory"`
+	CustomCPU     float64 `json:"custom_cpu"`
 }
 
 // CreateDatabase creates a managed Docker database.
@@ -549,10 +548,10 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 
 	var id string
 	err := m.db.QueryRowContext(ctx, `
-		INSERT INTO services (project_id, name, db_user, db_password, db_name, type, status, image)
-		VALUES (?, ?, ?, ?, ?, 'database', 'creating', ?)
+		INSERT INTO services (project_id, name, db_user, db_password, db_name, type, status, image, port, resource_tier, custom_memory, custom_cpu)
+		VALUES (?, ?, ?, ?, ?, 'database', 'idle', ?, ?, ?, ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType).Scan(&id)
+	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType, 0, req.TierName, req.CustomMemory, req.CustomCPU).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -561,12 +560,15 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 	go func() {
 		bgCtx := context.Background()
 		hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
-			ServiceID: id,
-			DBType:    req.DBType,
-			Name:      req.Name,
-			Username:  req.DBUser,
-			Password:  password,
-			DBName:    dbName,
+			ServiceID:    id,
+			DBType:       req.DBType,
+			Name:         req.Name,
+			Username:     req.DBUser,
+			Password:     password,
+			DBName:       dbName,
+			TierName:     req.TierName,
+			CustomMemory: req.CustomMemory,
+			CustomCPU:    req.CustomCPU,
 		})
 		if err != nil {
 			slog.Error("creating DB container", "err", err)
@@ -702,12 +704,15 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 			log("🚀 Launching " + svc.Image + " container...")
 			hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
-				ServiceID: svc.ID,
-				DBType:    svc.Image, // stores dbType in s.Image
-				Name:      svc.Name,
-				Username:  svc.DBUser,
-				Password:  password,
-				DBName:    dbName,
+				ServiceID:    svc.ID,
+				DBType:       svc.Image, // stores dbType in s.Image
+				Name:         svc.Name,
+				Username:     svc.DBUser,
+				Password:     password,
+				DBName:       dbName,
+				TierName:     svc.ResourceTier,
+				CustomMemory: svc.CustomMemory,
+				CustomCPU:    float64(svc.CustomCPU),
 			})
 			if err != nil {
 				log("❌ Database deployment failed: " + err.Error())
@@ -754,7 +759,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			}
 
 			log("📦 Pulling image: " + svc.Image)
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, svc.Port, svc.Port, envSlice)
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, svc.Port, svc.Port, envSlice, m.getServiceDomains(bgCtx, svc.Name), svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
 			if err != nil {
 				log("❌ " + err.Error())
 				finalStatus = "error"
@@ -1496,6 +1501,9 @@ type UpdateServiceReq struct {
 	DockerComposeContent string `json:"docker_compose_content"`
 	GitToken             string `json:"git_token"`
 	SSHKey               string `json:"ssh_key"`
+	TierName             string `json:"tier_name"`
+	CustomMemory         int64  `json:"custom_memory"`
+	CustomCPU            int64  `json:"custom_cpu"`
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -1504,11 +1512,11 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		UPDATE services
 		SET name = ?, description = ?, db_user = ?, db_password = ?, db_name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
-		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, updated_at = CURRENT_TIMESTAMP
+		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, resource_tier = ?, custom_memory = ?, custom_cpu = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, req.Name, req.Description, req.DBUser, req.DBPassword, req.DBName, req.Image, req.Port, req.StartCommand, req.InstallCommand,
 		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
-		req.DockerfileContent, req.DockerComposeContent, serviceID)
+		req.DockerfileContent, req.DockerComposeContent, req.TierName, req.CustomMemory, req.CustomCPU, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}
@@ -1921,4 +1929,21 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 	}
 
 	return runArgs
+}
+
+// getServiceDomains fetches registered domains for a service
+func (m *Manager) getServiceDomains(ctx context.Context, serviceName string) []string {
+	rows, err := m.db.QueryContext(ctx, `SELECT domain FROM domains_v2 WHERE service = ?`, serviceName)
+	var domains []string
+	if err != nil {
+		return domains
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err == nil {
+			domains = append(domains, d)
+		}
+	}
+	return domains
 }

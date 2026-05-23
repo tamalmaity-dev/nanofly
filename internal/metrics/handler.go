@@ -69,7 +69,9 @@ func (h *Handler) liveStream(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	ticker := time.NewTicker(2 * time.Second) // push every 2 seconds
+	// Push every 3 seconds 
+	// Metric update takes 3 seconds 
+	ticker := time.NewTicker(3 * time.Second) // push every 3 seconds
 	defer ticker.Stop()
 
 	ping := time.NewTicker(30 * time.Second)

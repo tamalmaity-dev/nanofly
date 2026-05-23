@@ -18,6 +18,8 @@ func NewHandler(mgr *Manager) *Handler {
 	return &Handler{mgr: mgr}
 }
 
+
+// RegisterRoutes sets up the HTTP routes for the services API.
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	// Services within a project
 	r.Get("/projects/{projectID}/services", h.List)
@@ -72,6 +74,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		SSHKey               string   `json:"ssh_key"`
 		DockerfileContent    string   `json:"dockerfile_content"`
 		DockerComposeContent string   `json:"docker_compose_content"`
+		TierName            string   `json:"tier_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -109,6 +112,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		DockerArgs:           req.DockerArgs,
 		DockerfileContent:    req.DockerfileContent,
 		DockerComposeContent: req.DockerComposeContent,
+		TierName:             req.TierName,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -119,8 +123,9 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name   string `json:"name"`
-		DBType string `json:"db_type"`
+		Name     string `json:"name"`
+		DBType   string `json:"db_type"`
+		TierName string `json:"tier_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -135,6 +140,7 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 		ProjectID: chi.URLParam(r, "projectID"),
 		Name:      req.Name,
 		DBType:    req.DBType,
+		TierName:  req.TierName,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

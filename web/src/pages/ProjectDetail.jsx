@@ -1,7 +1,10 @@
+import React, { Suspense } from 'react';
+const MonitoringPanel = React.lazy(() => import('../components/panels/MonitoringPanel'));
+const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import { servicesApi, projectsApi, domainsApi, filesApi, terminalWsUrl } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { servicesApi, projectsApi, domainsApi, filesApi, githubApi, terminalWsUrl } from '../api/client';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
 import { ResponsiveContainer, AreaChart, Area, Tooltip as ChartTooltip, YAxis } from 'recharts';
 import { Terminal as XTerm } from '@xterm/xterm';
@@ -107,7 +110,7 @@ const parseBulkEnv = (text) => {
   return parsed;
 };
 
-// ── Source Files Panel ───────────────────────────────────────────────────────
+//  Source Files Panel â”€
 function SourceFilesPanel({ service }) {
   const rootPath = service.git_repo_url?.startsWith('file://')
     ? service.git_repo_url.replace('file://', '')
@@ -349,8 +352,8 @@ function SourceFilesPanel({ service }) {
         </div>
       </div>
 
-      {error && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {error}</div>}
-      {uploading && <div style={{ color: 'var(--yellow)', fontSize: '0.8rem', marginBottom: '1rem' }}>Uploading files…</div>}
+      {error && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>âš ï¸ {error}</div>}
+      {uploading && <div style={{ color: 'var(--yellow)', fontSize: '0.8rem', marginBottom: '1rem' }}>Uploading filesâ€¦</div>}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
         <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -370,8 +373,8 @@ function SourceFilesPanel({ service }) {
               <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem', fontSize: '0.82rem' }}>No files found. Select files to upload or create one.</td></tr>
             )}
             {!loading && files.map(file => (
-              <tr 
-                key={file.path} 
+              <tr
+                key={file.path}
                 style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
                 onClick={() => {
                   if (file.is_dir) {
@@ -387,7 +390,7 @@ function SourceFilesPanel({ service }) {
                     <span style={{ color: 'var(--text-primary)', fontWeight: file.is_dir ? 600 : 400 }}>{file.name}</span>
                   </span>
                 </td>
-                <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{file.is_dir ? '—' : file.size_human}</td>
+                <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{file.is_dir ? 'â€”' : file.size_human}</td>
                 <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{new Date(file.mod_time).toLocaleString()}</td>
                 <td style={{ padding: '6px 14px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                   <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => handleDelete(file.path)} icon={Trash2} />
@@ -399,8 +402,8 @@ function SourceFilesPanel({ service }) {
       </div>
 
       {/* Editor Modal */}
-      <Modal 
-        open={!!selectedFile} 
+      <Modal
+        open={!!selectedFile}
         onOpenChange={open => { if (!open) setSelectedFile(null); }}
         title={`Editing: ${selectedFile?.name || ''}`}
         maxWidth={800}
@@ -411,7 +414,7 @@ function SourceFilesPanel({ service }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {editorError && <div style={{ color: 'var(--red)', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {editorError}</div>}
+            {editorError && <div style={{ color: 'var(--red)', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>âš ï¸ {editorError}</div>}
             <CodeEditor
               value={selectedFile?.content || ''}
               onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
@@ -420,7 +423,7 @@ function SourceFilesPanel({ service }) {
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Size: {selectedFile?.size || '—'} · {selectedFile?.content !== selectedFile?.originalContent ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Unsaved changes</span> : <span style={{ color: 'var(--green)' }}>Saved</span>}
+                Size: {selectedFile?.size || 'â€”'} Â· {selectedFile?.content !== selectedFile?.originalContent ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Unsaved changes</span> : <span style={{ color: 'var(--green)' }}>Saved</span>}
               </span>
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button variant="outline" size="sm" onClick={() => setSelectedFile(null)}>Close</Button>
@@ -477,7 +480,7 @@ const generatePassword = () => {
   return pass;
 };
 
-// ── Add Service Form ──────────────────────────────────────────────────────────
+//  Add Service Form 
 function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
@@ -489,9 +492,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
 
   useEffect(() => {
     if (subType === 'github') {
-      import('../api/client').then(({ githubApi }) => {
-        githubApi.listApps().then(apps => setGithubApps(apps || [])).catch(() => {});
-      });
+      githubApi.listApps().then(apps => setGithubApps(apps || [])).catch(() => { });
     }
   }, [subType]);
   const [form, setForm] = useState(() => ({
@@ -518,6 +519,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
     dbUser: 'nanofly_user',
     dbPassword: generatePassword(),
     dbName: '',
+    resourceTier: 'micro',
   }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -533,12 +535,13 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       let svc;
       const envVars = parseBulkEnv(form.envText);
       if (type === 'database') {
-        svc = await servicesApi.createDB(projectId, { 
-          name: form.name.trim(), 
+        svc = await servicesApi.createDB(projectId, {
+          name: form.name.trim(),
           db_type: dbType,
           db_user: form.dbUser.trim(),
           db_password: form.dbPassword.trim(),
-          db_name: form.dbName.trim()
+          db_name: form.dbName.trim(),
+          tier_name: form.resourceTier
         });
       } else if (subType === 'github' || subType === 'local') {
         svc = await servicesApi.createApp(projectId, {
@@ -561,6 +564,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           env_vars: envVars,
           dockerfile_content: form.dockerfileContent,
           docker_compose_content: form.dockerComposeContent,
+          tier_name: form.resourceTier,
         });
       } else {
         svc = await servicesApi.createApp(projectId, {
@@ -568,6 +572,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           image: form.image.trim(),
           port: Number(form.port) || 0,
           env_vars: envVars,
+          tier_name: form.resourceTier,
         });
       }
 
@@ -640,7 +645,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       isPrivate: false,
       title: 'Public Repository',
       desc: 'Deploy any kind of public repositories from the supported git providers.',
-      icon: '🌐',
+      icon: 'ðŸŒ',
       defaultName: 'public-app'
     },
     {
@@ -693,7 +698,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       isPrivate: true,
       title: 'Private Repository (GitHub App)',
       desc: 'Deploy public & private repositories through GitHub Apps integrations.',
-      icon: '🔑',
+      icon: 'ðŸ”‘',
       defaultName: 'private-app'
     },
     {
@@ -703,7 +708,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       isPrivate: true,
       title: 'Private Repository (Deploy Key)',
       desc: 'Deploy private repositories securely using a standalone SSH deploy key.',
-      icon: '🔒',
+      icon: 'ðŸ”’',
       defaultName: 'secure-app'
     },
     {
@@ -712,7 +717,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       subType: 'docker',
       title: 'Dockerfile',
       desc: 'Deploy a custom Dockerfile build configuration directly without Git setup.',
-      icon: '📄',
+      icon: 'ðŸ“„',
       defaultName: 'docker-app',
       defaultImage: 'nginx:alpine'
     },
@@ -722,7 +727,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       subType: 'docker',
       title: 'Docker Compose Empty',
       desc: 'Deploy complex application stacks easily with custom multi-container Compose definitions.',
-      icon: '🎛️',
+      icon: 'ðŸŽ›ï¸',
       defaultName: 'compose-app'
     },
     {
@@ -731,7 +736,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       subType: 'docker',
       title: 'Docker Image',
       desc: 'Deploy an existing compiled Docker image from Docker Hub or a custom registry.',
-      icon: '🐳',
+      icon: 'ðŸ³',
       titleSuffix: 'Image',
       defaultName: 'web-image',
       defaultImage: 'nginx:alpine'
@@ -739,14 +744,14 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   ];
 
   const DB_RESOURCES = [
-    { dbType: 'postgres', title: 'PostgreSQL', desc: 'Object-relational database known for robustness and standards compliance.', icon: '🐘' },
-    { dbType: 'mysql', title: 'MySQL', desc: 'Popular open-source relational database management system.', icon: '🐬' },
-    { dbType: 'mariadb', title: 'MariaDB', desc: 'Commercially supported fork of MySQL relational database system.', icon: '🌊' },
-    { dbType: 'redis', title: 'Redis', desc: 'Fast, in-memory key-value data store used as database, cache, or broker.', icon: '🔴' },
-    { dbType: 'keydb', title: 'KeyDB', desc: 'High-performance, multithreaded alternative to Redis core.', icon: '⚡' },
-    { dbType: 'dragonfly', title: 'Dragonfly', desc: 'Modern in-memory database built for high-throughput memory efficiency.', icon: '🐉' },
-    { dbType: 'mongo', title: 'MongoDB', desc: 'Flexible NoSQL document-oriented database for scalable data storage.', icon: '🍃' },
-    { dbType: 'clickhouse', title: 'ClickHouse', desc: 'Column-oriented DBMS optimized for real-time analytical queries.', icon: '📊' }
+    { dbType: 'postgres', title: 'PostgreSQL', desc: 'Object-relational database known for robustness and standards compliance.', icon: 'ðŸ˜' },
+    { dbType: 'mysql', title: 'MySQL', desc: 'Popular open-source relational database management system.', icon: 'ðŸ¬' },
+    { dbType: 'mariadb', title: 'MariaDB', desc: 'Commercially supported fork of MySQL relational database system.', icon: 'ðŸŒŠ' },
+    { dbType: 'redis', title: 'Redis', desc: 'Fast, in-memory key-value data store used as database, cache, or broker.', icon: 'ðŸ”´' },
+    { dbType: 'keydb', title: 'KeyDB', desc: 'High-performance, multithreaded alternative to Redis core.', icon: 'âš¡' },
+    { dbType: 'dragonfly', title: 'Dragonfly', desc: 'Modern in-memory database built for high-throughput memory efficiency.', icon: 'ðŸ‰' },
+    { dbType: 'mongo', title: 'MongoDB', desc: 'Flexible NoSQL document-oriented database for scalable data storage.', icon: 'ðŸƒ' },
+    { dbType: 'clickhouse', title: 'ClickHouse', desc: 'Column-oriented DBMS optimized for real-time analytical queries.', icon: 'ðŸ“Š' }
   ];
 
   return (
@@ -766,7 +771,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           <div style={{ overflowY: 'auto', flex: 1, paddingRight: 6 }}>
             {/* Apps Side-by-side Columns */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
-              
+
               {/* Git Based */}
               <div>
                 <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '1.05rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>
@@ -789,10 +794,10 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <div style={{
-                          
-                          
-                          
-                          
+
+
+
+
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -830,10 +835,10 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <div style={{
-                          
-                          
-                          
-                          
+
+
+
+
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -873,10 +878,10 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                       <div style={{
-                        
-                        
-                        
-                        
+
+
+
+
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -897,7 +902,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
             {type === 'app' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(79,110,247,0.06)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(79,110,247,0.1)' }}>
-                  <span style={{ fontSize: '1.1rem' }}>⚙️</span>
+                  <span style={{ fontSize: '1.1rem' }}>âš™ï¸</span>
                   <div>
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                       Configuring {subType === 'github' ? 'Git Application' : subType === 'local' ? 'Local Folder Application' : 'Docker Application'}
@@ -911,6 +916,17 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                 <div className="form-group">
                   <label className="form-label">Service Name *</label>
                   <input className="form-input" placeholder="e.g. production-api" value={form.name} onChange={set('name')} autoFocus />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Resource Tier</label>
+                  <select className="form-input" value={form.resourceTier} onChange={set('resourceTier')}>
+                    <option value="nano">Nano (128MB / 0.25 CPU)</option>
+                    <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
+                    <option value="standard">Standard (512MB / 1.0 CPU)</option>
+                    <option value="large">Large (1GB / 2.0 CPU)</option>
+                    <option value="unlimited">Unlimited (No Limits)</option>
+                  </select>
                 </div>
 
                 {subType === 'docker' ? (
@@ -1228,7 +1244,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(79,110,247,0.06)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(79,110,247,0.1)' }}>
-                  <span style={{ fontSize: '1.1rem' }}>💾</span>
+                  <span style={{ fontSize: '1.1rem' }}>ðŸ’¾</span>
                   <div>
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                       Deploying Database: {dbType.toUpperCase()}
@@ -1258,7 +1274,18 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                   <input className="form-input" placeholder={`my-${dbType.split(':')[0]}`} value={form.name} onChange={set('name')} autoFocus />
                 </div>
 
-                
+                <div className="form-group">
+                  <label className="form-label">Resource Tier</label>
+                  <select className="form-input" value={form.resourceTier} onChange={set('resourceTier')}>
+                    <option value="nano">Nano (128MB / 0.25 CPU)</option>
+                    <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
+                    <option value="standard">Standard (512MB / 1.0 CPU)</option>
+                    <option value="large">Large (1GB / 2.0 CPU)</option>
+                    <option value="unlimited">Unlimited (No Limits)</option>
+                  </select>
+                </div>
+
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div className="form-group">
                     <label className="form-label">Database User</label>
@@ -1277,7 +1304,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
               </div>
             )}
 
-            {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
+            {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>âš ï¸ {error}</p>}
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
               <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
@@ -1292,7 +1319,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   );
 }
 
-// ── Env Vars Editor ───────────────────────────────────────────────────────────
+//  Env Vars Editor â”€
 function EnvVarsPanel({ serviceId }) {
   const [vars, setVars] = useState([]);
   const [newKey, setNewKey] = useState('');
@@ -1370,7 +1397,7 @@ function EnvVarsPanel({ serviceId }) {
         </Button>
       </div>
 
-      {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem' }}>⚠️ {error}</p>}
+      {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem' }}>âš ï¸ {error}</p>}
 
       {isBulk ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1404,7 +1431,7 @@ function EnvVarsPanel({ serviceId }) {
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
-                          {show[ev.key] ? ev.value : '••••••••'}
+                          {show[ev.key] ? ev.value : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}
                         </code>
                         <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))} icon={show[ev.key] ? EyeOff : Eye} />
                         <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
@@ -1431,194 +1458,7 @@ function EnvVarsPanel({ serviceId }) {
   );
 }
 
-// ── Monitoring Panel ──────────────────────────────────────────────────────────
-function MonitoringPanel({ serviceId }) {
-  const [metrics, setMetrics] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let active = true;
-    const fetchMetrics = async () => {
-      try {
-        const data = await servicesApi.getMetrics(serviceId);
-        if (active) {
-          setMetrics(data);
-          setError(null);
-          setLoading(false);
-
-          setHistory(prev => {
-            let memVal = 0;
-            if (data?.memory_usage) {
-              const parts = data.memory_usage.split(' ');
-              const val = parseFloat(parts[0]) || 0;
-              const unit = parts[1] || 'B';
-              if (unit.toLowerCase().includes('g')) memVal = val * 1024;
-              else if (unit.toLowerCase().includes('m')) memVal = val;
-              else if (unit.toLowerCase().includes('k')) memVal = val / 1024;
-              else memVal = val / (1024 * 1024);
-            }
-            const newPoint = {
-              time: new Date().toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }),
-              cpu: data?.cpu_percent ?? 0,
-              memory: memVal,
-            };
-            return [...prev, newPoint].slice(-20);
-          });
-        }
-      } catch (err) {
-        if (active) {
-          setError(err.message);
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 3000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [serviceId]);
-
-  if (loading && !metrics) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: 12 }}>
-        <div className="spinner" style={{ borderTopColor: 'var(--accent)' }} />
-        <span style={{ color: 'var(--text-muted)', fontSize: '1.05rem' }}>Loading live metrics...</span>
-      </div>
-    );
-  }
-
-  if (error && !metrics) {
-    return (
-      <div style={{ color: 'var(--red)', background: 'rgba(239, 68, 68, 0.1)', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(239, 68, 68, 0.2)', fontSize: '0.875rem' }}>
-        ⚠️ {error}. Ensure your container is running.
-      </div>
-    );
-  }
-
-  const cpu = metrics?.cpu_percent ?? 0;
-  const memory = metrics?.memory_usage ?? '0 B';
-  const netIn = metrics?.network_in ?? '0 B';
-  const netOut = metrics?.network_out ?? '0 B';
-
-  const getCpuColor = (val) => {
-    if (val > 80) return 'var(--red)';
-    if (val > 50) return 'var(--yellow)';
-    return 'var(--green)';
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Live Container Resource Usage</h4>
-        <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.65rem' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }} className="pulse" />
-          Updating live
-        </span>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-        {/* CPU Card */}
-        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>CPU USAGE</span>
-            <Cpu size={16} color="var(--accent)" />
-          </div>
-          <div>
-            <span style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-              {cpu.toFixed(2)}%
-            </span>
-          </div>
-          <div style={{ height: 50, width: 'calc(100% + 20px)', marginTop: 'auto', marginLeft: -10, marginBottom: -10 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history}>
-                <defs>
-                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={getCpuColor(cpu)} stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor={getCpuColor(cpu)} stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <YAxis domain={[0, 'dataMax + 10']} hide />
-                <ChartTooltip
-                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: '0.75rem', padding: '4px 8px' }}
-                  itemStyle={{ color: 'var(--text-primary)' }}
-                  labelStyle={{ display: 'none' }}
-                  formatter={(val) => [`${val.toFixed(2)}%`, 'CPU']}
-                />
-                <Area type="monotone" dataKey="cpu" stroke={getCpuColor(cpu)} fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} isAnimationActive={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Memory Card */}
-        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>MEMORY USAGE</span>
-            <MemoryStick size={16} color="var(--accent)" />
-          </div>
-          <div>
-            <span style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-              {memory}
-            </span>
-          </div>
-          <div style={{ height: 50, width: 'calc(100% + 20px)', marginTop: 'auto', marginLeft: -10, marginBottom: -10 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history}>
-                <defs>
-                  <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <YAxis domain={[0, 'dataMax + 10']} hide />
-                <ChartTooltip
-                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: '0.75rem', padding: '4px 8px' }}
-                  itemStyle={{ color: 'var(--text-primary)' }}
-                  labelStyle={{ display: 'none' }}
-                  formatter={(val) => [`${val.toFixed(1)} MB`, 'Memory']}
-                />
-                <Area type="monotone" dataKey="memory" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} isAnimationActive={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Network Card */}
-        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 500 }}>NETWORK I/O</span>
-            <Globe size={16} color="var(--accent)" />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 500 }}>INCOMING</span>
-              <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--green)', fontFamily: 'monospace', marginTop: 2 }}>
-                ↓ {netIn}
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 500 }}>OUTGOING</span>
-              <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace', marginTop: 2 }}>
-                ↑ {netOut}
-              </span>
-            </div>
-          </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            Cumulative network traffic.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Deployments Panel ─────────────────────────────────────────────────────────
+//  Deployments Panel â”€
 function DeploymentsPanel({ serviceId }) {
   const [deps, setDeps] = useState([]);
   const [open, setOpen] = useState(null);
@@ -1659,12 +1499,12 @@ function DeploymentsPanel({ serviceId }) {
   };
 
   const statusLabel = {
-    running: '✅ Running',
-    completed: '✅ Completed',
-    building: '🔨 Building...',
-    deploying: '🚀 Deploying...',
-    error: '❌ Failed',
-    idle: '💤 Idle',
+    running: 'âœ… Running',
+    completed: 'âœ… Completed',
+    building: 'ðŸ”¨ Building...',
+    deploying: 'ðŸš€ Deploying...',
+    error: 'âŒ Failed',
+    idle: 'ðŸ’¤ Idle',
   };
 
   return (
@@ -1682,8 +1522,8 @@ function DeploymentsPanel({ serviceId }) {
           fontSize: '1.05rem',
           color: '#f59e0b',
         }}>
-          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>⚙️</span>
-          <strong>Build in progress</strong> — logs are updating live below…
+          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>âš™ï¸</span>
+          <strong>Build in progress</strong> â€” logs are updating live belowâ€¦
         </div>
       )}
 
@@ -1727,7 +1567,7 @@ function DeploymentsPanel({ serviceId }) {
             <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
               {new Date(d.started_at).toLocaleString()}
             </span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 11, transform: open === d.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>▶</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 11, transform: open === d.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>â–¶</span>
           </div>
 
           {/* Build log */}
@@ -1753,7 +1593,7 @@ function DeploymentsPanel({ serviceId }) {
                     let color = '#a8d8a8';
                     if (line.includes('❌') || line.includes('Error') || line.includes('error') || line.includes('failed')) color = '#ff6b6b';
                     else if (line.includes('✅') || line.includes('succeeded') || line.includes('complete')) color = '#51cf66';
-                    else if (line.includes('⚠') || line.includes('warn')) color = '#ffd43b';
+                    else if (line.includes('⚠️') || line.includes('warn')) color = '#ffd43b';
                     else if (line.includes('📥') || line.includes('📦') || line.includes('🔨') || line.includes('🚀')) color = '#74c0fc';
                     return <span key={i} style={{ color, display: 'block' }}>{line}</span>;
                   })}
@@ -1763,7 +1603,7 @@ function DeploymentsPanel({ serviceId }) {
                 </pre>
               ) : (
                 <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '1.05rem', textAlign: 'center' }}>
-                  {(d.status === 'building' || d.status === 'deploying') ? '⚙️ Starting build, logs will appear shortly...' : 'No log output.'}
+                  {(d.status === 'building' || d.status === 'deploying') ? 'âš™ï¸ Starting build, logs will appear shortly...' : 'No log output.'}
                 </div>
               )}
             </div>
@@ -1776,10 +1616,10 @@ function DeploymentsPanel({ serviceId }) {
 
 // Extracted to components/ServiceLogo.jsx
 
-// ── Service Card ──────────────────────────────────────────────────────────────
+// Service Card
 function ServiceCard({ svc, onDeploy, onDelete }) {
   const [deploying, setDeploying] = useState(false);
-  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
+  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
 
   const handleDeploy = async (e) => {
     e.stopPropagation();
@@ -1793,7 +1633,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
         <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{svc.name}</span>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)', boxShadow: `0 0 6px ${statusColor[svc.status] || 'transparent'}` }} title={svc.status} />
       </div>
-      
+
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
         {svc.description || (svc.type === 'database' ? `This is NanoFly's ${svc.name} database.` : `This is the ${svc.name} application.`)}
       </div>
@@ -1812,146 +1652,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
   );
 }
 
-// ── Container Terminal Panel ──────────────────────────────────────────────────
-function ContainerTerminalPanel({ service }) {
-  const containerRef = useRef(null);
-  const xtermRef    = useRef(null);
-  const fitRef      = useRef(null);
-  const wsRef       = useRef(null);
-  const [status, setStatus] = useState('connecting'); // connecting | open | closed | error
-  const [reconnectCount, setReconnectCount] = useState(0);
-
-  const containerName = service.type === 'database' 
-    ? `nf-db-${service.name}` 
-    : `nf-app-${service.name}`;
-
-  useEffect(() => {
-    // ── 1. Create xterm instance ──────────────────────────────────────────
-    const term = new XTerm({
-      theme: {
-        background: '#0c0c0c',
-        foreground: '#cccccc',
-        cursor: '#ffffff',
-        selectionBackground: 'rgba(255, 255, 255, 0.2)',
-        black: '#000000',
-        red: '#ef4444',
-        green: '#4af626',
-        yellow: '#eab308',
-        blue: '#00d2ff',
-        magenta: '#d8b4fe',
-        cyan: '#00ffff',
-        white: '#cccccc',
-        brightBlack: '#64748b',
-        brightRed: '#ef4444',
-        brightGreen: '#4af626',
-        brightYellow: '#eab308',
-        brightBlue: '#00d2ff',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#00ffff',
-        brightWhite: '#ffffff',
-      },
-      fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
-      fontSize: 14,
-      lineHeight: 1.6,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 5000,
-      allowTransparency: true,
-    });
-
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(containerRef.current);
-    fit.fit();
-
-    xtermRef.current = term;
-    fitRef.current   = fit;
-
-    // ── 2. Open WebSocket ─────────────────────────────────────────────────
-    const wsUrl = terminalWsUrl('container', containerName);
-    const ws    = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setStatus('open');
-      const { cols, rows } = term;
-      ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-    };
-
-    ws.onmessage = (e) => {
-      const data = e.data instanceof ArrayBuffer
-        ? new Uint8Array(e.data)
-        : e.data;
-      term.write(data);
-    };
-
-    ws.onerror = () => setStatus('error');
-    ws.onclose = () => setStatus('closed');
-
-    term.onData(data => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data));
-      }
-    });
-
-    const ro = new ResizeObserver(() => {
-      fit.fit();
-      const { cols, rows } = term;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-      }
-    });
-    ro.observe(containerRef.current);
-
-    return () => {
-      ro.disconnect();
-      ws.close();
-      term.dispose();
-    };
-  }, [containerName, reconnectCount]);
-
-  const reconnect = () => {
-    setStatus('connecting');
-    setReconnectCount(c => c + 1);
-  };
-
-  const statusColor = { open: '#22c55e', connecting: '#eab308', closed: '#ef4444', error: '#ef4444' }[status];
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Interactive Console: <code style={{ fontFamily: 'JetBrains Mono', background: 'var(--bg-base)', padding: '2px 6px', borderRadius: 4 }}>{containerName}</code>
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px',  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
-            <span style={{ fontSize: '0.75rem', color: statusColor, textTransform: 'capitalize' }}>{status}</span>
-          </div>
-          {(status === 'closed' || status === 'error') && (
-            <Button variant="ghost" size="sm" onClick={reconnect}>Reconnect</Button>
-          )}
-        </div>
-      </div>
-      <div 
-        ref={containerRef} 
-        style={{ 
-          height: 400, 
-          background: '#0c0c0c', 
-          borderRadius: 'var(--radius)', 
-          padding: '0.75rem',
-          border: '1px solid var(--border)',
-          overflow: 'hidden'
-        }} 
-      />
-    </div>
-  );
-}
-
-// ── Container Logs Panel ──────────────────────────────────────────────────────
+// Container Logs Panel
 function ContainerLogsPanel({ serviceId }) {
   const [logs, setLogs] = useState('Fetching container logs...');
 
@@ -1995,7 +1696,7 @@ function ContainerLogsPanel({ serviceId }) {
   );
 }
 
-// ── Webhook Panel ─────────────────────────────────────────────────────────────
+//  Webhook Panel 
 function WebhookPanel({ serviceId }) {
   const [copied, setCopied] = useState(false);
   const webhookUrl = `${window.location.origin}/api/webhooks/${serviceId}`;
@@ -2020,14 +1721,14 @@ function WebhookPanel({ serviceId }) {
           readOnly
           className="form-input"
           value={webhookUrl}
-          style={{ fontFamily: 'monospace', fontSize: '0.8rem',  border: '1px solid var(--border)', flex: 1 }}
+          style={{ fontFamily: 'monospace', fontSize: '0.8rem', border: '1px solid var(--border)', flex: 1 }}
         />
         <Button variant="ghost" size="sm" onClick={copyToClipboard} style={{ height: 38, width: 38 }} icon={copied ? Check : Copy} />
       </div>
 
       <div className="card" style={{ padding: '1rem', background: 'rgba(79,110,247,0.04)', border: '1px solid rgba(79,110,247,0.08)', borderRadius: 8 }}>
         <h5 style={{ margin: '0 0 10px 0', fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>🛠️</span> How to configure GitHub Webhooks
+          <span>ðŸ› ï¸</span> How to configure GitHub Webhooks
         </h5>
         <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
           <li>Go to your repository on <strong>GitHub</strong>.</li>
@@ -2043,7 +1744,7 @@ function WebhookPanel({ serviceId }) {
   );
 }
 
-// ── Settings Panel ────────────────────────────────────────────────────────────
+// Settings Panel 
 function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const toast = useToast();
   const [name, setName] = useState(service.name);
@@ -2067,6 +1768,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [dbUser, setDbUser] = useState(service.db_user || '');
   const [dbPassword, setDbPassword] = useState(service.db_password || '');
   const [dbName, setDbName] = useState(service.db_name || '');
+  const [resourceTier, setResourceTier] = useState(service.resource_tier || 'micro');
+  const [customMemory, setCustomMemory] = useState(service.custom_memory || 0);
+  const [customCPU, setCustomCPU] = useState(service.custom_cpu || 0);
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -2098,6 +1802,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setDbUser(service.db_user || '');
     setDbPassword(service.db_password || '');
     setDbName(service.db_name || '');
+    setResourceTier(service.resource_tier || 'micro');
+    setCustomMemory(service.custom_memory || 0);
+    setCustomCPU(service.custom_cpu || 0);
 
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
     setDomainVal(matched ? matched.domain : '');
@@ -2149,6 +1856,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const handleSave = async () => {
     if (!name.trim()) {
       setError('Name is required');
+      toast.error('Name is required');
       return;
     }
     setSaving(true);
@@ -2177,6 +1885,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         db_user: dbUser.trim(),
         db_password: dbPassword.trim(),
         db_name: dbName.trim(),
+        tier_name: resourceTier,
+        custom_memory: Number(customMemory),
+        custom_cpu: Number(customCPU),
       });
 
       // Update domain and direction in domains_v2 if modified
@@ -2206,10 +1917,13 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       }
 
       setSuccess(true);
+      toast.success('Settings saved successfully!');
       setTimeout(() => setSuccess(false), 3000);
       onUpdate();
     } catch (err) {
-      setError(err.message || 'Failed to save settings');
+      const errorMsg = err.message || 'Failed to save settings';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
     setSaving(false);
   };
@@ -2224,6 +1938,59 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       </div>
 
       <div className="form-group">
+        <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+          Resource Tier
+          <Tooltip content="Choose a predefined resource plan or select Custom to set your own limits">
+            <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+          </Tooltip>
+        </label>
+        <select className="form-input form-input-sm" value={resourceTier} onChange={e => setResourceTier(e.target.value)}>
+          <option value="nano">Nano (128MB / 0.25 CPU)</option>
+          <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
+          <option value="standard">Standard (512MB / 1.0 CPU)</option>
+          <option value="large">Large (1GB / 2.0 CPU)</option>
+          <option value="unlimited">Unlimited (No Limits)</option>
+          <option value="custom">Custom (Set Your Own Limits)</option>
+        </select>
+      </div>
+
+      {resourceTier === 'custom' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 8 }}>
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Memory Limit (MB)
+              <Tooltip content="Maximum memory the container can use. 512 MB = 0.5 GB">
+                <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+              </Tooltip>
+            </label>
+            <input
+              type="number"
+              className="form-input form-input-sm"
+              value={customMemory ? customMemory / (1024 * 1024) : ''}
+              onChange={e => setCustomMemory(Number(e.target.value) * 1024 * 1024)}
+              placeholder="e.g., 512"
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+              CPU Limit (Cores)
+              <Tooltip content="Maximum CPU cores the container can use. 1.0 = 1 full core, 0.5 = half a core">
+                <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+              </Tooltip>
+            </label>
+            <input
+              type="number"
+              step="0.25"
+              className="form-input form-input-sm"
+              value={customCPU || ''}
+              onChange={e => setCustomCPU(Number(e.target.value))}
+              placeholder="e.g., 1.5"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="form-group">
         <label className="form-label" style={{ fontSize: '0.75rem' }}>Description</label>
         <input className="form-input form-input-sm" value={description} onChange={e => setDescription(e.target.value)} placeholder="A short description of this service" />
       </div>
@@ -2231,7 +1998,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       {service.type === 'database' ? (
         <>
           <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-            If you change the values in the database, please sync it here, otherwise automations (like backups) won't work.
+            If you change the values here, please sync it here, otherwise automations (like backups) won't work.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             <div className="form-group">
@@ -2241,11 +2008,11 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '0.75rem' }}>Password</label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input 
-                  className="form-input form-input-sm" 
+                <input
+                  className="form-input form-input-sm"
                   type={showPassword ? "text" : "password"}
-                  value={dbPassword} 
-                  onChange={e => setDbPassword(e.target.value)} 
+                  value={dbPassword}
+                  onChange={e => setDbPassword(e.target.value)}
                   style={{ flex: 1 }}
                 />
                 <Button variant="ghost" size="sm" type="button" onClick={() => setShowPassword(!showPassword)} style={{ height: 32, width: 32, padding: 0 }}>
@@ -2283,12 +2050,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                   </div>
                   <div className="form-group">
                     <label className="form-label" style={{ fontSize: '0.75rem' }}>SSH Private Key (Deploy Key)</label>
-                    <textarea 
-                      className="form-input form-input-sm" 
-                      style={{ fontFamily: 'monospace', height: '80px', fontSize: '0.82rem' }} 
-                      value={sshKey} 
-                      onChange={e => setSshKey(e.target.value)} 
-                      placeholder="Leave blank to keep unchanged" 
+                    <textarea
+                      className="form-input form-input-sm"
+                      style={{ fontFamily: 'monospace', height: '80px', fontSize: '0.82rem' }}
+                      value={sshKey}
+                      onChange={e => setSshKey(e.target.value)}
+                      placeholder="Leave blank to keep unchanged"
                     />
                   </div>
                 </>
@@ -2300,9 +2067,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
               )}
               <div className="form-group">
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Build Type / Runtime</label>
-                <select 
-                  className="form-input form-input-sm" 
-                  value={parseBuilderValue(gitBuilder).type} 
+                <select
+                  className="form-input form-input-sm"
+                  value={parseBuilderValue(gitBuilder).type}
                   onChange={e => {
                     const val = e.target.value;
                     let finalVal = val;
@@ -2357,9 +2124,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
               {['node', 'python', 'go', 'php'].includes(parseBuilderValue(gitBuilder).type) && (
                 <div className="form-group">
                   <label className="form-label" style={{ fontSize: '0.75rem' }}>Runtime Version</label>
-                  <select 
-                    className="form-input form-input-sm" 
-                    value={gitBuilder} 
+                  <select
+                    className="form-input form-input-sm"
+                    value={gitBuilder}
                     onChange={e => setGitBuilder(e.target.value)}
                   >
                     {RUNTIME_VERSIONS[parseBuilderValue(gitBuilder).type].map(v => (
@@ -2425,20 +2192,20 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                       const builderType = parseBuilderValue(gitBuilder).type;
                       const baseImage = gitBuilder.includes(':') ? gitBuilder : (
                         builderType === 'python' ? 'python:3.11-slim' :
-                        builderType === 'node' ? 'node:22-alpine' :
-                        builderType === 'go' ? 'golang:1.22-alpine' :
-                        builderType === 'php' ? 'php:8.2-apache' : 'ubuntu:22.04'
+                          builderType === 'node' ? 'node:22-alpine' :
+                            builderType === 'go' ? 'golang:1.22-alpine' :
+                              builderType === 'php' ? 'php:8.2-apache' : 'ubuntu:22.04'
                       );
                       const runCmd = startCommand.trim() || (
                         builderType === 'python' ? `python ${runFile || 'app.py'}` :
-                        builderType === 'node' ? 'npm start' :
-                        builderType === 'go' ? 'go run .' :
-                        builderType === 'php' ? 'apache2-foreground' : './start.sh'
+                          builderType === 'node' ? 'npm start' :
+                            builderType === 'go' ? 'go run .' :
+                              builderType === 'php' ? 'apache2-foreground' : './start.sh'
                       );
                       const installCmd = installCommand.trim() || (
                         builderType === 'python' ? 'pip install -r requirements.txt' :
-                        builderType === 'node' ? 'npm install --production' :
-                        builderType === 'go' ? 'go mod download' : ''
+                          builderType === 'node' ? 'npm install --production' :
+                            builderType === 'go' ? 'go mod download' : ''
                       );
                       const portLine = service.port > 0 ? `EXPOSE ${service.port}\nENV PORT=${service.port}` : '';
                       const installLine = installCmd ? `RUN ${installCmd}` : '';
@@ -2451,13 +2218,12 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                         `CMD ["sh", "-c", "${runCmd}"]`,
                       ].filter(Boolean).join('\n');
                       try {
-                        const { filesApi } = await import('../api/client');
                         await filesApi.save(localPath + '/Dockerfile', content);
                         toast.success('Dockerfile created successfully');
                       } catch (e) { toast.error('Failed to create Dockerfile: ' + e.message); }
                     }}
                   >
-                    📄 Initialize Dockerfile Template
+                    ðŸ“„ Initialize Dockerfile Template
                   </Button>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Creates a starter Dockerfile in the project folder</span>
                 </div>
@@ -2477,7 +2243,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
               Domains
-              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Add custom domains. Point your DNS A record to your server IP.">ℹ️</span>
+              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Add custom domains. Point your DNS A record to your server IP.">â„¹ï¸</span>
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input
@@ -2501,7 +2267,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
               Direction *
-              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Select how requests to www and non-www subdomains are handled.">ℹ️</span>
+              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Select how requests to www and non-www subdomains are handled.">â„¹ï¸</span>
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <select
@@ -2530,8 +2296,8 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         </>
       )}
 
-      {error && <div style={{ color: 'var(--red)', fontSize: '0.75rem' }}>⚠️ {error}</div>}
-      {success && <div style={{ color: 'var(--green)', fontSize: '0.75rem' }}>✓ Settings saved successfully!</div>}
+      {error && <div style={{ color: 'var(--red)', fontSize: '0.75rem' }}>âš ï¸ {error}</div>}
+      {success && <div style={{ color: 'var(--green)', fontSize: '0.75rem' }}>âœ“ Settings saved successfully!</div>}
 
       <Button variant="primary" size="sm" onClick={handleSave} disabled={saving} loading={saving} style={{ marginTop: 6, alignSelf: 'flex-end' }}>
         Save Settings
@@ -2540,7 +2306,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   );
 }
 
-// ── Backup & Restore Panel ────────────────────────────────────────────────────
+//  Backup & Restore Panel 
 function BackupRestorePanel({ service }) {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -2578,7 +2344,7 @@ function BackupRestorePanel({ service }) {
         <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Database size={14} color="var(--accent)" /> Manual Logical Backup
         </h4>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Trigger a native logical backup (e.g. pg_dump) directly inside the container and save it to the persistent host volume.</p>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Trigger a backup directly inside the container and save it to the persistent host volume. Database services run a logical dump, Apps run a tar archive.</p>
         <Button variant="primary" onClick={handleBackup} loading={loading} disabled={loading} style={{ marginTop: 12 }}>
           Create Backup
         </Button>
@@ -2600,7 +2366,7 @@ function BackupRestorePanel({ service }) {
   );
 }
 
-// ── Connection Details Panel (Databases) ──────────────────────────────────────
+//  Connection Details Panel (Databases) 
 function ConnectionDetailsPanel({ service }) {
   const [envVars, setEnvVars] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2715,7 +2481,7 @@ function ConnectionDetailsPanel({ service }) {
                 <span style={{ color: 'var(--text-muted)' }}>Password</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                    {showPassword ? password : '••••••••••••••••'}
+                    {showPassword ? password : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}
                   </span>
                   <Button variant="ghost" size="sm" onClick={() => setShowPassword(!showPassword)} icon={showPassword ? EyeOff : Eye} style={{ padding: 4 }} />
                   <Button variant="ghost" size="sm" onClick={() => handleCopy(password)} icon={Copy} style={{ padding: 4 }} />
@@ -2758,12 +2524,12 @@ function ConnectionDetailsPanel({ service }) {
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem' }}>Connection URI</label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input 
-                className="form-input form-input-sm" 
-                type={showPassword ? 'text' : 'password'} 
-                value={connString || 'Generating connection URL...'} 
-                readOnly 
-                style={{ fontFamily: 'monospace', fontSize: '0.8rem', flex: 1 }} 
+              <input
+                className="form-input form-input-sm"
+                type={showPassword ? 'text' : 'password'}
+                value={connString || 'Generating connection URL...'}
+                readOnly
+                style={{ fontFamily: 'monospace', fontSize: '0.8rem', flex: 1 }}
               />
               <Button variant="outline" size="sm" onClick={() => handleCopy(connString)} icon={Copy}>
                 {copied ? 'Copied' : 'Copy'}
@@ -2774,11 +2540,11 @@ function ConnectionDetailsPanel({ service }) {
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem' }}>CLI Connection Command</label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input 
-                className="form-input form-input-sm" 
-                value={cliCmd} 
-                readOnly 
-                style={{ fontFamily: 'monospace', fontSize: '0.8rem', flex: 1 }} 
+              <input
+                className="form-input form-input-sm"
+                value={cliCmd}
+                readOnly
+                style={{ fontFamily: 'monospace', fontSize: '0.8rem', flex: 1 }}
               />
               <Button variant="outline" size="sm" onClick={() => handleCopy(cliCmd)} icon={Copy}>
                 Copy
@@ -2791,9 +2557,10 @@ function ConnectionDetailsPanel({ service }) {
   );
 }
 
-// ── Main ProjectDetail ────────────────────────────────────────────────────────
+//  Main ProjectDetail 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const toast = useToast();
   const [project, setProject] = useState(null);
   const [services, setServices] = useState([]);
@@ -2803,6 +2570,7 @@ export default function ProjectDetail() {
   const [activeTab, setActiveTab] = useState('deployments');
   const [activeSvc, setActiveSvc] = useState(null);
   const [deletingSvc, setDeletingSvc] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const load = useCallback(async () => {
@@ -2868,6 +2636,7 @@ export default function ProjectDetail() {
 
   const confirmDelete = async () => {
     if (!deletingSvc) return;
+    setIsDeleting(true);
     try {
       await servicesApi.delete(deletingSvc.id);
       setServices(s => s.filter(x => x.id !== deletingSvc.id));
@@ -2876,6 +2645,8 @@ export default function ProjectDetail() {
       toast.success('Service deleted successfully');
     } catch (e) {
       toast.error(e.message || 'Failed to delete service');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -2889,7 +2660,7 @@ export default function ProjectDetail() {
   const apps = services.filter(s => s.type === 'app');
   const dbs = services.filter(s => s.type === 'database');
   const selectedSvc = services.find(s => s.id === activeSvc);
-  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', stopped: 'var(--text-muted)', idle: 'var(--text-muted)', creating: 'var(--yellow)' };
+  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', stopped: 'var(--text-muted)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
 
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
@@ -2906,16 +2677,16 @@ export default function ProjectDetail() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* Breadcrumbs */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '1.05rem', color: 'var(--text-muted)' }}>
-              <div 
-                onClick={() => navigate('/projects')} 
+              <div
+                onClick={() => navigate('/projects')}
                 style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
                 className="hover-text-accent"
               >
                 Projects
               </div>
               <ChevronRight size={14} />
-              <div 
-                onClick={() => setActiveSvc(null)} 
+              <div
+                onClick={() => setActiveSvc(null)}
                 style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
                 className="hover-text-accent"
               >
@@ -2926,12 +2697,12 @@ export default function ProjectDetail() {
                 {selectedSvc.name}
               </div>
             </div>
-            
+
             {/* Title & Status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <ServiceLogo type={selectedSvc.type} name={selectedSvc.name} image={selectedSvc.image} builder={selectedSvc.git_builder} size={28} />
               <h2 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--text-primary)', lineHeight: 1 }}>{selectedSvc.name}</h2>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)',  padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace' }}>localhost</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace' }}>localhost</span>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)' }} />
               <span style={{ fontSize: '1.05rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
             </div>
@@ -2952,11 +2723,37 @@ export default function ProjectDetail() {
                 </span>
               )}
               {serviceUrl && (
-                <a href={serviceUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6,  background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
+                <a href={serviceUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
                   <ExternalLink size={13} /> {serviceUrl}
                 </a>
               )}
+              {selectedSvc.resource_tier && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                  <Cpu size={14} color="var(--text-secondary)" /> Tier: <span style={{ textTransform: 'capitalize' }}>{selectedSvc.resource_tier}</span>
+                </span>
+              )}
             </div>
+
+            {selectedSvc.status === 'oom_killed' && (
+              <div style={{ marginTop: 16, padding: 16, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--red)', borderRadius: 8 }}>
+                <h4 style={{ margin: '0 0 8px 0', color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <AlertCircle size={16} /> Out of Memory (OOM) Killed
+                </h4>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                  This container was killed by the operating system because it exceeded the RAM limit of its configured resource tier ({selectedSvc.resource_tier}). Please upgrade the resource tier in Settings and restart the service.
+                </p>
+              </div>
+            )}
+            {selectedSvc.status === 'crashed' && (
+              <div style={{ marginTop: 16, padding: 16, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--red)', borderRadius: 8 }}>
+                <h4 style={{ margin: '0 0 8px 0', color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <AlertCircle size={16} /> Container Crashed
+                </h4>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                  This container exited unexpectedly. Check the container logs for more details on the error.
+                </p>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button variant="solid" color="amber" size="md" onClick={() => handleDeploy(selectedSvc.id)} icon={Play} style={{ fontWeight: 600 }}>
@@ -2990,7 +2787,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
-              ...(selectedSvc.type === 'database' ? [{ id: 'backup', label: 'Backup & Restore', icon: Database }] : []),
+              { id: 'backup', label: 'Backup & Restore', icon: Database },
               { id: 'settings', label: 'Settings', icon: Settings },
             ]}
           >
@@ -3004,10 +2801,14 @@ export default function ProjectDetail() {
               <ContainerLogsPanel serviceId={activeSvc} />
             </TabsContent>
             <TabsContent value="terminal">
-              <ContainerTerminalPanel service={selectedSvc} />
+              <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading terminal...</div>}>
+                <ContainerTerminalPanel service={selectedSvc} />
+              </Suspense>
             </TabsContent>
             <TabsContent value="monitoring">
-              <MonitoringPanel serviceId={activeSvc} />
+              <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading monitoring charts...</div>}>
+                <MonitoringPanel serviceId={activeSvc} />
+              </Suspense>
             </TabsContent>
             {selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') && (
               <TabsContent value="webhooks">
@@ -3139,12 +2940,13 @@ export default function ProjectDetail() {
             autoFocus
           />
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
-            <Button variant="ghost" onClick={() => setDeletingSvc(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDeletingSvc(null)} disabled={isDeleting}>Cancel</Button>
             <Button
               variant="solid"
               style={{ background: 'var(--red)', color: '#fff' }}
               onClick={confirmDelete}
-              disabled={deleteConfirmName !== deletingSvc?.name}
+              disabled={deleteConfirmName !== deletingSvc?.name || isDeleting}
+              loading={isDeleting}
             >
               I understand, delete this service
             </Button>
@@ -3154,3 +2956,4 @@ export default function ProjectDetail() {
     </div>
   );
 }
+

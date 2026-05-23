@@ -2,14 +2,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Server, Play, Square, RefreshCw, Search, AlertCircle } from 'lucide-react';
 import { systemdApi } from '../api/client';
-import { Button, StatusBadge } from '../components/ui';
+import { Button, StatusBadge, useToast } from '../components/ui';
 
 export default function Services() {
+  const toast = useToast();
   const [services, setServices] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [search, setSearch]     = useState('');
-  const [acting, setActing]     = useState(null); // service being acted on
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [acting, setActing] = useState(null); // service being acted on
 
   const fetchServices = useCallback(async () => {
     try {
@@ -29,14 +30,19 @@ export default function Services() {
     return () => clearInterval(interval);
   }, [fetchServices]);
 
+  // Handle action on a service
+  // e.g. start, stop, restart
   const handleAction = async (name, action) => {
     setActing(name);
     try {
       await systemdApi[action](name);
       await new Promise(r => setTimeout(r, 1000)); // wait for systemd
       await fetchServices();
+      toast.success(`Successfully ${action}ed ${name}`);
     } catch (err) {
-      setError(`Failed to ${action} ${name}: ${err.message}`);
+      const errorMsg = `Failed to ${action} ${name}: ${err.message}`;
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setActing(null);
     }
@@ -49,7 +55,7 @@ export default function Services() {
 
   const running = services.filter(s => s.status === 'running').length;
   const stopped = services.filter(s => s.status === 'stopped').length;
-  const failed  = services.filter(s => s.status === 'failed').length;
+  const failed = services.filter(s => s.status === 'failed').length;
 
   if (loading) {
     return (

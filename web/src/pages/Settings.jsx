@@ -16,7 +16,7 @@ const TABS = [
   { id: 'updates', label: 'Updates', icon: RefreshCw },
 ];
 
-import { Field, SaveBar, Switch, Tabs, TabsContent, SelectRoot, SelectTrigger, SelectContent, SelectItem, Button } from '../components/ui';
+import { Field, SaveBar, Switch, Tabs, TabsContent, SelectRoot, SelectTrigger, SelectContent, SelectItem, Button, useToast } from '../components/ui';
 
 function Toggle({ checked, onChange }) {
   return (
@@ -117,7 +117,7 @@ function SystemTab() {
     <div className="fade-in">
       <div className="settings-section">
         <div className="settings-section-title">Host Requirements</div>
-        
+
         <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 'var(--radius)', padding: '1rem', marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--red)', fontWeight: 600, marginBottom: '0.5rem' }}>
             <AlertCircle size={18} />
@@ -157,6 +157,7 @@ function ApiKeysTab() {
 }
 
 function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
+  const toast = useToast();
   const [backups, setBackups] = useState([]);
   const [manualName, setManualName] = useState(settings['backup.name_prefix'] || 'nanofly');
   const [manualDesc, setManualDesc] = useState('Manual NanoFly backup');
@@ -169,7 +170,10 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
     setBusy(true);
     try {
       await backupsApi.create({ name: manualName, description: manualDesc, type: 'manual' });
+      toast.success('Backup created successfully!');
       await load();
+    } catch (err) {
+      toast.error(err.message || 'Failed to create backup');
     } finally {
       setBusy(false);
     }
@@ -177,8 +181,13 @@ function BackupsTab({ settings, setSetting, onSave, saving, saved }) {
 
   const remove = async (file) => {
     if (!confirm(`Delete backup ${file}?`)) return;
-    await backupsApi.delete(file);
-    await load();
+    try {
+      await backupsApi.delete(file);
+      toast.success('Backup deleted successfully');
+      await load();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete backup');
+    }
   };
 
   return (
@@ -525,6 +534,7 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
 
 
 export default function Settings() {
+  const toast = useToast();
   const [tab, setTab] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash && TABS.some(t => t.id === hash)) return hash;
@@ -559,7 +569,10 @@ export default function Settings() {
     try {
       await settingsApi.save(settings);
       setSaved(true);
+      toast.success('Settings saved successfully!');
       setTimeout(() => setSaved(false), 1800);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save settings');
     } finally {
       setSaving(false);
     }

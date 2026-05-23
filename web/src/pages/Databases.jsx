@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Database, Plus, RefreshCw, Copy, Eye, EyeOff, Trash2, X } from 'lucide-react';
 import { servicesApi, projectsApi } from '../api/client';
-import { Modal, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
+import { Modal, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, useToast } from '../components/ui';
 import { ServiceLogo } from '../components/ServiceLogo';
 
 const DB_TYPES = [
@@ -43,6 +43,7 @@ const DB_TYPES = [
 ];
 
 function CreateModal({ projects, open, onOpenChange, onCreated }) {
+  const toast = useToast();
   const [selectedType, setSelectedType] = useState(DB_TYPES[0]);
   const [version, setVersion] = useState(DB_TYPES[0].defaultVersion);
   const [name, setName] = useState('');
@@ -56,12 +57,22 @@ function CreateModal({ projects, open, onOpenChange, onCreated }) {
   };
 
   const submit = async () => {
-    if (!name || !projId) { setError('Name and project are required'); return; }
+    if (!name || !projId) {
+      const msg = 'Name and project are required';
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
     setLoading(true); setError('');
     try {
       const svc = await servicesApi.createDB(projId, { name, db_type: version });
+      toast.success(`${selectedType.name} database created successfully!`);
       onCreated(svc);
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      const msg = e.message || 'Failed to create database';
+      setError(msg);
+      toast.error(msg);
+    }
     setLoading(false);
   };
 
@@ -152,6 +163,7 @@ function ConnString({ value }) {
 }
 
 export default function Databases() {
+  const toast = useToast();
   const [dbs, setDbs] = useState([]);
   const [projects, setProjects] = useState([]);
   const [envMap, setEnvMap] = useState({});   // svcId → CONNECTION_STRING
@@ -191,8 +203,13 @@ export default function Databases() {
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this database? The container and data will be removed.')) return;
-    await servicesApi.delete(id);
-    setDbs(d => d.filter(x => x.id !== id));
+    try {
+      await servicesApi.delete(id);
+      toast.success('Database deleted successfully');
+      setDbs(d => d.filter(x => x.id !== id));
+    } catch (e) {
+      toast.error(e.message || 'Failed to delete database');
+    }
   };
 
   const statusBadge = s => {

@@ -17,6 +17,8 @@ type Project struct {
 	BackupEnabled   int       `json:"backup_enabled"`
 	BackupTime      string    `json:"backup_time"`
 	BackupRetention int       `json:"backup_retention"`
+	AppsCount       int       `json:"apps_count"`
+	DbCount         int       `json:"db_count"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
@@ -31,7 +33,13 @@ func NewService(database *db.DB) *Service {
 
 func (s *Service) List(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, COALESCE(description,''), backup_enabled, backup_time, backup_retention, created_at FROM projects ORDER BY created_at DESC`,
+		`SELECT p.id, p.name, COALESCE(p.description,''), p.backup_enabled, p.backup_time, p.backup_retention, p.created_at,
+		        COUNT(CASE WHEN s.type = 'app' THEN 1 END) as apps_count,
+		        COUNT(CASE WHEN s.type = 'database' THEN 1 END) as db_count
+		 FROM projects p
+		 LEFT JOIN services s ON p.id = s.project_id
+		 GROUP BY p.id
+		 ORDER BY p.created_at DESC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("listing projects: %w", err)
@@ -42,7 +50,7 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var createdAt string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.BackupEnabled, &p.BackupTime, &p.BackupRetention, &createdAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.BackupEnabled, &p.BackupTime, &p.BackupRetention, &createdAt, &p.AppsCount, &p.DbCount); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)

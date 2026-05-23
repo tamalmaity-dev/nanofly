@@ -413,6 +413,7 @@ export default function Dashboard() {
                 { k: 'Platform',           v: m?.system?.platform },
                 { k: 'Arch',               v: m?.system?.arch },
                 { k: 'Uptime',             v: fmtUptime(m?.system?.uptime_sec) },
+                { k: 'NanoFly RAM Budget', v: m?.system?.nanofly_mem_human },
               ].map(({ k, v }) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
                   <span style={{ color: 'var(--text-muted)' }}>{k}</span>

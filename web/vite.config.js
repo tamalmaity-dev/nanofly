@@ -1,12 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Vite configuration
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    // Proxy API calls to the Go backend during development
-    // So you can run `npm run dev` and it forwards /api/* → Go on :8080
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
@@ -18,8 +17,11 @@ export default defineConfig({
       },
     },
   },
+  
+  // Build configuration
   build: {
     outDir: 'dist',
     sourcemap: false,
+    chunkSizeWarningLimit: 2000,
   },
 })

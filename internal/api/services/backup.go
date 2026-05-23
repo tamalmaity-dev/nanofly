@@ -14,28 +14,35 @@ func (m *Manager) BackupDatabase(ctx context.Context, serviceID string) (string,
 	if err != nil {
 		return "", err
 	}
-	if svc.Type != "database" {
-		return "", fmt.Errorf("service %s is not a database", svc.Name)
+	var containerName string
+	if svc.Type == "database" {
+		containerName = "nf-db-" + svc.Name
+	} else {
+		containerName = "nf-" + svc.Name
 	}
-
-	containerName := "nf-db-" + svc.Name
 	stamp := time.Now().Format("20060102-150405")
-	backupFileName := fmt.Sprintf("backup_%s.sql", stamp)
+	backupFileName := fmt.Sprintf("backup_%s", stamp)
 
 	var cmd []string
-	switch {
-	case svc.Image == "postgres" || strings.HasPrefix(svc.Image, "postgres:"):
-		cmd = []string{"sh", "-c", fmt.Sprintf("pg_dump -U %s %s > /var/lib/postgresql/data/%s", svc.DBUser, svc.DBName, backupFileName)}
-	case svc.Image == "mysql" || strings.HasPrefix(svc.Image, "mysql:") || svc.Image == "mariadb" || strings.HasPrefix(svc.Image, "mariadb:"):
-		cmd = []string{"sh", "-c", fmt.Sprintf("mysqldump -u %s -p%s %s > /var/lib/mysql/%s", svc.DBUser, svc.DBPassword, svc.DBName, backupFileName)}
-	case svc.Image == "mongo" || strings.HasPrefix(svc.Image, "mongo:"):
-		backupFileName = fmt.Sprintf("backup_%s.archive", stamp)
-		cmd = []string{"sh", "-c", fmt.Sprintf("mongodump --archive=/data/db/%s", backupFileName)}
-	case svc.Image == "redis" || strings.HasPrefix(svc.Image, "redis:") || svc.Image == "keydb":
-		backupFileName = fmt.Sprintf("dump.rdb")
-		cmd = []string{"sh", "-c", "redis-cli save"}
-	default:
-		return "", fmt.Errorf("logical backup not supported for %s", svc.Image)
+	if svc.Type == "app" {
+		backupFileName += ".tar.gz"
+		cmd = []string{"sh", "-c", fmt.Sprintf("tar -czf /app/%s -C /app .", backupFileName)}
+	} else {
+		backupFileName += ".sql"
+		switch {
+		case svc.Image == "postgres" || strings.HasPrefix(svc.Image, "postgres:"):
+			cmd = []string{"sh", "-c", fmt.Sprintf("pg_dump -U %s %s > /var/lib/postgresql/data/%s", svc.DBUser, svc.DBName, backupFileName)}
+		case svc.Image == "mysql" || strings.HasPrefix(svc.Image, "mysql:") || svc.Image == "mariadb" || strings.HasPrefix(svc.Image, "mariadb:"):
+			cmd = []string{"sh", "-c", fmt.Sprintf("mysqldump -u %s -p%s %s > /var/lib/mysql/%s", svc.DBUser, svc.DBPassword, svc.DBName, backupFileName)}
+		case svc.Image == "mongo" || strings.HasPrefix(svc.Image, "mongo:"):
+			backupFileName = fmt.Sprintf("backup_%s.archive", stamp)
+			cmd = []string{"sh", "-c", fmt.Sprintf("mongodump --archive=/data/db/%s", backupFileName)}
+		case svc.Image == "redis" || strings.HasPrefix(svc.Image, "redis:") || svc.Image == "keydb":
+			backupFileName = fmt.Sprintf("dump.rdb")
+			cmd = []string{"sh", "-c", "redis-cli save"}
+		default:
+			return "", fmt.Errorf("logical backup not supported for %s", svc.Image)
+		}
 	}
 
 	rc, err := m.docker.Exec(ctx, containerName, cmd, nil)
@@ -55,22 +62,27 @@ func (m *Manager) ImportDatabase(ctx context.Context, serviceID, backupFileName 
 	if err != nil {
 		return err
 	}
-	if svc.Type != "database" {
-		return fmt.Errorf("service %s is not a database", svc.Name)
+	var containerName string
+	if svc.Type == "database" {
+		containerName = "nf-db-" + svc.Name
+	} else {
+		containerName = "nf-" + svc.Name
 	}
 
-	containerName := "nf-db-" + svc.Name
-
 	var cmd []string
-	switch {
-	case svc.Image == "postgres" || strings.HasPrefix(svc.Image, "postgres:"):
-		cmd = []string{"sh", "-c", fmt.Sprintf("psql -U %s -d %s < /var/lib/postgresql/data/%s", svc.DBUser, svc.DBName, backupFileName)}
-	case svc.Image == "mysql" || strings.HasPrefix(svc.Image, "mysql:") || svc.Image == "mariadb" || strings.HasPrefix(svc.Image, "mariadb:"):
-		cmd = []string{"sh", "-c", fmt.Sprintf("mysql -u %s -p%s %s < /var/lib/mysql/%s", svc.DBUser, svc.DBPassword, svc.DBName, backupFileName)}
-	case svc.Image == "mongo" || strings.HasPrefix(svc.Image, "mongo:"):
-		cmd = []string{"sh", "-c", fmt.Sprintf("mongorestore --drop --archive=/data/db/%s", backupFileName)}
-	default:
-		return fmt.Errorf("logical import not supported for %s", svc.Image)
+	if svc.Type == "app" {
+		cmd = []string{"sh", "-c", fmt.Sprintf("tar -xzf /app/%s -C /app", backupFileName)}
+	} else {
+		switch {
+		case svc.Image == "postgres" || strings.HasPrefix(svc.Image, "postgres:"):
+			cmd = []string{"sh", "-c", fmt.Sprintf("psql -U %s -d %s < /var/lib/postgresql/data/%s", svc.DBUser, svc.DBName, backupFileName)}
+		case svc.Image == "mysql" || strings.HasPrefix(svc.Image, "mysql:") || svc.Image == "mariadb" || strings.HasPrefix(svc.Image, "mariadb:"):
+			cmd = []string{"sh", "-c", fmt.Sprintf("mysql -u %s -p%s %s < /var/lib/mysql/%s", svc.DBUser, svc.DBPassword, svc.DBName, backupFileName)}
+		case svc.Image == "mongo" || strings.HasPrefix(svc.Image, "mongo:"):
+			cmd = []string{"sh", "-c", fmt.Sprintf("mongorestore --drop --archive=/data/db/%s", backupFileName)}
+		default:
+			return fmt.Errorf("logical import not supported for %s", svc.Image)
+		}
 	}
 
 	rc, err := m.docker.Exec(ctx, containerName, cmd, nil)

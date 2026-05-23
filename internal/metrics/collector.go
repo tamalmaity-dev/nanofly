@@ -88,6 +88,8 @@ type SystemInfo struct {
 	Platform     string `json:"platform"`
 	ProcessCount int    `json:"process_count"`
 	DockerCount  int    `json:"docker_count"`
+	NanoflyMem   uint64 `json:"nanofly_mem_bytes"`
+	NanoflyMemH  string `json:"nanofly_mem_human"`
 }
 
 // Collect gathers a full metrics snapshot from the OS.
@@ -260,6 +262,12 @@ func Collect() (*Snapshot, error) {
 
 	// Docker container count (running)
 	snap.System.DockerCount = dockerRunningCount()
+
+	// NanoFly's own memory usage
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	snap.System.NanoflyMem = m.Alloc
+	snap.System.NanoflyMemH = humanBytes(m.Alloc)
 
 	return snap, nil
 }

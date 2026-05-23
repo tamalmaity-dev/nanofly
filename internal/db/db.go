@@ -87,6 +87,9 @@ func (db *DB) migrate() error {
 		status     TEXT NOT NULL DEFAULT 'stopped',
 		image      TEXT,
 		port       INTEGER,
+		resource_tier TEXT NOT NULL DEFAULT 'micro',
+		custom_memory INTEGER DEFAULT 0,
+		custom_cpu INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -194,6 +197,11 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_enabled INTEGER DEFAULT 0")
 	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_time TEXT DEFAULT '00:00'")
 	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_retention INTEGER DEFAULT 7")
+	
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN resource_tier TEXT DEFAULT 'micro'")
+	
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN custom_memory INTEGER DEFAULT 0")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN custom_cpu INTEGER DEFAULT 0")
 	
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN github_app_id TEXT REFERENCES github_apps(id) ON DELETE SET NULL")
 

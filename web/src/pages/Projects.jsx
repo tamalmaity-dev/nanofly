@@ -6,6 +6,7 @@ import { Modal, Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, 
 
 // ── Create Project Modal ────────────────────────────────────────────────────────
 function CreateProjectModal({ open, onOpenChange, onSuccess }) {
+  const toast = useToast();
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,14 +14,20 @@ function CreateProjectModal({ open, onOpenChange, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      toast.error('Project name is required');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
       const p = await projectsApi.create({ name, description: desc });
+      toast.success('Project created successfully!');
       onSuccess(p);
     } catch (err) {
-      setError(err.message || 'Failed to create project');
+      const msg = err.message || 'Failed to create project';
+      setError(msg);
+      toast.error(msg);
       setLoading(false);
     }
   };
@@ -194,10 +201,10 @@ export default function Projects() {
 
               <div style={{ display: 'flex', gap: 12, borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: 'auto' }}>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>0</span> Apps
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{p.apps_count || 0}</span> Apps
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>0</span> Databases
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{p.db_count || 0}</span> Databases
                 </div>
               </div>
             </div>

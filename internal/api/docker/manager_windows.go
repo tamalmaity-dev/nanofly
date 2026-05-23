@@ -11,9 +11,18 @@ import (
 	"io"
 )
 
-type Manager struct {
-	dataDir string
+type OomEvent struct {
+	ContainerName string
+	ExitCode      string
+	Action        string
 }
+
+type Manager struct {
+	dataDir    string
+	OomHandler func(OomEvent)
+}
+
+func (m *Manager) WatchEvents(ctx context.Context) {}
 
 func New(dataDir string) (*Manager, error) {
 	return nil, fmt.Errorf("docker management is not available on Windows — deploy NanoFly to a Linux server")
@@ -29,13 +38,16 @@ type ContainerInfo struct {
 }
 
 type DBConfig struct {
-	ServiceID string
-	DBType    string
-	Name      string
-	Username  string
-	Password  string
-	DBName    string
-	HostPort  int
+	ServiceID    string
+	DBType       string
+	Name         string
+	Username     string
+	Password     string
+	DBName       string
+	HostPort     int
+	TierName     string
+	CustomMemory int64
+	CustomCPU    float64
 }
 
 func (m *Manager) ListByLabel(ctx context.Context, serviceID string) ([]ContainerInfo, error) {
@@ -58,7 +70,7 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 	return "", fmt.Errorf("docker not available on Windows")
 }
 
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string) (string, error) {
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64) (string, error) {
 	return "", fmt.Errorf("docker not available on Windows")
 }
 
@@ -68,4 +80,8 @@ func (m *Manager) RestartContainer(ctx context.Context, nameOrID string) error {
 
 func (m *Manager) Exec(ctx context.Context, containerID string, cmd []string, stdin io.Reader) (io.ReadCloser, error) {
 	return nil, fmt.Errorf("docker not available on Windows")
+}
+
+func (m *Manager) PruneSystem(ctx context.Context) error {
+	return fmt.Errorf("docker not available on Windows")
 }

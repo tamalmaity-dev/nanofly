@@ -60,16 +60,19 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		"-p", "443:443",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
 		"-v", acmePath + ":/acme.json",
-		"traefik:v2.10",
+		"--memory=64m",
+		"--cpus=0.5",
+		"traefik:v3.0",
 		"--api.insecure=false",
 		"--providers.docker=true",
 		"--providers.docker.exposedbydefault=false",
 		"--entrypoints.web.address=:80",
 		"--entrypoints.websecure.address=:443",
-		"--certificatesresolvers.myresolver.acme.tlschallenge=true",
-		// Provide a generic email for Let's Encrypt (users can change this later if needed)
-		"--certificatesresolvers.myresolver.acme.email=admin@nanofly.io",
-		"--certificatesresolvers.myresolver.acme.storage=/acme.json",
+		"--entrypoints.web.http.redirections.entrypoint.to=websecure",
+		"--entrypoints.web.http.redirections.entrypoint.scheme=https",
+		"--certificatesresolvers.letsencrypt.acme.tlschallenge=true",
+		"--certificatesresolvers.letsencrypt.acme.email=admin@nanofly.io",
+		"--certificatesresolvers.letsencrypt.acme.storage=/acme.json",
 	}
 
 	cmd := exec.CommandContext(ctx, "docker", runArgs...)

@@ -18,16 +18,25 @@ import (
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
 
+// OomEvent is delivered when Docker reports a container OOM-kill or crash.
+type OomEvent struct {
+	ContainerName string
+	ExitCode      string // "137" means OOM-killed
+	Action        string // "oom" | "die"
+}
+
 // Manager wraps the Docker client with NanoFly-specific helpers.
 type Manager struct {
-	cli     *client.Client
-	dataDir string
+	cli        *client.Client
+	dataDir    string
+	OomHandler func(OomEvent) // optional: called from a background goroutine
 }
 
 // New creates a Manager connected to the local Docker daemon.
@@ -36,7 +45,50 @@ func New(dataDir string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connecting to docker: %w", err)
 	}
-	return &Manager{cli: cli, dataDir: dataDir}, nil
+	m := &Manager{cli: cli, dataDir: dataDir}
+	go m.WatchEvents(context.Background())
+	return m, nil
+}
+
+// WatchEvents subscribes to Docker events and fires OomHandler for oom/die events.
+// It runs for the lifetime of ctx. Reconnects automatically on error.
+func (m *Manager) WatchEvents(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		f := filters.NewArgs()
+		f.Add("type", "container")
+		f.Add("event", "oom")
+		f.Add("event", "die")
+
+		evtCh, errCh := m.cli.Events(ctx, events.ListOptions{Filters: f})
+		for {
+			select {
+			case evt := <-evtCh:
+				if m.OomHandler == nil {
+					continue
+				}
+				cName := evt.Actor.Attributes["name"]
+				exitCode := evt.Actor.Attributes["exitCode"]
+				m.OomHandler(OomEvent{
+					ContainerName: cName,
+					ExitCode:      exitCode,
+					Action:        string(evt.Action),
+				})
+			case err := <-errCh:
+				if err != nil && ctx.Err() == nil {
+					slog.Warn("docker event stream interrupted, reconnecting", "error", err)
+					time.Sleep(3 * time.Second)
+				}
+				goto reconnect
+			}
+		}
+	reconnect:
+	}
 }
 
 // Available returns true if the Docker daemon is reachable.
@@ -89,15 +141,18 @@ func (m *Manager) ListByLabel(ctx context.Context, serviceID string) ([]Containe
 	return out, nil
 }
 
-// DBConfig describes a managed database container.
+// DBConfig holds the configuration for a new database container.
 type DBConfig struct {
-	ServiceID string
-	DBType    string // postgres, mysql, redis, mongo
-	Name      string
-	Username  string
-	Password  string
-	DBName    string
-	HostPort  int
+	ServiceID    string
+	DBType       string // "postgres", "mysql", "redis", "mongodb"
+	Name         string
+	Username     string
+	Password     string
+	DBName       string
+	HostPort     int
+	TierName     string
+	CustomMemory int64   // Memory limit in bytes (0 = use tier default)
+	CustomCPU    float64 // CPU limit (0.5 = 50% of 1 core, 2.0 = 2 full cores) (0 = use tier default)
 }
 
 func imageFor(dbType string) (string, int, error) {
@@ -256,6 +311,8 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	}
 
 	containerName := "nf-db-" + cfg.Name
+	tier := GetTierWithCustom(cfg.TierName, cfg.CustomMemory, cfg.CustomCPU)
+
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
 		Image: img,
 		Env:   env,
@@ -263,11 +320,22 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 			"nanofly.service": cfg.ServiceID,
 			"nanofly.type":    "database",
 			"nanofly.db":      cfg.DBType,
+			"nanofly.name":    cfg.Name,
 		},
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
 		Binds:         []string{hostVol + ":" + containerVol},
-		RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
+		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
+		Resources: container.Resources{
+			Memory:     tier.Memory,
+			MemorySwap: tier.MemorySwap,
+			CPUQuota:   tier.CPUQuota,
+			CPUPeriod:  tier.CPUPeriod,
+		},
+		Init:       boolPtr(true),
+		CapDrop:    []string{"ALL"},
+		CapAdd:     []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE"},
+		Privileged: false,
 	}, nil, nil, containerName)
 	if err != nil {
 		return 0, "", fmt.Errorf("creating container: %w", err)
@@ -355,7 +423,7 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 }
 
 // DeployApp deploys a Docker image as an app container.
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string) (string, error) {
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64) (string, error) {
 	slog.Info("pulling image", "image", img)
 	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
@@ -388,17 +456,46 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		}
 	}
 
+	labels := map[string]string{
+		"nanofly.service": serviceID,
+		"nanofly.type":    "app",
+		"nanofly.name":    name,
+	}
+
+	if len(domains) > 0 {
+		labels["traefik.enable"] = "true"
+		labels[fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", name)] = fmt.Sprintf("%d", exposedPort)
+		
+		var hostRules []string
+		for _, d := range domains {
+			hostRules = append(hostRules, fmt.Sprintf("Host(`%s`)", d))
+		}
+		
+		rule := strings.Join(hostRules, " || ")
+		labels[fmt.Sprintf("traefik.http.routers.%s.rule", name)] = rule
+		labels[fmt.Sprintf("traefik.http.routers.%s.tls", name)] = "true"
+		labels[fmt.Sprintf("traefik.http.routers.%s.tls.certresolver", name)] = "letsencrypt"
+	}
+
+	tier := GetTierWithCustom(tierName, customMemory, customCPU)
+
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
 		Image: img,
 		Env:   envVars,
-		Labels: map[string]string{
-			"nanofly.service": serviceID,
-			"nanofly.type":    "app",
-			"nanofly.name":    name,
-		},
+		Labels: labels,
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
-		RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
+		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
+		Resources: container.Resources{
+			Memory:     tier.Memory,
+			MemorySwap: tier.MemorySwap,
+			CPUQuota:   tier.CPUQuota,
+			CPUPeriod:  tier.CPUPeriod,
+		},
+		Init:       boolPtr(true),
+		CapDrop:    []string{"ALL"},
+		CapAdd:     []string{"NET_BIND_SERVICE"},
+		Privileged: false,
 	}, nil, nil, oldName)
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
@@ -457,3 +554,96 @@ func (c *hijackedCloser) Close() error {
 	return nil
 }
 
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+// InitTraefik initializes the Traefik reverse proxy.
+func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
+	img := "traefik:v3.0"
+	slog.Info("initializing traefik proxy", "image", img)
+
+	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pulling traefik image: %w", err)
+	}
+	defer rc.Close()
+	_, _ = io.Copy(io.Discard, rc)
+
+	// Remove any existing traefik container
+	m.RemoveContainer(ctx, "nf-traefik") //nolint:errcheck
+
+	hostVol := filepath.Join(m.dataDir, "certs")
+	os.MkdirAll(hostVol, 0755) //nolint:errcheck
+
+	portBinding := nat.PortMap{
+		"80/tcp":  []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: "80"}},
+		"443/tcp": []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: "443"}},
+	}
+
+	cmd := []string{
+		"--providers.docker=true",
+		"--providers.docker.exposedbydefault=false",
+		"--entrypoints.web.address=:80",
+		"--entrypoints.websecure.address=:443",
+		"--entrypoints.web.http.redirections.entrypoint.to=websecure",
+		"--entrypoints.web.http.redirections.entrypoint.scheme=https",
+		"--certificatesresolvers.letsencrypt.acme.tlschallenge=true",
+		"--certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json",
+	}
+	if adminEmail != "" {
+		cmd = append(cmd, "--certificatesresolvers.letsencrypt.acme.email="+adminEmail)
+	}
+
+	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
+		Image: img,
+		Cmd:   cmd,
+		Labels: map[string]string{
+			"nanofly.type": "system",
+			"nanofly.name": "traefik",
+		},
+	}, &container.HostConfig{
+		PortBindings:  portBinding,
+		Binds:         []string{
+			hostVol + ":/certs",
+			"//var/run/docker.sock:/var/run/docker.sock:ro",
+		},
+		RestartPolicy: container.RestartPolicy{Name: "always"},
+		Resources: container.Resources{
+			Memory: 64 * 1024 * 1024,
+			CPUQuota: 50000,
+		},
+	}, nil, nil, "nf-traefik")
+	if err != nil {
+		return fmt.Errorf("creating traefik container: %w", err)
+	}
+
+	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("starting traefik container: %w", err)
+	}
+
+	slog.Info("traefik proxy started successfully")
+	return nil
+}
+// PruneSystem cleans up dangling images, stopped containers, unused volumes, and unused networks.
+func (m *Manager) PruneSystem(ctx context.Context) error {
+	slog.Info("Running Docker system prune")
+	_, err := m.cli.ContainersPrune(ctx, filters.Args{})
+	if err != nil {
+		slog.Error("Failed to prune containers", "error", err)
+	}
+	_, err = m.cli.ImagesPrune(ctx, filters.Args{})
+	if err != nil {
+		slog.Error("Failed to prune images", "error", err)
+	}
+	_, err = m.cli.VolumesPrune(ctx, filters.Args{})
+	if err != nil {
+		slog.Error("Failed to prune volumes", "error", err)
+	}
+	_, err = m.cli.NetworksPrune(ctx, filters.Args{})
+	if err != nil {
+		slog.Error("Failed to prune networks", "error", err)
+	}
+	return nil
+}

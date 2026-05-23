@@ -76,8 +76,8 @@ func (h *Handler) CreateManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webhookUrl := fmt.Sprintf("%s/api/v1/webhooks/github", req.Host)
-	callbackUrl := fmt.Sprintf("%s/api/v1/github/callback?system_wide=%t", req.Host, req.SystemWide)
-	setupUrl := fmt.Sprintf("%s/api/v1/github/install-callback", req.Host)
+	callbackUrl := fmt.Sprintf("%s/api/v1/github/app/callback?system_wide=%t", req.Host, req.SystemWide)
+	setupUrl := fmt.Sprintf("%s/api/v1/github/app/install-callback", req.Host)
 
 	manifest := map[string]interface{}{
 		"name": req.Name,
@@ -181,14 +181,14 @@ func (h *Handler) ManifestCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to frontend settings page to show the user they need to install it
-	http.Redirect(w, r, "/settings?github_app_created=true", http.StatusTemporaryRedirect)
+	// Redirect to frontend sources page to show the user they need to install it
+	http.Redirect(w, r, "/sources?github_app_created=true", http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) InstallCallback(w http.ResponseWriter, r *http.Request) {
 	installationID := r.URL.Query().Get("installation_id")
 	if installationID == "" {
-		http.Redirect(w, r, "/settings?error=missing_installation_id", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/sources?error=missing_installation_id", http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -209,5 +209,5 @@ func (h *Handler) InstallCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(w, r, "/settings?github_app_installed=true", http.StatusTemporaryRedirect)
+	http.Redirect(w, r, "/sources?github_app_installed=true", http.StatusTemporaryRedirect)
 }
