@@ -93,8 +93,6 @@ func (h *Handler) CreateManifest(w http.ResponseWriter, r *http.Request) {
 			"metadata": "read",
 			"pull_requests": "read",
 			"webhooks": "write",
-			"statuses": "write",
-			"checks": "write",
 		},
 		"default_events": []string{
 			"push",

@@ -2758,12 +2758,14 @@ export default function ProjectDetail() {
   const [activeTab, setActiveTab] = useState('deployments');
   const [activeSvc, setActiveSvc] = useState(null);
   const [deletingSvc, setDeletingSvc] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [stoppingSvc, setStoppingSvc] = useState(null);
-  const [isRedeploying, setIsRedeploying] = useState(false);
-  const [isRestarting, setIsRestarting] = useState(false);
-  const [isStopping, setIsStopping] = useState(false);
+  const [loadingStates, setLoadingStates] = useState({
+    redeploying: null,
+    restarting: null,
+    stopping: null,
+    deleting: null,
+  });
   const [projectMetrics, setProjectMetrics] = useState({});
   const [loadingMetrics, setLoadingMetrics] = useState(false);
 
@@ -2802,7 +2804,7 @@ export default function ProjectDetail() {
 
   const handleDeploy = async (svcId) => {
     const svc = services.find(s => s.id === svcId);
-    setIsRedeploying(true);
+    setLoadingStates(prev => ({ ...prev, redeploying: svcId }));
     toast.promise(
       (async () => {
         if (svc?.type === 'app') {
@@ -2830,7 +2832,7 @@ export default function ProjectDetail() {
         error: (err) => err.message || 'Failed to redeploy service',
       }
     ).finally(() => {
-      setIsRedeploying(false);
+      setLoadingStates(prev => ({ ...prev, redeploying: null }));
     });
   };
 
@@ -2843,7 +2845,7 @@ export default function ProjectDetail() {
 
   const confirmStop = async () => {
     if (!stoppingSvc) return;
-    setIsStopping(true);
+    setLoadingStates(prev => ({ ...prev, stopping: stoppingSvc.id }));
     toast.promise(
       (async () => {
         await servicesApi.stop(stoppingSvc.id);
@@ -2855,13 +2857,13 @@ export default function ProjectDetail() {
         error: (err) => err.message || 'Failed to stop service',
       }
     ).finally(() => {
-      setIsStopping(false);
+      setLoadingStates(prev => ({ ...prev, stopping: null }));
       setStoppingSvc(null);
     });
   };
 
   const handleRestart = async (svcId) => {
-    setIsRestarting(true);
+    setLoadingStates(prev => ({ ...prev, restarting: svcId }));
     toast.promise(
       (async () => {
         await servicesApi.restart(svcId);
@@ -2874,7 +2876,7 @@ export default function ProjectDetail() {
         error: (err) => err.message || 'Failed to restart service',
       }
     ).finally(() => {
-      setIsRestarting(false);
+      setLoadingStates(prev => ({ ...prev, restarting: null }));
     });
   };
 
@@ -2888,7 +2890,7 @@ export default function ProjectDetail() {
 
   const confirmDelete = async () => {
     if (!deletingSvc) return;
-    setIsDeleting(true);
+    setLoadingStates(prev => ({ ...prev, deleting: deletingSvc.id }));
     toast.promise(
       (async () => {
         await servicesApi.delete(deletingSvc.id);
@@ -2902,7 +2904,7 @@ export default function ProjectDetail() {
         error: (err) => err.message || 'Failed to delete service',
       }
     ).finally(() => {
-      setIsDeleting(false);
+      setLoadingStates(prev => ({ ...prev, deleting: null }));
     });
   };
 
@@ -3019,7 +3021,8 @@ export default function ProjectDetail() {
               onClick={() => handleDeploy(selectedSvc.id)}
               icon={Play}
               style={{ fontWeight: 600 }}
-              loading={isRedeploying}
+              loading={loadingStates.redeploying === selectedSvc.id}
+              disabled={loadingStates.redeploying !== null || loadingStates.restarting !== null || loadingStates.stopping !== null || loadingStates.deleting !== null}
             >
               Redeploy
             </Button>
@@ -3029,7 +3032,8 @@ export default function ProjectDetail() {
               size="md"
               onClick={() => handleRestart(selectedSvc.id)}
               icon={RefreshCw}
-              loading={isRestarting}
+              loading={loadingStates.restarting === selectedSvc.id}
+              disabled={loadingStates.redeploying !== null || loadingStates.restarting !== null || loadingStates.stopping !== null || loadingStates.deleting !== null}
             >
               Restart
             </Button>
@@ -3040,7 +3044,8 @@ export default function ProjectDetail() {
                 size="md"
                 onClick={() => handleStop(selectedSvc.id)}
                 icon={X}
-                loading={isStopping}
+                loading={loadingStates.stopping === selectedSvc.id}
+                disabled={loadingStates.redeploying !== null || loadingStates.restarting !== null || loadingStates.stopping !== null || loadingStates.deleting !== null}
               >
                 Stop
               </Button>
@@ -3051,7 +3056,8 @@ export default function ProjectDetail() {
               style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }}
               onClick={() => handleDelete(selectedSvc.id)}
               icon={Trash2}
-              loading={isDeleting}
+              loading={loadingStates.deleting === selectedSvc.id}
+              disabled={loadingStates.redeploying !== null || loadingStates.restarting !== null || loadingStates.stopping !== null || loadingStates.deleting !== null}
             >
               Delete
             </Button>
@@ -3346,13 +3352,13 @@ export default function ProjectDetail() {
             autoFocus
           />
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
-            <Button variant="ghost" onClick={() => setDeletingSvc(null)} disabled={isDeleting}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDeletingSvc(null)} disabled={loadingStates.deleting === deletingSvc?.id}>Cancel</Button>
             <Button
               variant="solid"
               style={{ background: 'var(--red)', color: '#fff' }}
               onClick={confirmDelete}
-              disabled={deleteConfirmName !== deletingSvc?.name || isDeleting}
-              loading={isDeleting}
+              disabled={deleteConfirmName !== deletingSvc?.name || loadingStates.deleting === deletingSvc?.id}
+              loading={loadingStates.deleting === deletingSvc?.id}
             >
               I understand, delete this service
             </Button>
@@ -3367,13 +3373,13 @@ export default function ProjectDetail() {
             Are you sure you want to stop <strong>{stoppingSvc?.name}</strong>? The service will stop running and become unavailable.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => setStoppingSvc(null)} disabled={isStopping}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setStoppingSvc(null)} disabled={loadingStates.stopping === stoppingSvc?.id}>Cancel</Button>
             <Button
               variant="solid"
               style={{ background: 'var(--red)', color: '#fff' }}
               onClick={confirmStop}
-              disabled={isStopping}
-              loading={isStopping}
+              disabled={loadingStates.stopping === stoppingSvc?.id}
+              loading={loadingStates.stopping === stoppingSvc?.id}
             >
               Stop Service
             </Button>
