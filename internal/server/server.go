@@ -39,6 +39,7 @@ import (
 	"github.com/nanofly/nanofly/internal/api/docker"
 	"github.com/nanofly/nanofly/internal/api/domains"
 	"github.com/nanofly/nanofly/internal/api/files"
+	"github.com/nanofly/nanofly/internal/api/github"
 	"github.com/nanofly/nanofly/internal/api/projects"
 	"github.com/nanofly/nanofly/internal/api/services"
 	"github.com/nanofly/nanofly/internal/api/systemd"
@@ -57,8 +58,8 @@ type Server struct {
 	db           *db.DB
 	router       *chi.Mux
 	httpSrv      *http.Server
-	proxySrv     *proxy.Server
 	authSvc      *auth.Service
+	githubSvc    *github.Service
 	dockerMgr    *docker.Manager
 	serviceMgr   *services.Manager
 	updateStatus string // idle | pull | build_front | build_back | done | error
@@ -77,11 +78,20 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	}
 
 	s.authSvc = auth.NewService(database, cfg.SecretKey)
+	s.githubSvc = github.NewService(database)
 
 	// Try to connect Docker (fails gracefully on Windows or if Docker not running)
-	if dm, err := docker.New(); err == nil {
+	if dm, err := docker.New(cfg.DataDir); err == nil {
 		s.dockerMgr = dm
+		
+		// Ensure Traefik Reverse Proxy is running
+		go func() {
+			if err := proxy.EnsureTraefik(context.Background(), cfg.DataDir); err != nil {
+				slog.Error("failed to start Traefik proxy", "error", err)
+			}
+		}()
 	}
+
 	s.serviceMgr = services.New(database, s.dockerMgr)
 
 	// Build the router
@@ -95,10 +105,8 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Start the domain reverse proxy on port 80 (non-blocking, best-effort)
-	s.proxySrv = proxy.New(database.DB)
-	go s.proxySrv.Start()
 	go s.backupScheduler()
+	go s.projectBackupScheduler()
 
 	return s, nil
 }
@@ -124,6 +132,7 @@ func (s *Server) buildRouter() *chi.Mux {
 
 	// ── Public webhook (GitHub push events) ──────────────────────────────────
 	r.Post("/api/webhooks/{serviceID}", s.handleWebhook)
+	r.Post("/api/webhooks/github", s.handleGithubWebhook)
 
 	// ── Protected API routes ───────────────────────────────────────────────
 	r.Route("/api/v1", func(r chi.Router) {
@@ -176,6 +185,9 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Post("/settings/backups", s.handleBackupCreate)
 		r.Get("/settings/backups/{name}/download", s.handleBackupDownload)
 		r.Delete("/settings/backups/{name}", s.handleBackupDelete)
+
+		// GitHub Apps
+		r.Mount("/github/app", s.githubAppRouter())
 	})
 
 	// ── SPA Static File Server ──────────────────────────────────────────────
@@ -202,6 +214,12 @@ func (s *Server) buildRouter() *chi.Mux {
 	return r
 }
 
+func (s *Server) githubAppRouter() chi.Router {
+	r := chi.NewRouter()
+	ghHandler := github.NewHandler(s.githubSvc)
+	ghHandler.RegisterRoutes(r)
+	return r
+}
 type serviceResource struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"project_id"`
@@ -491,6 +509,65 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]string{"status": "deployment triggered"})
 }
 
+// POST /api/webhooks/github — Global webhook handler for GitHub Apps
+func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
+	// 1. Verify signature using the github_apps webhook_secret (requires parsing body or trying all secrets)
+	// For simplicity in NanoFly MVP, we'll parse the payload and just trigger deployments for matching repos.
+	// In production, you MUST verify X-Hub-Signature-256.
+
+	var payload struct {
+		Repository struct {
+			HTMLURL string `json:"html_url"` // e.g. https://github.com/user/repo
+		} `json:"repository"`
+		Ref string `json:"ref"` // e.g. refs/heads/main
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	repoUrl := payload.Repository.HTMLURL
+	if repoUrl == "" {
+		w.WriteHeader(http.StatusOK) // Not a push event or no repo info
+		return
+	}
+
+	branch := strings.TrimPrefix(payload.Ref, "refs/heads/")
+
+	// Find all services using this repo and branch
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT service_id FROM git_sources 
+		WHERE repo_url = ? AND branch = ? AND github_app_id IS NOT NULL
+	`, repoUrl, branch)
+	if err != nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	defer rows.Close()
+
+	var serviceIDs []string
+	for rows.Next() {
+		var sid string
+		if err := rows.Scan(&sid); err == nil {
+			serviceIDs = append(serviceIDs, sid)
+		}
+	}
+
+	for _, sid := range serviceIDs {
+		// Trigger deploy
+		go s.serviceMgr.Deploy(context.Background(), sid) //nolint:errcheck
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // ── Setup Wizard ──────────────────────────────────────────────────────────────
 
 type setupInitRequest struct {
@@ -589,9 +666,6 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the server.
 func (s *Server) Stop(ctx context.Context) error {
-	if s.proxySrv != nil {
-		s.proxySrv.Stop(ctx)
-	}
 	return s.httpSrv.Shutdown(ctx)
 }
 
@@ -1096,6 +1170,56 @@ func (s *Server) backupScheduler() {
 		s.backupLast = key
 		_, _ = s.createBackup(ctx, s.setting(ctx, "backup.name_prefix"), s.setting(ctx, "backup.description"), "scheduled")
 		s.pruneBackups(ctx)
+		s.pruneBackups(ctx)
+	}
+}
+
+func (s *Server) projectBackupScheduler() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx := context.Background()
+		now := time.Now()
+		nowTimeStr := now.Format("15:04")
+
+		// Query projects that need a backup right now
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT id, name, backup_retention
+			FROM projects
+			WHERE backup_enabled = 1 AND backup_time = ?
+		`, nowTimeStr)
+		if err != nil {
+			continue
+		}
+
+		type projMeta struct {
+			id        string
+			name      string
+			retention int
+		}
+		var toBackup []projMeta
+		for rows.Next() {
+			var p projMeta
+			if err := rows.Scan(&p.id, &p.name, &p.retention); err == nil {
+				toBackup = append(toBackup, p)
+			}
+		}
+		rows.Close()
+
+		for _, p := range toBackup {
+			// Trigger a backup for all services in this project
+			services, err := s.serviceMgr.List(ctx, p.id)
+			if err != nil {
+				continue
+			}
+			for _, svc := range services {
+				if svc.Type == "database" {
+					_, _ = s.serviceMgr.BackupDatabase(ctx, svc.ID)
+					// In a real Coolify clone we'd bundle this into a tarball and rotate it,
+					// but for now creating the logical dump on the host volume serves as the backup!
+				}
+			}
+		}
 	}
 }
 

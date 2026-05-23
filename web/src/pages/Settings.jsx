@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../store/auth';
 import {
   AlertCircle, Archive, Bell, CheckCircle2, Download, Key, RefreshCw,
-  Save, Shield, Trash2, User, Check
+  Save, Shield, Trash2, User, Check, HardDrive, GitBranch
 } from 'lucide-react';
 import { backupsApi, settingsApi, updateApi } from '../api/client';
 
@@ -12,6 +12,7 @@ const TABS = [
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'api', label: 'API Keys', icon: Key },
   { id: 'backups', label: 'Backups', icon: Archive },
+  { id: 'system', label: 'System', icon: HardDrive },
   { id: 'updates', label: 'Updates', icon: RefreshCw },
 ];
 
@@ -107,6 +108,39 @@ function NotificationsTab({ settings, setSetting, onSave, saving, saved }) {
         ))}
       </div>
       <SaveBar saving={saving} saved={saved} onSave={onSave} />
+    </div>
+  );
+}
+
+function SystemTab() {
+  return (
+    <div className="fade-in">
+      <div className="settings-section">
+        <div className="settings-section-title">Host Requirements</div>
+        
+        <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 'var(--radius)', padding: '1rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--red)', fontWeight: 600, marginBottom: '0.5rem' }}>
+            <AlertCircle size={18} />
+            Important: Required Ports
+          </div>
+          <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            NanoFly manages its own Reverse Proxy (Traefik) to provide automatic SSL and custom domain routing.
+            <strong> Do not install Nginx, Apache, or another reverse proxy on this server.</strong>
+            <br /><br />
+            The following ports must be completely free and unblocked on your firewall:
+            <ul style={{ margin: '0.5rem 0 0 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <li><strong>Port 80 (TCP):</strong> Required for HTTP traffic and Let's Encrypt verification.</li>
+              <li><strong>Port 443 (TCP):</strong> Required for secure HTTPS traffic.</li>
+            </ul>
+          </div>
+        </div>
+
+        <Field label="Proxy Engine">
+          <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> Traefik v2.10 (Running)
+          </div>
+        </Field>
+      </div>
     </div>
   );
 }
@@ -488,6 +522,8 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
   );
 }
 
+
+
 export default function Settings() {
   const [tab, setTab] = useState(() => {
     const hash = window.location.hash.replace('#', '');
@@ -557,6 +593,9 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="backups">
           <BackupsTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />
+        </TabsContent>
+        <TabsContent value="system">
+          <SystemTab />
         </TabsContent>
         <TabsContent value="updates">
           <UpdatesTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />

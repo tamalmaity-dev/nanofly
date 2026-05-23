@@ -80,6 +80,9 @@ func (db *DB) migrate() error {
 		project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 		name       TEXT NOT NULL,
 		description TEXT DEFAULT '',
+		db_user    TEXT DEFAULT '',
+		db_password TEXT DEFAULT '',
+		db_name    TEXT DEFAULT '',
 		type       TEXT NOT NULL,
 		status     TEXT NOT NULL DEFAULT 'stopped',
 		image      TEXT,
@@ -143,6 +146,20 @@ func (db *DB) migrate() error {
 		value      TEXT NOT NULL,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	-- GitHub Apps
+	CREATE TABLE IF NOT EXISTS github_apps (
+		id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+		name            TEXT NOT NULL,
+		app_id          INTEGER NOT NULL,
+		client_id       TEXT NOT NULL,
+		client_secret   TEXT NOT NULL,
+		private_key     TEXT NOT NULL,
+		webhook_secret  TEXT NOT NULL,
+		installation_id INTEGER DEFAULT 0,
+		system_wide     INTEGER DEFAULT 0,
+		created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	tx, err := db.Begin()
@@ -170,6 +187,15 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN git_token TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN ssh_key TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN description TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN db_user TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN db_password TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN db_name TEXT DEFAULT ''")
+	
+	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_enabled INTEGER DEFAULT 0")
+	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_time TEXT DEFAULT '00:00'")
+	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_retention INTEGER DEFAULT 7")
+	
+	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN github_app_id TEXT REFERENCES github_apps(id) ON DELETE SET NULL")
 
 	return tx.Commit()
 }

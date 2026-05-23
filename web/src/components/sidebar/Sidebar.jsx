@@ -6,7 +6,7 @@ import { useTheme } from '../../context/ThemeContext';
 import {
   LayoutDashboard, FolderOpen, Database, Globe, Terminal,
   Settings, LogOut, Server, Activity, ArrowUpCircle, Files,
-  Sun, Moon, ChevronDown
+  Sun, Moon, ChevronDown, GitBranch
 } from 'lucide-react';
 import { updateApi } from '../../api/client';
 import { Button } from '../ui';
@@ -24,6 +24,7 @@ const NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/projects' },
   { label: 'File Manager', icon: Files, to: '/files' },
   { label: 'Databases', icon: Database, to: '/databases' },
+  { label: 'Sources', icon: GitBranch, to: '/sources' },
   { label: 'Domains', icon: Globe, to: '/domains' },
   { label: 'Terminal', icon: Terminal, to: '/terminal' },
 ];

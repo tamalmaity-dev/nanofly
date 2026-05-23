@@ -63,6 +63,7 @@ export const projectsApi = {
   list:   ()           => get('/projects'),
   get:    (id)         => get(`/projects/${id}`),
   create: (body)       => post('/projects', body),
+  updateBackupSettings: (id, body) => request('PUT', `/projects/${id}/backup-settings`, body),
   delete: (id)         => del(`/projects/${id}`),
 };
 
@@ -83,6 +84,8 @@ export const servicesApi = {
   getEnvVars:    (id)              => get(`/services/${id}/envvars`),
   upsertEnvVar:  (id, key, value)  => post(`/services/${id}/envvars`, { key, value }),
   deleteEnvVar:  (id, key)         => del(`/services/${id}/envvars/${key}`),
+  backup:        (id)              => post(`/services/${id}/backup`),
+  importBackup:  (id, fileName)    => post(`/services/${id}/import`, { file_name: fileName }),
 };
 
 // Systemd Services (real system services)
@@ -151,6 +154,7 @@ export const settingsApi = {
   save: (body) => put('/settings', body),
 };
 
+// Backups Management
 export const backupsApi = {
   list:     ()     => get('/settings/backups'),
   create:   (body) => post('/settings/backups', body),
@@ -162,4 +166,11 @@ export const updateApi = {
   check: (channel = '') => get(`/settings/update/check${channel ? `?channel=${channel}` : ''}`),
   apply: () => post('/settings/update/apply'),
   log:   () => get('/settings/update/log'),
+};
+
+// GitHub Apps Management
+export const githubApi = {
+  listApps: () => get('/github/app'),
+  getApp: (id) => get(`/github/app/${id}`),
+  deleteApp: (id) => del(`/github/app/${id}`),
 };

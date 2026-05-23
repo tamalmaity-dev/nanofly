@@ -19,6 +19,8 @@ import Services from './pages/Services';
 import ActivityLog from './pages/Activity';
 import Settings from './pages/Settings';
 import FileManager from './pages/FileManager';
+import Sources from './pages/Sources';
+import SourceDetail from './pages/SourceDetail';
 
 // ── Shell layout ──────────────────────────────────────────────────────────────
 function Shell() {
@@ -95,6 +97,8 @@ function AppRoutes() {
             <Route path="/services" element={<Services />} />
             <Route path="/activity" element={<ActivityLog />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/sources" element={<Sources />} />
+            <Route path="/sources/:id" element={<SourceDetail />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

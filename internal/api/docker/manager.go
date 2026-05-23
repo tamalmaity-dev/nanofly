@@ -11,6 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,16 +26,17 @@ import (
 
 // Manager wraps the Docker client with NanoFly-specific helpers.
 type Manager struct {
-	cli *client.Client
+	cli     *client.Client
+	dataDir string
 }
 
 // New creates a Manager connected to the local Docker daemon.
-func New() (*Manager, error) {
+func New(dataDir string) (*Manager, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("connecting to docker: %w", err)
 	}
-	return &Manager{cli: cli}, nil
+	return &Manager{cli: cli, dataDir: dataDir}, nil
 }
 
 // Available returns true if the Docker daemon is reachable.
@@ -91,6 +94,7 @@ type DBConfig struct {
 	ServiceID string
 	DBType    string // postgres, mysql, redis, mongo
 	Name      string
+	Username  string
 	Password  string
 	DBName    string
 	HostPort  int
@@ -192,37 +196,63 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	var env []string
 	var connStr string
 
+	// Default username if not provided
+	user := cfg.Username
+	if user == "" {
+		user = "nanofly"
+	}
+
 	switch {
 	case cfg.DBType == "postgres" || strings.HasPrefix(cfg.DBType, "postgres:"):
 		env = []string{
-			"POSTGRES_USER=nanofly",
+			"POSTGRES_USER=" + user,
 			"POSTGRES_PASSWORD=" + cfg.Password,
 			"POSTGRES_DB=" + cfg.DBName,
 		}
-		connStr = fmt.Sprintf("postgres://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
+		connStr = fmt.Sprintf("postgres://%s:%s@localhost:%d/%s", user, cfg.Password, hostPort, cfg.DBName)
 	case cfg.DBType == "mysql" || strings.HasPrefix(cfg.DBType, "mysql:") || cfg.DBType == "mariadb" || strings.HasPrefix(cfg.DBType, "mariadb:"):
 		env = []string{
 			"MYSQL_ROOT_PASSWORD=" + cfg.Password,
-			"MYSQL_USER=nanofly",
+			"MYSQL_USER=" + user,
 			"MYSQL_PASSWORD=" + cfg.Password,
 			"MYSQL_DATABASE=" + cfg.DBName,
 		}
-		connStr = fmt.Sprintf("mysql://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
+		connStr = fmt.Sprintf("mysql://%s:%s@localhost:%d/%s", user, cfg.Password, hostPort, cfg.DBName)
 	case cfg.DBType == "redis" || strings.HasPrefix(cfg.DBType, "redis:") || cfg.DBType == "keydb":
 		connStr = fmt.Sprintf("redis://:@localhost:%d", hostPort)
 	case cfg.DBType == "mongo" || strings.HasPrefix(cfg.DBType, "mongo:"):
 		env = []string{
-			"MONGO_INITDB_ROOT_USERNAME=nanofly",
+			"MONGO_INITDB_ROOT_USERNAME=" + user,
 			"MONGO_INITDB_ROOT_PASSWORD=" + cfg.Password,
 		}
-		connStr = fmt.Sprintf("mongodb://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
+		connStr = fmt.Sprintf("mongodb://%s:%s@localhost:%d/%s", user, cfg.Password, hostPort, cfg.DBName)
 	case cfg.DBType == "clickhouse":
 		env = []string{
-			"CLICKHOUSE_USER=nanofly",
+			"CLICKHOUSE_USER=" + user,
 			"CLICKHOUSE_PASSWORD=" + cfg.Password,
 			"CLICKHOUSE_DB=" + cfg.DBName,
 		}
-		connStr = fmt.Sprintf("clickhouse://nanofly:%s@localhost:%d/%s", cfg.Password, hostPort, cfg.DBName)
+		connStr = fmt.Sprintf("clickhouse://%s:%s@localhost:%d/%s", user, cfg.Password, hostPort, cfg.DBName)
+	}
+
+	// Persistent Host Volume
+	hostVol := filepath.Join(m.dataDir, "volumes", "db_"+cfg.ServiceID)
+	os.MkdirAll(hostVol, 0755) //nolint:errcheck
+
+	var containerVol string
+	switch {
+	case cfg.DBType == "postgres" || strings.HasPrefix(cfg.DBType, "postgres:"):
+		containerVol = "/var/lib/postgresql/data"
+	case cfg.DBType == "mysql" || strings.HasPrefix(cfg.DBType, "mysql:") || cfg.DBType == "mariadb" || strings.HasPrefix(cfg.DBType, "mariadb:"):
+		containerVol = "/var/lib/mysql"
+	case cfg.DBType == "redis" || strings.HasPrefix(cfg.DBType, "redis:") || cfg.DBType == "keydb":
+		containerVol = "/data"
+	case cfg.DBType == "mongo" || strings.HasPrefix(cfg.DBType, "mongo:"):
+		containerVol = "/data/db"
+	case cfg.DBType == "clickhouse":
+		containerVol = "/var/lib/clickhouse"
+	default:
+		containerVol = "/data"
 	}
 
 	containerName := "nf-db-" + cfg.Name
@@ -236,6 +266,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 		},
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
+		Binds:         []string{hostVol + ":" + containerVol},
 		RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
 	}, nil, nil, containerName)
 	if err != nil {
@@ -387,5 +418,42 @@ func (m *Manager) InspectContainer(ctx context.Context, nameOrID string) (*docke
 		return nil, err
 	}
 	return &info, nil
+}
+
+// Exec runs a command inside a running container and returns its stdout.
+func (m *Manager) Exec(ctx context.Context, containerID string, cmd []string, stdin io.Reader) (io.ReadCloser, error) {
+	execConfig := container.ExecOptions{
+		AttachStdout: true,
+		AttachStderr: true,
+		AttachStdin:  stdin != nil,
+		Cmd:          cmd,
+	}
+	execIDResp, err := m.cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := m.cli.ContainerExecAttach(ctx, execIDResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	if stdin != nil {
+		go func() {
+			io.Copy(resp.Conn, stdin)
+			resp.CloseWrite()
+		}()
+	}
+
+	return &hijackedCloser{Reader: resp.Reader, resp: resp}, nil
+}
+
+type hijackedCloser struct {
+	io.Reader
+	resp dockertypes.HijackedResponse
+}
+
+func (c *hijackedCloser) Close() error {
+	c.resp.Close()
+	return nil
 }
 

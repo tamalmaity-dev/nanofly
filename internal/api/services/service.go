@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nanofly/nanofly/internal/api/docker"
+	"github.com/nanofly/nanofly/internal/api/github"
 	"github.com/nanofly/nanofly/internal/db"
 )
 
@@ -52,6 +53,9 @@ type Service struct {
 	ProjectID   string      `json:"project_id"`
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
+	DBUser      string      `json:"db_user,omitempty"`
+	DBPassword  string      `json:"db_password,omitempty"`
+	DBName      string      `json:"db_name,omitempty"`
 	Type        ServiceType `json:"type"`
 	Status      string      `json:"status"`
 	Image       string      `json:"image"`
@@ -63,6 +67,7 @@ type Service struct {
 	// Joined fields
 	GitRepoURL       string `json:"git_repo_url,omitempty"`
 	GitBranch        string `json:"git_branch,omitempty"`
+	GitHubAppID      *string `json:"github_app_id,omitempty"`
 	Builder          string `json:"git_builder,omitempty"`
 	StartCommand     string `json:"start_command,omitempty"`
 	InstallCommand   string `json:"install_command,omitempty"`
@@ -154,15 +159,24 @@ func parseMemToBytes(s string) int64 {
 	var numStr string
 	
 	switch {
-	case strings.HasSuffix(s, "gib") || strings.HasSuffix(s, "gb"):
+	case strings.HasSuffix(s, "gib"):
 		multiplier = 1024 * 1024 * 1024
 		numStr = s[:len(s)-3]
-	case strings.HasSuffix(s, "mib") || strings.HasSuffix(s, "mb"):
+	case strings.HasSuffix(s, "gb"):
+		multiplier = 1024 * 1024 * 1024
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(s, "mib"):
 		multiplier = 1024 * 1024
 		numStr = s[:len(s)-3]
-	case strings.HasSuffix(s, "kib") || strings.HasSuffix(s, "kb"):
+	case strings.HasSuffix(s, "mb"):
+		multiplier = 1024 * 1024
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(s, "kib"):
 		multiplier = 1024
 		numStr = s[:len(s)-3]
+	case strings.HasSuffix(s, "kb"):
+		multiplier = 1024
+		numStr = s[:len(s)-2]
 	case strings.HasSuffix(s, "b"):
 		numStr = s[:len(s)-1]
 	default:
@@ -281,7 +295,7 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 // List returns all services for a project.
 func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), s.type, s.status, 
+		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), COALESCE(s.db_user,''), COALESCE(s.db_password,''), COALESCE(s.db_name,''), s.type, s.status, 
 		       COALESCE(s.port,0), COALESCE(s.updated_at,''), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
@@ -289,7 +303,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
 		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
 		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
-		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,'')
+		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -307,12 +321,12 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		var s Service
 		var updatedAt, createdAt string
 		if err := rows.Scan(
-			&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.Type, &s.Status,
+			&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.DBUser, &s.DBPassword, &s.DBName, &s.Type, &s.Status,
 			&s.Port, &updatedAt, &createdAt,
 			&s.GitRepoURL, &s.GitBranch,
 			&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
 			&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
-			&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey,
+			&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey, &s.GitHubAppID,
 		); err != nil {
 			return nil, err
 		}
@@ -368,7 +382,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 	var s Service
 	var createdAt string
 	err := m.db.QueryRowContext(ctx, `
-		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), s.type, s.status,
+		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), COALESCE(s.db_user,''), COALESCE(s.db_password,''), COALESCE(s.db_name,''), s.type, s.status,
 		       COALESCE(s.port,0), s.created_at,
 		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
 		       COALESCE(s.image,''), COALESCE(g.builder,'auto'),
@@ -376,17 +390,17 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
 		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
 		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
-		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,'')
+		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
 	`, id).Scan(
-		&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.Type, &s.Status,
+		&s.ID, &s.ProjectID, &s.Name, &s.Description, &s.DBUser, &s.DBPassword, &s.DBName, &s.Type, &s.Status,
 		&s.Port, &createdAt,
 		&s.GitRepoURL, &s.GitBranch,
 		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
 		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
-		&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey,
+		&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey, &s.GitHubAppID,
 	)
 	if err != nil {
 		return nil, err
@@ -446,6 +460,7 @@ type CreateAppReq struct {
 	GitRepoURL           string
 	GitBranch            string
 	GitToken             string // PAT for private repos
+	GitHubAppID          *string // If using GitHub app instead of PAT
 	SSHKey               string
 	Builder              string // auto, node, go, python, php, static, dockerfile
 	StartCommand         string
@@ -486,9 +501,9 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 			builderVal = "auto"
 		}
 		_, err = m.db.ExecContext(ctx, `
-			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
+			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key, github_app_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, req.GitHubAppID)
 		if err != nil {
 			slog.Warn("storing git source", "err", err)
 		}
@@ -508,9 +523,12 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 
 // CreateDBReq defines what's needed to create a managed database.
 type CreateDBReq struct {
-	ProjectID string
-	Name      string
-	DBType    string // postgres, mysql, redis, mongo
+	ProjectID  string
+	Name       string
+	DBType     string // postgres, mysql, redis, mongo
+	DBUser     string `json:"db_user"`
+	DBPassword string `json:"db_password"`
+	DBName     string `json:"db_name"`
 }
 
 // CreateDatabase creates a managed Docker database.
@@ -519,15 +537,22 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 		return nil, fmt.Errorf("docker is not available on this server")
 	}
 
-	password := docker.RandPassword()
-	dbName := strings.ReplaceAll(strings.ToLower(req.Name), "-", "_")
+	password := req.DBPassword
+	if password == "" {
+		password = docker.RandPassword()
+	}
+
+	dbName := req.DBName
+	if dbName == "" {
+		dbName = strings.ReplaceAll(strings.ToLower(req.Name), "-", "_")
+	}
 
 	var id string
 	err := m.db.QueryRowContext(ctx, `
-		INSERT INTO services (project_id, name, type, status, image)
-		VALUES (?, ?, 'database', 'creating', ?)
+		INSERT INTO services (project_id, name, db_user, db_password, db_name, type, status, image)
+		VALUES (?, ?, ?, ?, ?, 'database', 'creating', ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.DBType).Scan(&id)
+	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -539,6 +564,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 			ServiceID: id,
 			DBType:    req.DBType,
 			Name:      req.Name,
+			Username:  req.DBUser,
 			Password:  password,
 			DBName:    dbName,
 		})
@@ -622,26 +648,22 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			log("🗑️  Cleaning up any existing container...")
 			m.docker.RemoveContainer(bgCtx, "nf-db-"+svc.Name) //nolint:errcheck
 
-			password := ""
-			var existingConn string
-			m.db.QueryRowContext(bgCtx, `SELECT value FROM env_vars WHERE service_id = ? AND key = 'CONNECTION_STRING'`, svc.ID).Scan(&existingConn)
-			if existingConn != "" {
-				if strings.Contains(existingConn, "@") {
-					parts := strings.Split(existingConn, "@")
-					if len(parts) > 0 {
-						uParts := strings.Split(parts[0], "://")
-						userPass := uParts[len(uParts)-1]
-						pParts := strings.Split(userPass, ":")
-						if len(pParts) > 1 {
-							password = pParts[1]
-						}
-					}
-				}
-			}
+			password := svc.DBPassword
 			if password == "" {
 				password = docker.RandPassword()
+				m.db.ExecContext(bgCtx, `UPDATE services SET db_password = ? WHERE id = ?`, password, svc.ID) //nolint:errcheck
+				svc.DBPassword = password
 			}
-			dbName := strings.ReplaceAll(strings.ToLower(svc.Name), "-", "_")
+			
+			dbName := svc.DBName
+			if dbName == "" {
+				dbName = strings.ReplaceAll(strings.ToLower(svc.Name), "-", "_")
+				m.db.ExecContext(bgCtx, `UPDATE services SET db_name = ? WHERE id = ?`, dbName, svc.ID) //nolint:errcheck
+				svc.DBName = dbName
+			}
+
+			var existingConn string
+			m.db.QueryRowContext(bgCtx, `SELECT value FROM env_vars WHERE service_id = ? AND key = 'CONNECTION_STRING'`, svc.ID).Scan(&existingConn)
 
 			dbType := svc.Image
 			if dbType == "" {
@@ -683,6 +705,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				ServiceID: svc.ID,
 				DBType:    svc.Image, // stores dbType in s.Image
 				Name:      svc.Name,
+				Username:  svc.DBUser,
 				Password:  password,
 				DBName:    dbName,
 			})
@@ -796,7 +819,17 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 
 	cloneURL := svc.GitRepoURL
 	var gitEnv []string
-	if svc.GitToken != "" && strings.HasPrefix(cloneURL, "https://") {
+
+	// If using GitHub App, generate a fresh Installation Access Token
+	if svc.GitHubAppID != nil && *svc.GitHubAppID != "" && strings.HasPrefix(cloneURL, "https://") {
+		githubSvc := github.NewService(m.db)
+		token, err := githubSvc.GenerateInstallationToken(ctx, *svc.GitHubAppID)
+		if err != nil {
+			log("❌ Failed to generate GitHub App token: " + err.Error())
+			return fmt.Errorf("github token generation: %w", err)
+		}
+		cloneURL = "https://x-access-token:" + token + "@" + strings.TrimPrefix(cloneURL, "https://")
+	} else if svc.GitToken != "" && strings.HasPrefix(cloneURL, "https://") {
 		cloneURL = "https://" + svc.GitToken + "@" + strings.TrimPrefix(cloneURL, "https://")
 	} else if svc.SSHKey != "" {
 		keyPath := filepath.Join(os.TempDir(), "nf-ssh-"+svc.ID)
@@ -909,6 +942,8 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
+
+	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
 	runArgs = append(runArgs, imageTag)
 
 	exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
@@ -1369,16 +1404,32 @@ func (m *Manager) DeleteEnvVar(ctx context.Context, serviceID, key string) error
 	return err
 }
 
-// Delete removes a service and its container (if running).
+// Delete removes a service, its container, its image, and its local workspace on disk.
 func (m *Manager) Delete(ctx context.Context, serviceID string) error {
+	svc, err := m.Get(ctx, serviceID)
+	if err != nil {
+		return fmt.Errorf("service not found: %w", err)
+	}
+
 	if m.docker != nil {
 		// Try to remove any associated containers
 		containers, _ := m.docker.ListByLabel(ctx, serviceID)
 		for _, c := range containers {
 			m.docker.RemoveContainer(ctx, c.ID) //nolint:errcheck
 		}
+		
+		// Remove the built docker image to free disk space
+		if svc.Name != "" {
+			imageTag := "nf-" + svc.Name + ":latest"
+			exec.CommandContext(ctx, "docker", "rmi", "-f", imageTag).Run() //nolint:errcheck
+		}
 	}
-	_, err := m.db.ExecContext(ctx, `DELETE FROM services WHERE id=?`, serviceID)
+
+	// Completely wipe the cloned/built directory from NanoFly host disk
+	repoDir := filepath.Join(os.TempDir(), "nanofly-"+svc.ID)
+	os.RemoveAll(repoDir) //nolint:errcheck
+
+	_, err = m.db.ExecContext(ctx, `DELETE FROM services WHERE id=?`, serviceID)
 	return err
 }
 
@@ -1426,6 +1477,9 @@ func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (strin
 type UpdateServiceReq struct {
 	Name                 string `json:"name"`
 	Description          string `json:"description"`
+	DBUser               string `json:"db_user"`
+	DBPassword           string `json:"db_password"`
+	DBName               string `json:"db_name"`
 	Image                string `json:"image"`
 	Port                 int    `json:"port"`
 	GitRepoURL           string `json:"git_repo_url"`
@@ -1448,11 +1502,11 @@ type UpdateServiceReq struct {
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE services
-		SET name = ?, description = ?, image = ?, port = ?, start_command = ?, install_command = ?,
+		SET name = ?, description = ?, db_user = ?, db_password = ?, db_name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
 		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, req.Name, req.Description, req.Image, req.Port, req.StartCommand, req.InstallCommand,
+	`, req.Name, req.Description, req.DBUser, req.DBPassword, req.DBName, req.Image, req.Port, req.StartCommand, req.InstallCommand,
 		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 		req.DockerfileContent, req.DockerComposeContent, serviceID)
 	if err != nil {
@@ -1656,6 +1710,8 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		if svc.DockerArgs != "" {
 			runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 		}
+
+		runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
 		runArgs = append(runArgs, imageTag)
 
 		exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
@@ -1804,6 +1860,9 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
+	
+	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
+	
 	runArgs = append(runArgs, baseImage)
 	if len(runCmdArgs) > 0 {
 		runArgs = append(runArgs, runCmdArgs...)
@@ -1818,4 +1877,48 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	}
 
 	return nil
+}
+
+// appendTraefikLabels fetches registered domains for a service and attaches Traefik reverse proxy routing labels
+func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposedPort int, runArgs []string) []string {
+	var projectName string
+	m.db.QueryRowContext(ctx, `SELECT name FROM projects WHERE id = ?`, svc.ProjectID).Scan(&projectName)
+
+	rows, err := m.db.QueryContext(ctx, `SELECT domain FROM domains_v2 WHERE service = ? AND project = ?`, svc.Name, projectName)
+	if err != nil || rows == nil {
+		return runArgs
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err == nil {
+			domains = append(domains, d)
+		}
+	}
+
+	if len(domains) > 0 {
+		runArgs = append(runArgs, "-l", "traefik.enable=true")
+		rule := "Host(`" + strings.Join(domains, "`, `") + "`)"
+		
+		// Clean router name (Traefik router names must be alphanumeric)
+		routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
+
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".rule="+rule)
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".entrypoints=websecure")
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".tls.certresolver=myresolver")
+
+		// HTTP redirect to HTTPS
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+rule)
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
+		runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
+
+		if exposedPort > 0 {
+			runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", routerName, exposedPort))
+		}
+	}
+
+	return runArgs
 }

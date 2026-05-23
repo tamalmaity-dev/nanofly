@@ -3,6 +3,7 @@ package projects
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -21,6 +22,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/", h.List)
 	r.Post("/", h.Create)
 	r.Get("/{id}", h.Get)
+	r.Put("/{id}/backup-settings", h.UpdateBackupSettings)
 	r.Delete("/{id}", h.Delete)
 }
 
@@ -70,11 +72,37 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, p)
 }
 
+// DeleteProject deletes a project and all its services.
+// Prevents deletion if the project still contains active services
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.svc.Delete(r.Context(), id); err != nil {
-		response.Error(w, http.StatusInternalServerError, "Failed to delete project")
+		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) UpdateBackupSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BackupEnabled   int    `json:"backup_enabled"`
+		BackupTime      string `json:"backup_time"`
+		BackupRetention int    `json:"backup_retention"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	retention := fmt.Sprintf("%d", req.BackupRetention)
+	if req.BackupRetention <= 0 {
+		retention = "7"
+	}
+
+	if err := h.svc.UpdateBackupSettings(r.Context(), chi.URLParam(r, "id"), req.BackupEnabled, req.BackupTime, retention); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]string{"status": "success"})
 }

@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi, filesApi, terminalWsUrl } from '../api/client';
 import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
+import { ResponsiveContainer, AreaChart, Area, Tooltip as ChartTooltip, YAxis } from 'recharts';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -468,6 +469,14 @@ function SourceFilesPanel({ service }) {
   );
 }
 
+// generate random password
+const generatePassword = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  let pass = '';
+  for (let i = 0; i < 16; i++) pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  return pass;
+};
+
 // ── Add Service Form ──────────────────────────────────────────────────────────
 function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
@@ -476,7 +485,16 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState('');
-  const [form, setForm] = useState({
+  const [githubApps, setGithubApps] = useState([]);
+
+  useEffect(() => {
+    if (subType === 'github') {
+      import('../api/client').then(({ githubApi }) => {
+        githubApi.listApps().then(apps => setGithubApps(apps || [])).catch(() => {});
+      });
+    }
+  }, [subType]);
+  const [form, setForm] = useState(() => ({
     name: '',
     image: '',
     port: '',
@@ -495,8 +513,12 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
     startCommand: '',
     installCommand: '',
     dockerArgs: '',
+    githubAppId: '',
     envText: '',
-  });
+    dbUser: 'nanofly_user',
+    dbPassword: generatePassword(),
+    dbName: '',
+  }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -511,15 +533,22 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       let svc;
       const envVars = parseBulkEnv(form.envText);
       if (type === 'database') {
-        svc = await servicesApi.createDB(projectId, { name: form.name.trim(), db_type: dbType });
+        svc = await servicesApi.createDB(projectId, { 
+          name: form.name.trim(), 
+          db_type: dbType,
+          db_user: form.dbUser.trim(),
+          db_password: form.dbPassword.trim(),
+          db_name: form.dbName.trim()
+        });
       } else if (subType === 'github' || subType === 'local') {
         svc = await servicesApi.createApp(projectId, {
           name: form.name.trim(),
           git_repo_url: subType === 'github' ? form.gitUrl.trim() : '',
           local_path: subType === 'local' ? form.localPath.trim() : '',
           git_branch: form.branch.trim() || 'main',
-          git_token: form.token.trim(),
-          ssh_key: form.sshKey.trim(),
+          git_token: selectedResourceId === 'git-pat' ? form.token.trim() : '',
+          github_app_id: selectedResourceId.startsWith('gh-app-') ? selectedResourceId.replace('gh-app-', '') : undefined,
+          ssh_key: selectedResourceId === 'git-private-key' ? form.sshKey.trim() : '',
           git_builder: form.gitBuilder || 'auto',
           app_directory: form.appDirectory.trim(),
           run_file: form.runFile.trim(),
@@ -1038,6 +1067,29 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                             onChange={e => setForm(f => ({ ...f, sshKey: e.target.value }))}
                           />
                         </div>
+                      ) : selectedResourceId === 'git-private-app' ? (
+                        <div className="form-group">
+                          <label className="form-label">Select GitHub App *</label>
+                          <SelectRoot value={form.githubAppId} onValueChange={val => setForm(f => ({ ...f, githubAppId: val }))}>
+                            <SelectTrigger style={{ width: '100%' }}>
+                              {form.githubAppId ? githubApps.find(a => String(a.id) === String(form.githubAppId))?.name : "Select App..."}
+                            </SelectTrigger>
+                            <SelectContent>
+                              {githubApps.length === 0 ? (
+                                <SelectItem value="" disabled>No GitHub Apps configured. Go to Settings.</SelectItem>
+                              ) : (
+                                githubApps.map(app => (
+                                  <SelectItem key={app.id} value={String(app.id)}>{app.name}</SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </SelectRoot>
+                          {githubApps.length === 0 && (
+                            <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              Configure a GitHub App integration in the Settings page first.
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <div className="form-group">
                           <label className="form-label">Personal Access Token (GitHub Token)</label>
@@ -1205,6 +1257,23 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
                   <label className="form-label">Database Instance Name *</label>
                   <input className="form-input" placeholder={`my-${dbType.split(':')[0]}`} value={form.name} onChange={set('name')} autoFocus />
                 </div>
+
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Database User</label>
+                    <input className="form-input" value={form.dbUser} onChange={set('dbUser')} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Database Password</label>
+                    <input className="form-input" value={form.dbPassword} onChange={set('dbPassword')} />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Initial Database Name</label>
+                  <input className="form-input" placeholder="Leave empty to use instance name" value={form.dbName} onChange={set('dbName')} />
+                </div>
               </div>
             )}
 
@@ -1365,6 +1434,7 @@ function EnvVarsPanel({ serviceId }) {
 // ── Monitoring Panel ──────────────────────────────────────────────────────────
 function MonitoringPanel({ serviceId }) {
   const [metrics, setMetrics] = useState(null);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -1377,6 +1447,25 @@ function MonitoringPanel({ serviceId }) {
           setMetrics(data);
           setError(null);
           setLoading(false);
+
+          setHistory(prev => {
+            let memVal = 0;
+            if (data?.memory_usage) {
+              const parts = data.memory_usage.split(' ');
+              const val = parseFloat(parts[0]) || 0;
+              const unit = parts[1] || 'B';
+              if (unit.toLowerCase().includes('g')) memVal = val * 1024;
+              else if (unit.toLowerCase().includes('m')) memVal = val;
+              else if (unit.toLowerCase().includes('k')) memVal = val / 1024;
+              else memVal = val / (1024 * 1024);
+            }
+            const newPoint = {
+              time: new Date().toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }),
+              cpu: data?.cpu_percent ?? 0,
+              memory: memVal,
+            };
+            return [...prev, newPoint].slice(-20);
+          });
         }
       } catch (err) {
         if (active) {
@@ -1445,8 +1534,25 @@ function MonitoringPanel({ serviceId }) {
               {cpu.toFixed(2)}%
             </span>
           </div>
-          <div style={{ width: '100%', height: 6,  borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ width: `${Math.min(cpu, 100)}%`, height: '100%', background: getCpuColor(cpu), transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }} />
+          <div style={{ height: 50, width: 'calc(100% + 20px)', marginTop: 'auto', marginLeft: -10, marginBottom: -10 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history}>
+                <defs>
+                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={getCpuColor(cpu)} stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor={getCpuColor(cpu)} stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <YAxis domain={[0, 'dataMax + 10']} hide />
+                <ChartTooltip
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: '0.75rem', padding: '4px 8px' }}
+                  itemStyle={{ color: 'var(--text-primary)' }}
+                  labelStyle={{ display: 'none' }}
+                  formatter={(val) => [`${val.toFixed(2)}%`, 'CPU']}
+                />
+                <Area type="monotone" dataKey="cpu" stroke={getCpuColor(cpu)} fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
@@ -1461,8 +1567,25 @@ function MonitoringPanel({ serviceId }) {
               {memory}
             </span>
           </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            Physical RAM consumed by processes.
+          <div style={{ height: 50, width: 'calc(100% + 20px)', marginTop: 'auto', marginLeft: -10, marginBottom: -10 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history}>
+                <defs>
+                  <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <YAxis domain={[0, 'dataMax + 10']} hide />
+                <ChartTooltip
+                  contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: '0.75rem', padding: '4px 8px' }}
+                  itemStyle={{ color: 'var(--text-primary)' }}
+                  labelStyle={{ display: 'none' }}
+                  formatter={(val) => [`${val.toFixed(1)} MB`, 'Memory']}
+                />
+                <Area type="monotone" dataKey="memory" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
@@ -1941,6 +2064,10 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [sshKey, setSshKey] = useState(service.ssh_key || '');
   const [dockerfileContent, setDockerfileContent] = useState(service.dockerfile_content || '');
   const [dockerComposeContent, setDockerComposeContent] = useState(service.docker_compose_content || '');
+  const [dbUser, setDbUser] = useState(service.db_user || '');
+  const [dbPassword, setDbPassword] = useState(service.db_password || '');
+  const [dbName, setDbName] = useState(service.db_name || '');
+  const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -1968,6 +2095,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setSshKey(service.ssh_key || '');
     setDockerfileContent(service.dockerfile_content || '');
     setDockerComposeContent(service.docker_compose_content || '');
+    setDbUser(service.db_user || '');
+    setDbPassword(service.db_password || '');
+    setDbName(service.db_name || '');
 
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
     setDomainVal(matched ? matched.domain : '');
@@ -2044,6 +2174,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         ssh_key: sshKey.trim(),
         dockerfile_content: dockerfileContent,
         docker_compose_content: dockerComposeContent,
+        db_user: dbUser.trim(),
+        db_password: dbPassword.trim(),
+        db_name: dbName.trim(),
       });
 
       // Update domain and direction in domains_v2 if modified
@@ -2096,10 +2229,40 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       </div>
 
       {service.type === 'database' ? (
-        <div className="form-group">
-          <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Engine</label>
-          <input className="form-input form-input-sm" value={image} onChange={e => setImage(e.target.value)} placeholder="e.g. postgres, redis, mysql" />
-        </div>
+        <>
+          <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+            If you change the values in the database, please sync it here, otherwise automations (like backups) won't work.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Username</label>
+              <input className="form-input form-input-sm" value={dbUser} onChange={e => setDbUser(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Password</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input 
+                  className="form-input form-input-sm" 
+                  type={showPassword ? "text" : "password"}
+                  value={dbPassword} 
+                  onChange={e => setDbPassword(e.target.value)} 
+                  style={{ flex: 1 }}
+                />
+                <Button variant="ghost" size="sm" type="button" onClick={() => setShowPassword(!showPassword)} style={{ height: 32, width: 32, padding: 0 }}>
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem' }}>Initial Database</label>
+            <input className="form-input form-input-sm" value={dbName} onChange={e => setDbName(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Engine</label>
+            <input className="form-input form-input-sm" value={image} onChange={e => setImage(e.target.value)} placeholder="e.g. postgres, redis, mysql" />
+          </div>
+        </>
       ) : (
         <>
           {isBuiltApp ? (
@@ -2361,6 +2524,9 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
               </button>
             </div>
           </div>
+          <div style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 8, padding: '0.75rem', marginTop: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+            <strong>Note:</strong> After changing domains, you must click <strong>Deploy</strong> for the reverse proxy routing and SSL rules to take effect.
+          </div>
         </>
       )}
 
@@ -2370,6 +2536,66 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       <Button variant="primary" size="sm" onClick={handleSave} disabled={saving} loading={saving} style={{ marginTop: 6, alignSelf: 'flex-end' }}>
         Save Settings
       </Button>
+    </div>
+  );
+}
+
+// ── Backup & Restore Panel ────────────────────────────────────────────────────
+function BackupRestorePanel({ service }) {
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [backupFile, setBackupFile] = useState('');
+  const toast = useToast();
+
+  const handleBackup = async () => {
+    try {
+      setLoading(true);
+      const res = await servicesApi.backup(service.id);
+      toast.success('Backup created: ' + res.file);
+    } catch (e) {
+      toast.error('Backup failed: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!backupFile) return toast.error('Enter a filename to import');
+    try {
+      setImporting(true);
+      await servicesApi.importBackup(service.id, backupFile);
+      toast.success('Database imported successfully!');
+    } catch (e) {
+      toast.error('Import failed: ' + e.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+        <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Database size={14} color="var(--accent)" /> Manual Logical Backup
+        </h4>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Trigger a native logical backup (e.g. pg_dump) directly inside the container and save it to the persistent host volume.</p>
+        <Button variant="primary" onClick={handleBackup} loading={loading} disabled={loading} style={{ marginTop: 12 }}>
+          Create Backup
+        </Button>
+      </div>
+
+      <div className="card" style={{ padding: '1.25rem', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
+        <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Upload size={14} /> Import Backup
+        </h4>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Restore a backup file from the persistent host volume into the database. <strong>Warning: This will drop the current database content!</strong></p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input className="form-input form-input-sm" placeholder="backup_file.sql" value={backupFile} onChange={e => setBackupFile(e.target.value)} style={{ flex: 1 }} />
+          <Button variant="danger" size="sm" onClick={handleImport} loading={importing} disabled={importing || !backupFile}>
+            Import Data
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2576,6 +2802,8 @@ export default function ProjectDetail() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [activeTab, setActiveTab] = useState('deployments');
   const [activeSvc, setActiveSvc] = useState(null);
+  const [deletingSvc, setDeletingSvc] = useState(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -2630,11 +2858,25 @@ export default function ProjectDetail() {
     } catch (e) { console.error(e); }
   };
 
-  const handleDelete = async (svcId) => {
-    if (!confirm('Delete this service? This will stop and remove its container.')) return;
-    await servicesApi.delete(svcId);
-    setServices(s => s.filter(x => x.id !== svcId));
-    if (activeSvc === svcId) setActiveSvc(null);
+  const handleDelete = (svcId) => {
+    const svc = services.find(s => s.id === svcId);
+    if (svc) {
+      setDeletingSvc(svc);
+      setDeleteConfirmName('');
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingSvc) return;
+    try {
+      await servicesApi.delete(deletingSvc.id);
+      setServices(s => s.filter(x => x.id !== deletingSvc.id));
+      if (activeSvc === deletingSvc.id) setActiveSvc(null);
+      setDeletingSvc(null);
+      toast.success('Service deleted successfully');
+    } catch (e) {
+      toast.error(e.message || 'Failed to delete service');
+    }
   };
 
   const handleCreated = (svc) => {
@@ -2748,6 +2990,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
+              ...(selectedSvc.type === 'database' ? [{ id: 'backup', label: 'Backup & Restore', icon: Database }] : []),
               { id: 'settings', label: 'Settings', icon: Settings },
             ]}
           >
@@ -2778,6 +3021,9 @@ export default function ProjectDetail() {
             )}
             <TabsContent value="settings">
               <SettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />
+            </TabsContent>
+            <TabsContent value="backup">
+              <BackupRestorePanel service={selectedSvc} />
             </TabsContent>
             <TabsContent value="envvars">
               <EnvVarsPanel serviceId={activeSvc} />
@@ -2874,6 +3120,37 @@ export default function ProjectDetail() {
           </div>
         </>
       )}
+
+      {/* Delete Service Modal */}
+      <Modal open={!!deletingSvc} onClose={() => setDeletingSvc(null)} title="Delete Service">
+        <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+          <p style={{ color: 'var(--red)', marginBottom: 12 }}>
+            <strong>Warning:</strong> Deleting this service will permanently destroy its data, containers, and entirely remove it from the disk space. This cannot be undone.
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            Please type <strong>{deletingSvc?.name}</strong> to confirm.
+          </p>
+          <input
+            className="form-input"
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.target.value)}
+            placeholder={deletingSvc?.name}
+            style={{ width: '100%' }}
+            autoFocus
+          />
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+            <Button variant="ghost" onClick={() => setDeletingSvc(null)}>Cancel</Button>
+            <Button
+              variant="solid"
+              style={{ background: 'var(--red)', color: '#fff' }}
+              onClick={confirmDelete}
+              disabled={deleteConfirmName !== deletingSvc?.name}
+            >
+              I understand, delete this service
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

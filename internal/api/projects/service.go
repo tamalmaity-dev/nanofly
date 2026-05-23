@@ -8,12 +8,16 @@ import (
 
 	"github.com/nanofly/nanofly/internal/db"
 )
-
+		
+// Project represents a collection of services with shared settings.
 type Project struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	BackupEnabled   int       `json:"backup_enabled"`
+	BackupTime      string    `json:"backup_time"`
+	BackupRetention int       `json:"backup_retention"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // Service holds a reference to the database.
@@ -27,7 +31,7 @@ func NewService(database *db.DB) *Service {
 
 func (s *Service) List(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, COALESCE(description,''), created_at FROM projects ORDER BY created_at DESC`,
+		`SELECT id, name, COALESCE(description,''), backup_enabled, backup_time, backup_retention, created_at FROM projects ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("listing projects: %w", err)
@@ -38,7 +42,7 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 	for rows.Next() {
 		var p Project
 		var createdAt string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &createdAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.BackupEnabled, &p.BackupTime, &p.BackupRetention, &createdAt); err != nil {
 			return nil, err
 		}
 		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
@@ -66,8 +70,8 @@ func (s *Service) Get(ctx context.Context, id string) (*Project, error) {
 	var p Project
 	var createdAt string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, COALESCE(description,''), created_at FROM projects WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Name, &p.Description, &createdAt)
+		`SELECT id, name, COALESCE(description,''), backup_enabled, backup_time, backup_retention, created_at FROM projects WHERE id = ?`, id,
+	).Scan(&p.ID, &p.Name, &p.Description, &p.BackupEnabled, &p.BackupTime, &p.BackupRetention, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, sql.ErrNoRows
@@ -78,8 +82,25 @@ func (s *Service) Get(ctx context.Context, id string) (*Project, error) {
 	return &p, nil
 }
 
+// UpdateBackupSettings updates the automated backup schedule for a project.
+func (s *Service) UpdateBackupSettings(ctx context.Context, id string, enabled int, time, retention string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE projects SET backup_enabled = ?, backup_time = ?, backup_retention = ? WHERE id = ?`,
+		enabled, time, retention, id,
+	)
+	return err
+}
+
+// Delete deletes a project and all its services.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
+	// Prevent deletion if the project still contains active services
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM services WHERE project_id = ?`, id).Scan(&count)
+	if err == nil && count > 0 {
+		return fmt.Errorf("cannot delete project: please delete all %d service(s) first", count)
+	}
+
+	_, err = s.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("deleting project: %w", err)
 	}

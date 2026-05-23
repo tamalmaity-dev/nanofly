@@ -7,7 +7,7 @@ require (
 	github.com/docker/docker v28.0.4+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/go-chi/chi/v5 v5.1.0
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/shirou/gopsutil/v3 v3.24.5
 	golang.org/x/crypto v0.25.0

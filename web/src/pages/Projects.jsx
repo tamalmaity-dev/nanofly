@@ -74,6 +74,8 @@ export default function Projects() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // grid or list
+  const [deletingProject, setDeletingProject] = useState(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -91,12 +93,19 @@ export default function Projects() {
     fetchProjects();
   }, []);
 
-  const handleDelete = async (e, id) => {
+  const handleDeleteClick = (e, p) => {
     e.stopPropagation(); // prevent clicking the card
-    if (!window.confirm('Are you sure you want to delete this project? All associated apps and databases will be destroyed.')) return;
+    setDeletingProject(p);
+    setDeleteConfirmName('');
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingProject) return;
     try {
-      await projectsApi.delete(id);
-      setProjects(prev => prev.filter(p => p.id !== id));
+      await projectsApi.delete(deletingProject.id);
+      setProjects(prev => prev.filter(p => p.id !== deletingProject.id));
+      setDeletingProject(null);
+      toast.success('Project deleted successfully');
     } catch (err) {
       toast.error(err.message || 'Failed to delete project');
     }
@@ -172,7 +181,7 @@ export default function Projects() {
                     <Button variant="ghost" size="sm" onClick={e => e.stopPropagation()} icon={MoreVertical} />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent onClick={e => e.stopPropagation()}>
-                    <DropdownMenuItem color="red" onClick={e => handleDelete(e, p.id)}>
+                    <DropdownMenuItem color="red" onClick={e => handleDeleteClick(e, p)}>
                       <Trash2 size={14} style={{ marginRight: 6 }} /> Delete Project
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -204,6 +213,37 @@ export default function Projects() {
           setProjects([newProject, ...projects]);
         }}
       />
+
+      {/* Delete Project Modal */}
+      <Modal open={!!deletingProject} onClose={() => setDeletingProject(null)} title="Delete Project">
+        <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+          <p style={{ color: 'var(--red)', marginBottom: 12 }}>
+            <strong>Warning:</strong> Deleting a project removes its logical environment. You must delete all underlying applications and databases first before you can delete this project.
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            Please type <strong>{deletingProject?.name}</strong> to confirm.
+          </p>
+          <input
+            className="form-input"
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.target.value)}
+            placeholder={deletingProject?.name}
+            style={{ width: '100%' }}
+            autoFocus
+          />
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+            <Button variant="ghost" onClick={() => setDeletingProject(null)}>Cancel</Button>
+            <Button
+              variant="solid"
+              style={{ background: 'var(--red)', color: '#fff' }}
+              onClick={confirmDelete}
+              disabled={deleteConfirmName !== deletingProject?.name}
+            >
+              I understand, delete project
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

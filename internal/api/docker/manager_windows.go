@@ -8,11 +8,14 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 )
 
-type Manager struct{}
+type Manager struct {
+	dataDir string
+}
 
-func New() (*Manager, error) {
+func New(dataDir string) (*Manager, error) {
 	return nil, fmt.Errorf("docker management is not available on Windows — deploy NanoFly to a Linux server")
 }
 
@@ -29,6 +32,7 @@ type DBConfig struct {
 	ServiceID string
 	DBType    string
 	Name      string
+	Username  string
 	Password  string
 	DBName    string
 	HostPort  int
@@ -60,4 +64,8 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 
 func (m *Manager) RestartContainer(ctx context.Context, nameOrID string) error {
 	return fmt.Errorf("docker not available on Windows")
+}
+
+func (m *Manager) Exec(ctx context.Context, containerID string, cmd []string, stdin io.Reader) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("docker not available on Windows")
 }

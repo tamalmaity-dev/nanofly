@@ -37,6 +37,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/services/{id}/envvars", h.GetEnvVars)
 	r.Post("/services/{id}/envvars", h.UpsertEnvVar)
 	r.Delete("/services/{id}/envvars/{key}", h.DeleteEnvVar)
+	r.Post("/services/{id}/backup", h.BackupDatabase)
+	r.Post("/services/{id}/import", h.ImportDatabase)
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +58,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		GitRepoURL           string   `json:"git_repo_url"`
 		GitBranch            string   `json:"git_branch"`
 		GitToken             string   `json:"git_token"`
+		GitHubAppID          *string  `json:"github_app_id"`
 		GitBuilder           string   `json:"git_builder"`
 		LocalPath            string   `json:"local_path"`
 		StartCommand         string   `json:"start_command"`
@@ -94,6 +97,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		GitRepoURL:           req.GitRepoURL,
 		GitBranch:            req.GitBranch,
 		GitToken:             req.GitToken,
+		GitHubAppID:          req.GitHubAppID,
 		SSHKey:               req.SSHKey,
 		Builder:              req.GitBuilder,
 		StartCommand:         req.StartCommand,
@@ -257,4 +261,28 @@ func (h *Handler) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, metrics)
+}
+
+func (h *Handler) BackupDatabase(w http.ResponseWriter, r *http.Request) {
+	fileName, err := h.mgr.BackupDatabase(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"file": fileName})
+}
+
+func (h *Handler) ImportDatabase(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileName string `json:"file_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if err := h.mgr.ImportDatabase(r.Context(), chi.URLParam(r, "id"), req.FileName); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "imported"})
 }
