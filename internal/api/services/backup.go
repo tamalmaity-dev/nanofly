@@ -18,7 +18,7 @@ func (m *Manager) BackupDatabase(ctx context.Context, serviceID string) (string,
 	if svc.Type == "database" {
 		containerName = "nf-db-" + svc.Name
 	} else {
-		containerName = "nf-" + svc.Name
+		containerName = "nf-app-" + svc.Name
 	}
 	stamp := time.Now().Format("20060102-150405")
 	backupFileName := fmt.Sprintf("backup_%s", stamp)
@@ -66,7 +66,7 @@ func (m *Manager) ImportDatabase(ctx context.Context, serviceID, backupFileName 
 	if svc.Type == "database" {
 		containerName = "nf-db-" + svc.Name
 	} else {
-		containerName = "nf-" + svc.Name
+		containerName = "nf-app-" + svc.Name
 	}
 
 	var cmd []string

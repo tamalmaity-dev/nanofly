@@ -137,7 +137,7 @@ function SystemTab() {
 
         <Field label="Proxy Engine">
           <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> Traefik v2.10 (Running)
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> Traefik (Running)
           </div>
         </Field>
       </div>

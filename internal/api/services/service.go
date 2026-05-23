@@ -213,6 +213,7 @@ type ServiceMetrics struct {
 	MemoryUsage string  `json:"memory_usage"`
 	NetworkIn   string  `json:"network_in"`
 	NetworkOut  string  `json:"network_out"`
+	DiskUsage   string  `json:"disk_usage"`
 }
 	
 func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*ServiceMetrics, error) {
@@ -226,13 +227,14 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 		MemoryUsage: "0 B",
 		NetworkIn:   "0 B",
 		NetworkOut:  "0 B",
+		DiskUsage:   "0 B",
 	}
 
 	// Query docker stats
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}")
+	cmd := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}")
 	out, err := cmd.Output()
 	if err != nil {
 		return metrics, nil
@@ -246,12 +248,13 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 	var totalMemBytes int64
 	var totalNetInBytes int64
 	var totalNetOutBytes int64
+	var totalDiskBytes int64
 	found := false
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
-		if len(parts) >= 4 {
+		if len(parts) >= 5 {
 			name := strings.TrimSpace(parts[0])
 			
 			match := false
@@ -281,6 +284,12 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 					totalNetInBytes += parseMemToBytes(strings.TrimSpace(netParts[0]))
 					totalNetOutBytes += parseMemToBytes(strings.TrimSpace(netParts[1]))
 				}
+
+				// Block IO (Disk)
+				blockParts := strings.Split(parts[4], "/")
+				if len(blockParts) > 0 {
+					totalDiskBytes += parseMemToBytes(strings.TrimSpace(blockParts[0]))
+				}
 			}
 		}
 	}
@@ -290,6 +299,7 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 		metrics.MemoryUsage = formatBytes(totalMemBytes)
 		metrics.NetworkIn = formatBytes(totalNetInBytes)
 		metrics.NetworkOut = formatBytes(totalNetOutBytes)
+		metrics.DiskUsage = formatBytes(totalDiskBytes)
 	}
 
 	return metrics, nil

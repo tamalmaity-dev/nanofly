@@ -352,8 +352,8 @@ function SourceFilesPanel({ service }) {
         </div>
       </div>
 
-      {error && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>âš ï¸ {error}</div>}
-      {uploading && <div style={{ color: 'var(--yellow)', fontSize: '0.8rem', marginBottom: '1rem' }}>Uploading filesâ€¦</div>}
+      {error && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {error}</div>}
+      {uploading && <div style={{ color: 'var(--yellow)', fontSize: '0.8rem', marginBottom: '1rem' }}>Uploading files…</div>}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-elevated)' }}>
         <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -390,7 +390,7 @@ function SourceFilesPanel({ service }) {
                     <span style={{ color: 'var(--text-primary)', fontWeight: file.is_dir ? 600 : 400 }}>{file.name}</span>
                   </span>
                 </td>
-                <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{file.is_dir ? 'â€”' : file.size_human}</td>
+                <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{file.is_dir ? '—' : file.size_human}</td>
                 <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{new Date(file.mod_time).toLocaleString()}</td>
                 <td style={{ padding: '6px 14px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                   <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => handleDelete(file.path)} icon={Trash2} />
@@ -414,7 +414,7 @@ function SourceFilesPanel({ service }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {editorError && <div style={{ color: 'var(--red)', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>âš ï¸ {editorError}</div>}
+            {editorError && <div style={{ color: 'var(--red)', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.1)', padding: '8px 12px', borderRadius: 4 }}>⚠️ {editorError}</div>}
             <CodeEditor
               value={selectedFile?.content || ''}
               onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
@@ -423,7 +423,7 @@ function SourceFilesPanel({ service }) {
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Size: {selectedFile?.size || 'â€”'} Â· {selectedFile?.content !== selectedFile?.originalContent ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Unsaved changes</span> : <span style={{ color: 'var(--green)' }}>Saved</span>}
+                Size: {selectedFile?.size || '—'} · {selectedFile?.content !== selectedFile?.originalContent ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Unsaved changes</span> : <span style={{ color: 'var(--green)' }}>Saved</span>}
               </span>
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button variant="outline" size="sm" onClick={() => setSelectedFile(null)}>Close</Button>
@@ -1431,7 +1431,7 @@ function EnvVarsPanel({ serviceId }) {
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
-                          {show[ev.key] ? ev.value : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}
+                          {show[ev.key] ? ev.value : '••••••••'}
                         </code>
                         <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))} icon={show[ev.key] ? EyeOff : Eye} />
                         <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
@@ -1522,8 +1522,8 @@ function DeploymentsPanel({ serviceId }) {
           fontSize: '1.05rem',
           color: '#f59e0b',
         }}>
-          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>âš™ï¸</span>
-          <strong>Build in progress</strong> â€” logs are updating live belowâ€¦
+          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>⚙️</span>
+          <strong>Build in progress</strong> — logs are updating live below…
         </div>
       )}
 
@@ -1567,7 +1567,7 @@ function DeploymentsPanel({ serviceId }) {
             <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
               {new Date(d.started_at).toLocaleString()}
             </span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 11, transform: open === d.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>â–¶</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 11, transform: open === d.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>▶</span>
           </div>
 
           {/* Build log */}
@@ -1603,7 +1603,7 @@ function DeploymentsPanel({ serviceId }) {
                 </pre>
               ) : (
                 <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '1.05rem', textAlign: 'center' }}>
-                  {(d.status === 'building' || d.status === 'deploying') ? 'âš™ï¸ Starting build, logs will appear shortly...' : 'No log output.'}
+                  {(d.status === 'building' || d.status === 'deploying') ? '⚙️ Starting build, logs will appear shortly...' : 'No log output.'}
                 </div>
               )}
             </div>
@@ -2481,7 +2481,7 @@ function ConnectionDetailsPanel({ service }) {
                 <span style={{ color: 'var(--text-muted)' }}>Password</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                    {showPassword ? password : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}
+                    {showPassword ? password : '••••••••••••••••'}
                   </span>
                   <Button variant="ghost" size="sm" onClick={() => setShowPassword(!showPassword)} icon={showPassword ? EyeOff : Eye} style={{ padding: 4 }} />
                   <Button variant="ghost" size="sm" onClick={() => handleCopy(password)} icon={Copy} style={{ padding: 4 }} />
@@ -2557,6 +2557,194 @@ function ConnectionDetailsPanel({ service }) {
   );
 }
 
+//  Resource Limits Panel 
+function ResourceLimitsPanel({ service, onUpdate }) {
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+  const [resourceTier, setResourceTier] = useState(service.resource_tier || 'micro');
+  const [customMemory, setCustomMemory] = useState(service.custom_memory || 0);
+  const [customCPU, setCustomCPU] = useState(service.custom_cpu || 0);
+
+  useEffect(() => {
+    setResourceTier(service.resource_tier || 'micro');
+    setCustomMemory(service.custom_memory || 0);
+    setCustomCPU(service.custom_cpu || 0);
+  }, [service]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await servicesApi.update(service.id, {
+        tier_name: resourceTier,
+        custom_memory: Number(customMemory),
+        custom_cpu: Number(customCPU),
+      });
+      toast.success('Resource limits saved successfully!');
+      onUpdate();
+    } catch (err) {
+      const errorMsg = err.message || 'Failed to save resource limits';
+      toast.error(errorMsg);
+    }
+    setSaving(false);
+  };
+
+  const TIER_DETAILS = {
+    nano: { memory: 128, cpu: 0.25, color: '#38bdf8', name: 'Nano', desc: 'Perfect for small scripts and lightweight services' },
+    micro: { memory: 256, cpu: 0.5, color: '#22c55e', name: 'Micro', desc: 'Great for small applications - Default option' },
+    standard: { memory: 512, cpu: 1.0, color: '#eab308', name: 'Standard', desc: 'Balanced performance for most applications' },
+    large: { memory: 1024, cpu: 2.0, color: '#f97316', name: 'Large', desc: 'High performance for resource-heavy applications' },
+    unlimited: { memory: null, cpu: null, color: '#ef4444', name: 'Unlimited', desc: 'No resource limits - Use with caution' },
+    custom: { memory: null, cpu: null, color: '#8b5cf6', name: 'Custom', desc: 'Define your own resource limits' }
+  };
+
+  return (
+    <div className="fade-in">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div>
+          <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Resource Limits</h4>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Configure CPU and memory limits for this service
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          icon={Save}
+          onClick={handleSave}
+          loading={saving}
+        >
+          Save Changes
+        </Button>
+      </div>
+
+      {/* Tier Selection */}
+      <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
+        <div className="section-title" style={{ marginBottom: '1rem' }}>
+          Select Resource Tier
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '1rem' }}>
+          {Object.entries(TIER_DETAILS).map(([key, tier]) => (
+            <div
+              key={key}
+              onClick={() => setResourceTier(key)}
+              style={{
+                border: `2px solid ${resourceTier === key ? tier.color : 'var(--border)'}`,
+                background: resourceTier === key ? `${tier.color}15` : 'var(--bg-base)',
+                borderRadius: 'var(--radius)',
+                padding: '1rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div
+                  style={{
+                    width: 28, height: 28, borderRadius: 6,
+                    background: `${tier.color}30`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}
+                >
+                  {key === 'custom' ? <Sliders size={16} color={tier.color} /> :
+                    key === 'unlimited' ? <Globe size={16} color={tier.color} /> :
+                      <Cpu size={16} color={tier.color} />}
+                </div>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{tier.name}</span>
+                {key === 'micro' && <span className="badge badge-green" style={{ fontSize: '0.65rem', marginLeft: 'auto' }}>Default</span>}
+              </div>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>{tier.desc}</p>
+              {key !== 'custom' && key !== 'unlimited' && (
+                <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <MemoryStick size={12} /> {tier.memory} MB
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Cpu size={12} /> {tier.cpu} Cores
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Custom Limits Section */}
+      {resourceTier === 'custom' && (
+        <div className="card" style={{ padding: '1.25rem' }}>
+          <div className="section-title" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Sliders size={16} /> Custom Resource Limits
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+            <div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Memory Limit (MB)
+                  <Tooltip content="Maximum amount of memory the container can use">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  type="number"
+                  className="form-input"
+                  value={customMemory ? customMemory / (1024 * 1024) : ''}
+                  onChange={e => setCustomMemory(Number(e.target.value) * 1024 * 1024)}
+                  placeholder="e.g., 512"
+                  min="0"
+                />
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                128 MB = 0.125 GB · 1024 MB = 1 GB
+              </div>
+            </div>
+
+            <div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  CPU Limit (Cores)
+                  <Tooltip content="Maximum CPU cores the container can use">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  type="number"
+                  step="0.25"
+                  className="form-input"
+                  value={customCPU || ''}
+                  onChange={e => setCustomCPU(Number(e.target.value))}
+                  placeholder="e.g., 1.5"
+                  min="0"
+                />
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                0.25 = ¼ core · 1.0 = 1 full core · 2.0 = 2 full cores
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Info Banner */}
+      <div style={{
+        marginTop: '1.25rem',
+        padding: '1rem 1.25rem',
+        background: 'rgba(59, 130, 246, 0.08)',
+        border: '1px solid rgba(59, 130, 246, 0.18)',
+        borderRadius: 'var(--radius)',
+        fontSize: '0.8rem',
+        color: 'var(--text-secondary)',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 10
+      }}>
+        <Info size={18} color="#3b82f6" style={{ flexShrink: 0, marginTop: 1 }} />
+        <div>
+          <strong style={{ color: 'var(--text-primary)' }}>Note:</strong> Changes to resource limits will take effect the next time you redeploy this service. The current running container will continue using the old limits until you redeploy.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 //  Main ProjectDetail 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -2572,6 +2760,12 @@ export default function ProjectDetail() {
   const [deletingSvc, setDeletingSvc] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [stoppingSvc, setStoppingSvc] = useState(null);
+  const [isRedeploying, setIsRedeploying] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [projectMetrics, setProjectMetrics] = useState({});
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -2587,43 +2781,101 @@ export default function ProjectDetail() {
     setLoading(false);
   }, [id]);
 
+  const fetchProjectMetrics = useCallback(async () => {
+    if (services.length === 0) return;
+    setLoadingMetrics(true);
+    const metricsMap = {};
+    for (const svc of services) {
+      try {
+        const m = await servicesApi.getMetrics(svc.id);
+        metricsMap[svc.id] = m;
+      } catch (e) {
+        metricsMap[svc.id] = null;
+      }
+    }
+    setProjectMetrics(metricsMap);
+    setLoadingMetrics(false);
+  }, [services]);
+
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { fetchProjectMetrics(); const t = setInterval(fetchProjectMetrics, 3000); return () => clearInterval(t); }, [fetchProjectMetrics]);
 
   const handleDeploy = async (svcId) => {
     const svc = services.find(s => s.id === svcId);
-    if (svc?.type === 'app') {
-      const existing = domains.find(d => d.service === svc.name && d.project === project?.name);
-      if (!existing) {
-        const host = window.location.hostname.split(':')[0];
-        const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
-        try {
-          await domainsApi.create({
-            domain: `${randomStr}.${host}.sslip.io`,
-            service: svc.name,
-            project: project?.name || '',
-            direction: 'both',
-          });
-        } catch (_) { }
+    setIsRedeploying(true);
+    toast.promise(
+      (async () => {
+        if (svc?.type === 'app') {
+          const existing = domains.find(d => d.service === svc.name && d.project === project?.name);
+          if (!existing) {
+            const host = window.location.hostname.split(':')[0];
+            const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+            try {
+              await domainsApi.create({
+                domain: `${randomStr}.${host}.sslip.io`,
+                service: svc.name,
+                project: project?.name || '',
+                direction: 'both',
+              });
+            } catch (_) { }
+          }
+        }
+        await servicesApi.deploy(svcId);
+        setActiveTab('deployments');
+        await load();
+      })(),
+      {
+        loading: 'Redeploying service...',
+        success: 'Service redeployed successfully!',
+        error: (err) => err.message || 'Failed to redeploy service',
       }
-    }
-    await servicesApi.deploy(svcId);
-    setActiveTab('deployments');
-    setTimeout(load, 500);
+    ).finally(() => {
+      setIsRedeploying(false);
+    });
   };
 
-  const handleStop = async (svcId) => {
-    try {
-      await servicesApi.stop(svcId);
-      setTimeout(load, 500);
-    } catch (e) { console.error(e); }
+  const handleStop = (svcId) => {
+    const svc = services.find(s => s.id === svcId);
+    if (svc) {
+      setStoppingSvc(svc);
+    }
+  };
+
+  const confirmStop = async () => {
+    if (!stoppingSvc) return;
+    setIsStopping(true);
+    toast.promise(
+      (async () => {
+        await servicesApi.stop(stoppingSvc.id);
+        await load();
+      })(),
+      {
+        loading: 'Stopping service...',
+        success: 'Service stopped successfully!',
+        error: (err) => err.message || 'Failed to stop service',
+      }
+    ).finally(() => {
+      setIsStopping(false);
+      setStoppingSvc(null);
+    });
   };
 
   const handleRestart = async (svcId) => {
-    try {
-      await servicesApi.restart(svcId);
-      setActiveTab('logs');
-      setTimeout(load, 500);
-    } catch (e) { console.error(e); }
+    setIsRestarting(true);
+    toast.promise(
+      (async () => {
+        await servicesApi.restart(svcId);
+        setActiveTab('logs');
+        await load();
+      })(),
+      {
+        loading: 'Restarting service...',
+        success: 'Service restarted successfully!',
+        error: (err) => err.message || 'Failed to restart service',
+      }
+    ).finally(() => {
+      setIsRestarting(false);
+    });
   };
 
   const handleDelete = (svcId) => {
@@ -2637,17 +2889,21 @@ export default function ProjectDetail() {
   const confirmDelete = async () => {
     if (!deletingSvc) return;
     setIsDeleting(true);
-    try {
-      await servicesApi.delete(deletingSvc.id);
-      setServices(s => s.filter(x => x.id !== deletingSvc.id));
-      if (activeSvc === deletingSvc.id) setActiveSvc(null);
-      setDeletingSvc(null);
-      toast.success('Service deleted successfully');
-    } catch (e) {
-      toast.error(e.message || 'Failed to delete service');
-    } finally {
+    toast.promise(
+      (async () => {
+        await servicesApi.delete(deletingSvc.id);
+        setServices(s => s.filter(x => x.id !== deletingSvc.id));
+        if (activeSvc === deletingSvc.id) setActiveSvc(null);
+        setDeletingSvc(null);
+      })(),
+      {
+        loading: 'Deleting service...',
+        success: 'Service deleted successfully!',
+        error: (err) => err.message || 'Failed to delete service',
+      }
+    ).finally(() => {
       setIsDeleting(false);
-    }
+    });
   };
 
   const handleCreated = (svc) => {
@@ -2756,18 +3012,47 @@ export default function ProjectDetail() {
             )}
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Button variant="solid" color="amber" size="md" onClick={() => handleDeploy(selectedSvc.id)} icon={Play} style={{ fontWeight: 600 }}>
+            <Button
+              variant="solid"
+              color="amber"
+              size="md"
+              onClick={() => handleDeploy(selectedSvc.id)}
+              icon={Play}
+              style={{ fontWeight: 600 }}
+              loading={isRedeploying}
+            >
               Redeploy
             </Button>
-            <Button variant="outline" color="amber" size="md" onClick={() => handleRestart(selectedSvc.id)} icon={RefreshCw}>
+            <Button
+              variant="outline"
+              color="amber"
+              size="md"
+              onClick={() => handleRestart(selectedSvc.id)}
+              icon={RefreshCw}
+              loading={isRestarting}
+            >
               Restart
             </Button>
             {selectedSvc.status === 'running' && (
-              <Button variant="outline" color="red" size="md" onClick={() => handleStop(selectedSvc.id)} icon={X}>
+              <Button
+                variant="outline"
+                color="red"
+                size="md"
+                onClick={() => handleStop(selectedSvc.id)}
+                icon={X}
+                loading={isStopping}
+              >
                 Stop
               </Button>
             )}
-            <Button variant="ghost" size="md" style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }} onClick={() => handleDelete(selectedSvc.id)} icon={Trash2}>
+            <Button
+              variant="ghost"
+              size="md"
+              style={{ color: 'var(--red)', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+              onClick={() => handleDelete(selectedSvc.id)}
+              icon={Trash2}
+              loading={isDeleting}
+            >
               Delete
             </Button>
           </div>
@@ -2784,6 +3069,7 @@ export default function ProjectDetail() {
               { id: 'logs', label: 'Logs' },
               ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
               { id: 'monitoring', label: 'Monitoring', icon: Cpu },
+              { id: 'resources', label: 'Resource Limits', icon: Sliders },
               ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
@@ -2809,6 +3095,9 @@ export default function ProjectDetail() {
               <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading monitoring charts...</div>}>
                 <MonitoringPanel serviceId={activeSvc} />
               </Suspense>
+            </TabsContent>
+            <TabsContent value="resources">
+              <ResourceLimitsPanel service={selectedSvc} onUpdate={load} />
             </TabsContent>
             {selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') && (
               <TabsContent value="webhooks">
@@ -2880,6 +3169,123 @@ export default function ProjectDetail() {
             ))}
           </div>
 
+          {/* Project Monitoring Dashboard */}
+          <div className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Cpu size={20} color="var(--accent)" />
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Project Resource Monitoring</h3>
+              </div>
+              <span className="badge badge-amber" style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {loadingMetrics ? <div className="spinner" style={{ width: 10, height: 10, borderWidth: 2 }} /> : (
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }} className="pulse" />
+                )}
+                Live
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Service</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Status</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>CPU</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Memory</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Disk</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Network</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {services.map(svc => {
+                    const m = projectMetrics[svc.id];
+                    const isRunning = svc.status === 'running';
+                    return (
+                      <tr
+                        key={svc.id}
+                        style={{
+                          borderBottom: '1px solid var(--border)',
+                          cursor: 'pointer',
+                          transition: 'background 0.2s ease',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-elevated)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        onClick={() => {
+                          setActiveSvc(svc.id);
+                          setActiveTab(svc.type === 'database' ? 'connection' : 'deployments');
+                        }}
+                      >
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <ServiceLogo type={svc.type} name={svc.name} image={svc.image} builder={svc.git_builder} size={20} />
+                            <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{svc.name}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            {svc.type === 'database' ? 'Database' : 'Application'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)' }} />
+                            <span style={{ fontSize: '0.8rem', color: statusColor[svc.status] || 'var(--text-muted)', textTransform: 'capitalize' }}>
+                              {svc.status}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          {isRunning && m ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{
+                                width: 80, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden'
+                              }}>
+                                <div style={{
+                                  width: `${Math.min(m.cpu_percent, 100)}%`,
+                                  height: '100%',
+                                  background: m.cpu_percent > 80 ? 'var(--red)' : m.cpu_percent > 50 ? 'var(--yellow)' : 'var(--green)',
+                                  borderRadius: 3
+                                }} />
+                              </div>
+                              <span style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>{m.cpu_percent.toFixed(1)}%</span>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          {isRunning && m ? (
+                            <span style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>{m.memory_usage}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          {isRunning && m ? (
+                            <span style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>{m.disk_usage || '0 B'}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          {isRunning && m ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                              <span style={{ color: 'var(--green)' }}>↓ {m.network_in}</span>
+                              <span style={{ color: 'var(--blue)' }}>↑ {m.network_out}</span>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: activeSvc ? '1fr 380px' : '1fr', gap: '1rem' }}>
             {/* Left: service list */}
             <div>
@@ -2949,6 +3355,27 @@ export default function ProjectDetail() {
               loading={isDeleting}
             >
               I understand, delete this service
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Stop Service Modal */}
+      <Modal open={!!stoppingSvc} onClose={() => setStoppingSvc(null)} title="Stop Service">
+        <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+          <p style={{ marginBottom: 20 }}>
+            Are you sure you want to stop <strong>{stoppingSvc?.name}</strong>? The service will stop running and become unavailable.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setStoppingSvc(null)} disabled={isStopping}>Cancel</Button>
+            <Button
+              variant="solid"
+              style={{ background: 'var(--red)', color: '#fff' }}
+              onClick={confirmStop}
+              disabled={isStopping}
+              loading={isStopping}
+            >
+              Stop Service
             </Button>
           </div>
         </div>
