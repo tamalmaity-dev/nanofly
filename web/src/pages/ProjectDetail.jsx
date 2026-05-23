@@ -550,7 +550,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
           local_path: subType === 'local' ? form.localPath.trim() : '',
           git_branch: form.branch.trim() || 'main',
           git_token: selectedResourceId === 'git-pat' ? form.token.trim() : '',
-          github_app_id: selectedResourceId.startsWith('gh-app-') ? selectedResourceId.replace('gh-app-', '') : undefined,
+          github_app_id: form.githubAppId || undefined,
           ssh_key: selectedResourceId === 'git-private-key' ? form.sshKey.trim() : '',
           git_builder: form.gitBuilder || 'auto',
           app_directory: form.appDirectory.trim(),

@@ -89,10 +89,9 @@ func (h *Handler) CreateManifest(w http.ResponseWriter, r *http.Request) {
 		"setup_url": setupUrl,
 		"public": false,
 		"default_permissions": map[string]string{
-			"contents": "read",
-			"metadata": "read",
+			"contents":      "read",
+			"metadata":      "read",
 			"pull_requests": "read",
-			"webhooks": "write",
 		},
 		"default_events": []string{
 			"push",
