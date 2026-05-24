@@ -123,7 +123,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	// Rewrite the request
 	r.URL.Host = target.Host
 	r.URL.Scheme = target.Scheme
-	r.Header.Set("X-Forwarded-Host", r.Host)
+	forwardedHost := host
+	if forwardedHost == "" {
+		forwardedHost = r.Host
+	}
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	} else if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		proto = p
+	}
+	r.Header.Set("X-Forwarded-Host", forwardedHost)
+	r.Header.Set("X-Forwarded-Proto", proto)
 	r.Header.Set("X-Forwarded-For", r.RemoteAddr)
 	r.Header.Set("X-Real-IP", r.RemoteAddr)
 	r.Host = target.Host

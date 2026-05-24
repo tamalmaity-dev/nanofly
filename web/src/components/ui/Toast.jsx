@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import * as ToastPrimitive from '@radix-ui/react-toast';
-import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Info, Loader2 } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
@@ -18,15 +18,42 @@ export function ToastProvider({ children }) {
   const toast = useCallback((title, description = '', type = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts(prev => [...prev, { id, title, description, type }]);
+    const duration = type === 'loading' ? 30000 : 5000;
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 5000);
+    }, duration);
   }, []);
+
+  const dismiss = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const promise = useCallback((promiseFn, messages) => {
+    const loadingId = Math.random().toString(36).substring(2, 9);
+    const loadingTitle = typeof messages.loading === 'string' ? messages.loading : 'Working...';
+    setToasts(prev => [...prev, { id: loadingId, title: loadingTitle, description: '', type: 'loading' }]);
+
+    return Promise.resolve()
+      .then(() => promiseFn())
+      .then((result) => {
+        dismiss(loadingId);
+        const successMsg = typeof messages.success === 'function' ? messages.success(result) : messages.success;
+        toast(successMsg, '', 'success');
+        return result;
+      })
+      .catch((err) => {
+        dismiss(loadingId);
+        const errorMsg = typeof messages.error === 'function' ? messages.error(err) : (messages.error || err?.message || 'Something went wrong');
+        toast(errorMsg, '', 'error');
+        throw err;
+      });
+  }, [toast, dismiss]);
 
   const toastObj = {
     success: (title, desc) => toast(title, desc, 'success'),
     error: (title, desc) => toast(title, desc, 'error'),
     info: (title, desc) => toast(title, desc, 'info'),
+    promise,
   };
 
   return (
@@ -48,6 +75,7 @@ export function ToastProvider({ children }) {
                 {t.type === 'success' && <CheckCircle2 size={16} color="var(--green)" />}
                 {t.type === 'error' && <AlertCircle size={16} color="var(--red)" />}
                 {t.type === 'info' && <Info size={16} color="var(--accent)" />}
+                {t.type === 'loading' && <Loader2 size={16} color="var(--accent)" className="spin" />}
               </span>
               <div style={{ flex: 1 }}>
                 <ToastPrimitive.Title className="toast-title">

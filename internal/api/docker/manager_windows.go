@@ -22,6 +22,11 @@ type Manager struct {
 	OomHandler func(OomEvent)
 }
 
+// DataDir returns the NanoFly data directory path.
+func (m *Manager) DataDir() string {
+	return m.dataDir
+}
+
 func (m *Manager) WatchEvents(ctx context.Context) {}
 
 func New(dataDir string) (*Manager, error) {

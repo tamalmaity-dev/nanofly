@@ -140,7 +140,7 @@ func getContainerStats(ctx context.Context) map[string]ContainerStats {
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
 		if len(parts) >= 3 {
-			name := strings.TrimSpace(parts[0])
+			name := normalizeDockerName(parts[0])
 			cpuStr := strings.TrimSuffix(strings.TrimSpace(parts[1]), "%")
 			memUsage := strings.TrimSpace(parts[2])
 			cpuVal, _ := strconv.ParseFloat(cpuStr, 64)
@@ -249,8 +249,7 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 		for _, line := range lines {
 			parts := strings.Split(line, "\t")
 			if len(parts) >= 5 {
-				name := strings.TrimSpace(parts[0])
-				
+				name := normalizeDockerName(parts[0])
 				nameLower := strings.ToLower(name)
 				svcNameLower := strings.ToLower(svc.Name)
 				svcIDLower := strings.ToLower(svc.ID)
@@ -259,8 +258,15 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 				if svc.Builder == "docker-compose" {
 					match = strings.HasPrefix(nameLower, "nf-"+svcIDLower) || strings.Contains(nameLower, svcIDLower)
 				} else {
-					match = nameLower == "nf-app-"+svcNameLower || nameLower == "nf-db-"+svcNameLower || 
-							strings.Contains(nameLower, svcNameLower) || strings.Contains(nameLower, svcIDLower)
+					for _, cname := range m.primaryContainerNames(svc) {
+						if nameLower == strings.ToLower(cname) {
+							match = true
+							break
+						}
+					}
+					if !match {
+						match = strings.Contains(nameLower, svcNameLower) || strings.Contains(nameLower, svcIDLower)
+					}
 				}
 
 				if match {
@@ -816,8 +822,13 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				rows.Close()
 			}
 
+			domains := m.getServiceDomains(bgCtx, svc.Name)
+			if strings.Contains(strings.ToLower(svc.Image), "wordpress") {
+				envSlice = enrichWordPressEnv(envSlice, domains, svc.Port)
+			}
+
 			log("📦 Pulling image: " + svc.Image)
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, svc.Port, svc.Port, envSlice, m.getServiceDomains(bgCtx, svc.Name), svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, svc.Port, svc.Port, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
 			if err != nil {
 				log("❌ " + err.Error())
 				finalStatus = "error"
@@ -1467,30 +1478,76 @@ func (m *Manager) DeleteEnvVar(ctx context.Context, serviceID, key string) error
 	return err
 }
 
-// Delete removes a service, its container, its image, and its local workspace on disk.
+// normalizeDockerName strips whitespace and a leading slash from docker stats/list names.
+func normalizeDockerName(name string) string {
+	return strings.TrimPrefix(strings.TrimSpace(name), "/")
+}
+
+func (m *Manager) primaryContainerNames(svc *Service) []string {
+	if svc.Type == TypeDatabase {
+		return []string{"nf-db-" + svc.Name}
+	}
+	return []string{"nf-app-" + svc.Name}
+}
+
+func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVolumes bool) {
+	if svc.Builder == "docker-compose" {
+		args := []string{"compose", "-p", "nf-" + svc.ID, "down"}
+		if removeVolumes {
+			args = append(args, "-v")
+		}
+		exec.CommandContext(ctx, "docker", args...).Run() //nolint:errcheck
+	}
+
+	if m.docker != nil {
+		containers, _ := m.docker.ListByLabel(ctx, svc.ID)
+		for _, c := range containers {
+			if removeVolumes {
+				m.docker.RemoveContainer(ctx, c.ID) //nolint:errcheck
+			} else {
+				m.docker.StopContainer(ctx, c.ID) //nolint:errcheck
+			}
+		}
+	}
+
+	for _, name := range m.primaryContainerNames(svc) {
+		if removeVolumes {
+			exec.CommandContext(ctx, "docker", "rm", "-f", name).Run() //nolint:errcheck
+		} else {
+			exec.CommandContext(ctx, "docker", "stop", name).Run() //nolint:errcheck
+		}
+	}
+}
+
+// Delete removes a service, its containers, images, volumes, and workspace from disk.
 func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 	svc, err := m.Get(ctx, serviceID)
 	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
 	}
 
-	if m.docker != nil {
-		// Try to remove any associated containers
-		containers, _ := m.docker.ListByLabel(ctx, serviceID)
-		for _, c := range containers {
-			m.docker.RemoveContainer(ctx, c.ID) //nolint:errcheck
-		}
-		
-		// Remove the built docker image to free disk space
-		if svc.Name != "" {
-			imageTag := "nf-" + svc.Name + ":latest"
-			exec.CommandContext(ctx, "docker", "rmi", "-f", imageTag).Run() //nolint:errcheck
-		}
+	m.teardownContainers(ctx, svc, true)
+
+	if svc.Name != "" {
+		imageTag := "nf-" + svc.Name + ":latest"
+		exec.CommandContext(ctx, "docker", "rmi", "-f", imageTag).Run() //nolint:errcheck
 	}
 
-	// Completely wipe the cloned/built directory from NanoFly host disk
+	if m.docker != nil && svc.Type == TypeDatabase {
+		volDir := filepath.Join(m.docker.DataDir(), "volumes", "db_"+svc.ID)
+		os.RemoveAll(volDir) //nolint:errcheck
+	}
+
 	repoDir := filepath.Join(os.TempDir(), "nanofly-"+svc.ID)
 	os.RemoveAll(repoDir) //nolint:errcheck
+
+	if svc.GitRepoURL != "" && strings.HasPrefix(svc.GitRepoURL, "file://") {
+		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
+		if localPath != "" && strings.Contains(localPath, "nanofly") {
+			// Only remove paths explicitly under NanoFly-managed directories
+			os.RemoveAll(localPath) //nolint:errcheck
+		}
+	}
 
 	_, err = m.db.ExecContext(ctx, `DELETE FROM services WHERE id=?`, serviceID)
 	return err
@@ -1607,36 +1664,51 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 	return m.Get(ctx, serviceID)
 }
 
-// Stop stops a service container.
+// Stop stops a service container and updates DB status.
 func (m *Manager) Stop(ctx context.Context, serviceID string) error {
-	if m.docker != nil {
-		containers, _ := m.docker.ListByLabel(ctx, serviceID)
-		for _, c := range containers {
-			_ = m.docker.StopContainer(ctx, c.ID)
-		}
+	svc, err := m.Get(ctx, serviceID)
+	if err != nil {
+		return fmt.Errorf("service not found: %w", err)
 	}
-	_, err := m.db.ExecContext(ctx, `UPDATE services SET status='stopped' WHERE id=?`, serviceID)
+	m.teardownContainers(ctx, svc, false)
+	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='stopped', updated_at=CURRENT_TIMESTAMP WHERE id=?`, serviceID)
 	return err
 }
 
 // Restart restarts a service container.
 func (m *Manager) Restart(ctx context.Context, serviceID string) error {
+	svc, err := m.Get(ctx, serviceID)
+	if err != nil {
+		return fmt.Errorf("service not found: %w", err)
+	}
 	if m.docker == nil {
 		return fmt.Errorf("docker not available")
 	}
+
+	restarted := false
 	containers, err := m.docker.ListByLabel(ctx, serviceID)
 	if err != nil {
 		return err
 	}
-	if len(containers) == 0 {
-		// Not running / not deployed yet, deploy it
+	for _, c := range containers {
+		if err := m.docker.RestartContainer(ctx, c.ID); err == nil {
+			restarted = true
+		}
+	}
+
+	for _, name := range m.primaryContainerNames(svc) {
+		cmd := exec.CommandContext(ctx, "docker", "restart", name)
+		if cmd.Run() == nil {
+			restarted = true
+		}
+	}
+
+	if !restarted {
 		_, err := m.Deploy(ctx, serviceID)
 		return err
 	}
-	for _, c := range containers {
-		_ = m.docker.RestartContainer(ctx, c.ID)
-	}
-	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='running' WHERE id=?`, serviceID)
+
+	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='running', updated_at=CURRENT_TIMESTAMP WHERE id=?`, serviceID)
 	return err
 }
 
@@ -1987,6 +2059,43 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 	}
 
 	return runArgs
+}
+
+// enrichWordPressEnv adds defaults so WordPress can reach host databases and survive reverse-proxy installs.
+func enrichWordPressEnv(envSlice []string, domains []string, hostPort int) []string {
+	hasKey := func(key string) bool {
+		prefix := key + "="
+		for _, e := range envSlice {
+			if strings.HasPrefix(e, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !hasKey("WORDPRESS_DB_HOST") {
+		envSlice = append(envSlice, "WORDPRESS_DB_HOST=host.docker.internal")
+	}
+
+	siteURL := ""
+	if len(domains) > 0 {
+		siteURL = "http://" + strings.TrimPrefix(domains[0], "http://")
+		siteURL = strings.TrimPrefix(siteURL, "https://")
+		siteURL = "http://" + siteURL
+	} else if hostPort > 0 {
+		siteURL = fmt.Sprintf("http://host.docker.internal:%d", hostPort)
+	}
+
+	proxyFix := `if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { $_SERVER['HTTPS'] = 'on'; }`
+	configExtra := proxyFix
+	if siteURL != "" {
+		configExtra += fmt.Sprintf(` define('WP_HOME','%s'); define('WP_SITEURL','%s');`, siteURL, siteURL)
+	}
+	if !hasKey("WORDPRESS_CONFIG_EXTRA") {
+		envSlice = append(envSlice, "WORDPRESS_CONFIG_EXTRA="+configExtra)
+	}
+
+	return envSlice
 }
 
 // getServiceDomains fetches registered domains for a service

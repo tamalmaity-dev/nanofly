@@ -39,6 +39,11 @@ type Manager struct {
 	OomHandler func(OomEvent) // optional: called from a background goroutine
 }
 
+// DataDir returns the NanoFly data directory path.
+func (m *Manager) DataDir() string {
+	return m.dataDir
+}
+
 // New creates a Manager connected to the local Docker daemon.
 func New(dataDir string) (*Manager, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -485,6 +490,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		Labels: labels,
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
+		ExtraHosts:    []string{"host.docker.internal:host-gateway"},
 		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
 		Resources: container.Resources{
 			Memory:     tier.Memory,
