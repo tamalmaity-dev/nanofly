@@ -131,12 +131,12 @@ jobs:
           echo "Packaged: nanofly-${{ matrix.suffix }}.tar.gz"
           ls -lh "nanofly-${{ matrix.suffix }}.tar.gz"
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: nanofly-${{ matrix.suffix }}.tar.gz
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
+          name: nanofly-${{ matrix.suffix }}
+          path: nanofly-${{ matrix.suffix }}.tar.gz
+          retention-days: 1
 
   # ─── 3. Windows build (runs on Windows runner, outputs .zip) ──────────────────
   build-windows:
@@ -192,9 +192,31 @@ jobs:
           Write-Host "Packaged: nanofly-windows-amd64.zip"
           (Get-Item "nanofly-windows-amd64.zip").Length / 1MB | ForEach-Object { Write-Host ("{0:N1} MB" -f $_) }
 
-      - name: Upload to GitHub Release
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nanofly-windows-amd64
+          path: nanofly-windows-amd64.zip
+          retention-days: 1
+
+  # ─── 4. Publish one GitHub Release with all platform assets (avoids race) ─────
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-unix, build-windows]
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: nanofly-windows-amd64.zip
+          files: release-assets/*
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
