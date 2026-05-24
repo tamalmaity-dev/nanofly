@@ -205,18 +205,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-unix, build-windows]
     steps:
-      - name: Download all build artifacts
+      - name: Download platform build artifacts
         uses: actions/download-artifact@v4
         with:
+          # Only platform packages — do not pull frontend-dist (web/dist files).
+          pattern: nanofly-*
           path: release-assets
           merge-multiple: true
 
-      - name: List release assets
-        run: ls -lh release-assets/
+      - name: Collect release archives
+        run: |
+          mkdir -p release-upload
+          find release-assets -type f \( -name 'nanofly-*.tar.gz' -o -name 'nanofly-*.zip' \) -exec cp -v {} release-upload/ \;
+          ls -lh release-upload/
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*
+          files: release-upload/*
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
