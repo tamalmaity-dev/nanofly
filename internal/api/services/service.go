@@ -20,6 +20,9 @@ import (
 	"github.com/nanofly/nanofly/internal/db"
 )
 
+// GitHubAppPendingRepo is stored until the first push webhook links the real repository URL.
+const GitHubAppPendingRepo = "github-app://pending"
+
 func parseSqliteTime(s string) time.Time {
 	s = strings.TrimSpace(s)
 	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
@@ -554,16 +557,20 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 		return nil, fmt.Errorf("creating service: %w", err)
 	}
 
-	// Store git source if provided
-	if req.GitRepoURL != "" {
+	// Store git source when a repo URL or GitHub App integration is configured
+	if req.GitRepoURL != "" || (req.GitHubAppID != nil && *req.GitHubAppID != "") {
 		builderVal := req.Builder
 		if builderVal == "" {
 			builderVal = "auto"
 		}
+		repoURL := req.GitRepoURL
+		if repoURL == "" {
+			repoURL = GitHubAppPendingRepo
+		}
 		_, err = m.db.ExecContext(ctx, `
 			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key, github_app_id)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, id, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, req.GitHubAppID)
+		`, id, repoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, req.GitHubAppID)
 		if err != nil {
 			slog.Warn("storing git source", "err", err)
 		}
@@ -706,12 +713,12 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 		if svc.Type == TypeDatabase {
 			if m.docker == nil {
-				log("❌ Docker is not available. Cannot deploy database.")
+				log("[ERROR] Docker is not available. Cannot deploy database.")
 				finalStatus = "error"
 				return
 			}
-			log("💾 Starting database deployment: " + svc.Name)
-			log("🗑️  Cleaning up any existing container...")
+			log("[INFO] Starting database deployment: " + svc.Name)
+			log("[INFO] Cleaning up any existing container...")
 			m.docker.RemoveContainer(bgCtx, "nf-db-"+svc.Name) //nolint:errcheck
 
 			password := svc.DBPassword
@@ -766,7 +773,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				svc.Image = dbType
 			}
 
-			log("🚀 Launching " + svc.Image + " container...")
+			log("[INFO] Launching " + svc.Image + " container...")
 			hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 				ServiceID:    svc.ID,
 				DBType:       svc.Image, // stores dbType in s.Image
@@ -779,7 +786,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				CustomCPU:    float64(svc.CustomCPU),
 			})
 			if err != nil {
-				log("❌ Database deployment failed: " + err.Error())
+				log("[ERROR] Database deployment failed: " + err.Error())
 				finalStatus = "error"
 				return
 			}
@@ -792,25 +799,44 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 			m.db.ExecContext(bgCtx, `UPDATE services SET port=? WHERE id=?`, hostPort, svc.ID) //nolint:errcheck
 
-			log("✅ Database deployment succeeded! Port: " + fmt.Sprintf("%d", hostPort))
+			log("[OK] Database deployment succeeded. Port: " + fmt.Sprintf("%d", hostPort))
 			finalStatus = "running"
 			return
 		}
 
-		if svc.GitRepoURL != "" {
+		if svc.GitRepoURL != "" && svc.GitRepoURL != GitHubAppPendingRepo {
 			// Git-based deploy
 			if err := m.gitDeploy(bgCtx, svc, log); err != nil {
-				log("❌ Deploy failed: " + err.Error())
+				log("[ERROR] Deploy failed: " + err.Error())
 				finalStatus = "error"
 				return
 			}
+		} else if svc.GitRepoURL == GitHubAppPendingRepo {
+			log("[WAIT] Repository not linked yet. Push to your repo via the GitHub App webhook to link and deploy.")
+			finalStatus = "idle"
+			return
 		} else if svc.Image != "" {
 			// Docker image deploy
 			if m.docker == nil {
-				log("⚠  Docker not available. Cannot deploy container.")
+				log("[ERROR] Docker not available. Cannot deploy container.")
 				finalStatus = "error"
 				return
 			}
+
+			log("[INFO] Stopping any existing container...")
+			m.teardownContainers(bgCtx, svc, false)
+
+			hostPort := svc.Port
+			if hostPort <= 0 || docker.IsPortInUse(hostPort) {
+				resolved := docker.ResolveHostPort(hostPort)
+				if resolved != hostPort {
+					log(fmt.Sprintf("[INFO] Host port %d is busy; using port %d instead.", hostPort, resolved))
+				}
+				hostPort = resolved
+				m.db.ExecContext(bgCtx, `UPDATE services SET port=? WHERE id=?`, hostPort, serviceID) //nolint:errcheck
+				svc.Port = hostPort
+			}
+
 			var envSlice []string
 			rows, _ := m.db.QueryContext(bgCtx, `SELECT key, value FROM env_vars WHERE service_id=?`, serviceID)
 			if rows != nil {
@@ -824,22 +850,22 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 			domains := m.getServiceDomains(bgCtx, svc.Name)
 			if strings.Contains(strings.ToLower(svc.Image), "wordpress") {
-				envSlice = enrichWordPressEnv(envSlice, domains, svc.Port)
+				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
 			}
 
-			log("📦 Pulling image: " + svc.Image)
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, svc.Port, svc.Port, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+			log("[INFO] Pulling image: " + svc.Image)
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
 			if err != nil {
-				log("❌ " + err.Error())
+				log("[ERROR] " + err.Error())
 				finalStatus = "error"
 				return
 			}
-			log("✅ Container started: " + containerID)
-			m.db.ExecContext(bgCtx, `UPDATE services SET status='running' WHERE id=?`, serviceID) //nolint:errcheck
+			log("[OK] Container started: " + containerID)
+			m.db.ExecContext(bgCtx, `UPDATE services SET status='running', port=? WHERE id=?`, hostPort, serviceID) //nolint:errcheck
 		}
 
 		finalStatus = "running"
-		log("🚀 Deployment complete!")
+		log("[OK] Deployment complete.")
 	}()
 
 	return m.GetDeployment(ctx, deployID)
@@ -1490,33 +1516,55 @@ func (m *Manager) primaryContainerNames(svc *Service) []string {
 	return []string{"nf-app-" + svc.Name}
 }
 
-func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVolumes bool) {
+func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVolumes bool) error {
+	var errs []string
+
 	if svc.Builder == "docker-compose" {
-		args := []string{"compose", "-p", "nf-" + svc.ID, "down"}
+		args := []string{"compose", "-p", "nf-" + svc.ID, "down", "-t", "5"}
 		if removeVolumes {
 			args = append(args, "-v")
 		}
-		exec.CommandContext(ctx, "docker", args...).Run() //nolint:errcheck
+		if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
+			errs = append(errs, strings.TrimSpace(string(out)))
+		}
 	}
 
 	if m.docker != nil {
 		containers, _ := m.docker.ListByLabel(ctx, svc.ID)
 		for _, c := range containers {
+			target := c.Name
+			if target == "" {
+				target = c.ID
+			}
+			var err error
 			if removeVolumes {
-				m.docker.RemoveContainer(ctx, c.ID) //nolint:errcheck
+				err = m.docker.RemoveContainer(ctx, target)
 			} else {
-				m.docker.StopContainer(ctx, c.ID) //nolint:errcheck
+				err = m.docker.StopContainer(ctx, target)
+			}
+			if err != nil {
+				errs = append(errs, err.Error())
 			}
 		}
 	}
 
 	for _, name := range m.primaryContainerNames(svc) {
+		args := []string{"stop", "-t", "5", name}
 		if removeVolumes {
-			exec.CommandContext(ctx, "docker", "rm", "-f", name).Run() //nolint:errcheck
-		} else {
-			exec.CommandContext(ctx, "docker", "stop", name).Run() //nolint:errcheck
+			args = []string{"rm", "-f", name}
+		}
+		if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg != "" && !strings.Contains(msg, "No such container") {
+				errs = append(errs, msg)
+			}
 		}
 	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("container cleanup: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 // Delete removes a service, its containers, images, volumes, and workspace from disk.
@@ -1526,7 +1574,9 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 		return fmt.Errorf("service not found: %w", err)
 	}
 
-	m.teardownContainers(ctx, svc, true)
+	if err := m.teardownContainers(ctx, svc, true); err != nil {
+		slog.Warn("delete teardown", "service", svc.Name, "err", err)
+	}
 
 	if svc.Name != "" {
 		imageTag := "nf-" + svc.Name + ":latest"
@@ -1670,7 +1720,9 @@ func (m *Manager) Stop(ctx context.Context, serviceID string) error {
 	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
 	}
-	m.teardownContainers(ctx, svc, false)
+	if err := m.teardownContainers(ctx, svc, false); err != nil {
+		return err
+	}
 	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='stopped', updated_at=CURRENT_TIMESTAMP WHERE id=?`, serviceID)
 	return err
 }
@@ -2062,7 +2114,7 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 }
 
 // enrichWordPressEnv adds defaults so WordPress can reach host databases and survive reverse-proxy installs.
-func enrichWordPressEnv(envSlice []string, domains []string, hostPort int) []string {
+func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, envSlice []string, domains []string, hostPort int) []string {
 	hasKey := func(key string) bool {
 		prefix := key + "="
 		for _, e := range envSlice {
@@ -2073,8 +2125,33 @@ func enrichWordPressEnv(envSlice []string, domains []string, hostPort int) []str
 		return false
 	}
 
+	getVal := func(key string) string {
+		prefix := key + "="
+		for _, e := range envSlice {
+			if strings.HasPrefix(e, prefix) {
+				return strings.TrimPrefix(e, prefix)
+			}
+		}
+		return ""
+	}
+
 	if !hasKey("WORDPRESS_DB_HOST") {
-		envSlice = append(envSlice, "WORDPRESS_DB_HOST=host.docker.internal")
+		envSlice = append(envSlice, "WORDPRESS_DB_HOST=host.docker.internal:3306")
+	}
+
+	weakPassword := func(p string) bool {
+		p = strings.TrimSpace(p)
+		return p == "" || p == "change_me_secure_password" || p == "changeme" || len(p) < 12
+	}
+	if weakPassword(getVal("WORDPRESS_DB_PASSWORD")) {
+		newPass := docker.RandPassword()
+		envSlice = upsertEnvEntry(envSlice, "WORDPRESS_DB_PASSWORD", newPass)
+		if database != nil && serviceID != "" {
+			database.ExecContext(ctx, `
+				INSERT INTO env_vars (service_id, key, value) VALUES (?, 'WORDPRESS_DB_PASSWORD', ?)
+				ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
+			`, serviceID, newPass) //nolint:errcheck
+		}
 	}
 
 	siteURL := ""
@@ -2096,6 +2173,17 @@ func enrichWordPressEnv(envSlice []string, domains []string, hostPort int) []str
 	}
 
 	return envSlice
+}
+
+func upsertEnvEntry(envSlice []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range envSlice {
+		if strings.HasPrefix(e, prefix) {
+			envSlice[i] = prefix + value
+			return envSlice
+		}
+	}
+	return append(envSlice, prefix+value)
 }
 
 // getServiceDomains fetches registered domains for a service

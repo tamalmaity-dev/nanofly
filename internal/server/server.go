@@ -529,6 +529,9 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 		Repository struct {
 			HTMLURL string `json:"html_url"` // e.g. https://github.com/user/repo
 		} `json:"repository"`
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
 		Ref string `json:"ref"` // e.g. refs/heads/main
 	}
 
@@ -550,10 +553,29 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	branch := strings.TrimPrefix(payload.Ref, "refs/heads/")
+	if branch == "" {
+		branch = "main"
+	}
 
-	// Find all services using this repo and branch
+	var githubAppID string
+	if payload.Installation.ID > 0 {
+		_ = s.db.QueryRowContext(r.Context(), `
+			SELECT id FROM github_apps WHERE installation_id = ?
+		`, payload.Installation.ID).Scan(&githubAppID)
+	}
+
+	// Link pending GitHub App services on first push
+	if githubAppID != "" {
+		_, _ = s.db.ExecContext(r.Context(), `
+			UPDATE git_sources
+			SET repo_url = ?
+			WHERE github_app_id = ? AND repo_url = ? AND branch = ?
+		`, repoUrl, githubAppID, services.GitHubAppPendingRepo, branch)
+	}
+
+	// Find all services using this repo and branch (GitHub App or linked repo)
 	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT service_id FROM git_sources 
+		SELECT service_id FROM git_sources
 		WHERE repo_url = ? AND branch = ? AND github_app_id IS NOT NULL
 	`, repoUrl, branch)
 	if err != nil {
@@ -562,16 +584,17 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	seen := make(map[string]bool)
 	var serviceIDs []string
 	for rows.Next() {
 		var sid string
-		if err := rows.Scan(&sid); err == nil {
+		if err := rows.Scan(&sid); err == nil && sid != "" && !seen[sid] {
+			seen[sid] = true
 			serviceIDs = append(serviceIDs, sid)
 		}
 	}
 
 	for _, sid := range serviceIDs {
-		// Trigger deploy
 		go s.serviceMgr.Deploy(context.Background(), sid) //nolint:errcheck
 	}
 

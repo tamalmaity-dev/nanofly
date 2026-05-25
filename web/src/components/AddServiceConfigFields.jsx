@@ -3,6 +3,7 @@ import { ArrowLeft, Info } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
+import { buildWordPressEnvTemplate } from '../utils/password';
 
 const RUNTIME_VERSIONS = {
   node: [
@@ -40,11 +41,7 @@ export const WORDPRESS_VERSIONS = [
   { value: 'wordpress:php8.2-fpm-alpine', label: 'PHP 8.2 — FPM Alpine (LTS)' },
 ];
 
-export const WORDPRESS_ENV_TEMPLATE = `WORDPRESS_DB_HOST=host.docker.internal:3306
-WORDPRESS_DB_USER=wordpress
-WORDPRESS_DB_PASSWORD=change_me_secure_password
-WORDPRESS_DB_NAME=wordpress
-WORDPRESS_TABLE_PREFIX=wp_`;
+export const WORDPRESS_ENV_TEMPLATE = buildWordPressEnvTemplate();
 
 const DOCKERFILE_TEMPLATES = {
   node: `FROM node:22-alpine
@@ -168,8 +165,8 @@ export function getResourceFormDefaults(resource) {
     case 'wordpress':
       return {
         ...shared,
-        port: '8080',
-        envText: WORDPRESS_ENV_TEMPLATE,
+        port: '0',
+        envText: buildWordPressEnvTemplate(),
       };
     case 'docker-image':
       return { ...shared, port: '80' };
@@ -559,11 +556,18 @@ export function AddServiceConfigFields({
 
       {/* ——— Git ——— */}
       {subType === 'github' && (
-        <ConfigSection title="Git repository" desc="Clone and build from your remote repository.">
-          <div className="form-group">
-            <label className="form-label">Repository URL *</label>
-            <input className="form-input" placeholder="https://github.com/user/repo" value={form.gitUrl} onChange={set('gitUrl')} />
-          </div>
+        <ConfigSection
+          title="Git repository"
+          desc={selectedResourceId === 'git-private-app'
+            ? 'Select your GitHub App. The repository links automatically on the first push via the app webhook (configure in Sources).'
+            : 'Clone and build from your remote repository.'}
+        >
+          {selectedResourceId !== 'git-private-app' && (
+            <div className="form-group">
+              <label className="form-label">Repository URL *</label>
+              <input className="form-input" placeholder="https://github.com/user/repo" value={form.gitUrl} onChange={set('gitUrl')} />
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Branch</label>
             <input className="form-input" value={form.branch} onChange={set('branch')} placeholder="main" />
@@ -575,23 +579,28 @@ export function AddServiceConfigFields({
             </div>
           )}
           {isPrivate && selectedResourceId === 'git-private-app' && (
-            <div className="form-group">
-              <label className="form-label">GitHub App *</label>
-              {githubApps.length === 0 ? (
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  <Link to="/sources">Add a GitHub App in Sources</Link> first.
-                </p>
-              ) : (
-                <SelectRoot value={form.githubAppId || undefined} onValueChange={val => setForm(f => ({ ...f, githubAppId: val }))}>
-                  <SelectTrigger style={{ width: '100%' }} placeholder="Select app..." />
-                  <SelectContent>
-                    {githubApps.map(app => (
-                      <SelectItem key={app.id} value={String(app.id)}>{app.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </SelectRoot>
-              )}
-            </div>
+            <>
+              <div className="form-group">
+                <label className="form-label">GitHub App *</label>
+                {githubApps.length === 0 ? (
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <Link to="/sources">Add a GitHub App in Sources</Link> first, set the webhook URL there, then install the app on your org/repos.
+                  </p>
+                ) : (
+                  <SelectRoot value={form.githubAppId || undefined} onValueChange={val => setForm(f => ({ ...f, githubAppId: val }))}>
+                    <SelectTrigger style={{ width: '100%' }} placeholder="Select app..." />
+                    <SelectContent>
+                      {githubApps.map(app => (
+                        <SelectItem key={app.id} value={String(app.id)}>{app.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </SelectRoot>
+                )}
+              </div>
+              <div style={{ padding: '0.75rem', background: 'rgba(79,110,247,0.06)', borderRadius: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                No repository URL needed. After you create this resource, push to any repo covered by the GitHub App installation — NanoFly links the repo and deploys automatically.
+              </div>
+            </>
           )}
           {isPrivate && !['git-private-key', 'git-private-app'].includes(selectedResourceId) && (
             <div className="form-group">

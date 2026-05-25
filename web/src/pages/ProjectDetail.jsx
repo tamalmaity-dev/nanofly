@@ -483,7 +483,7 @@ const generatePassword = () => {
 };
 
 //  Add Service Form 
-function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
+function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
@@ -531,7 +531,10 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
   const submit = async () => {
     if (!form.name.trim()) { setError('Name is required'); return; }
     if (subType === 'local' && !form.localPath.trim()) { setError('Server folder path is required'); return; }
-    if (subType === 'github' && !form.gitUrl.trim()) { setError('Repository URL is required'); return; }
+    if (subType === 'github' && selectedResourceId !== 'git-private-app' && !form.gitUrl.trim()) {
+      setError('Repository URL is required');
+      return;
+    }
     if (selectedResourceId === 'git-private-app' && !form.githubAppId) {
       setError('Select a GitHub App or configure one in Sources first');
       return;
@@ -552,7 +555,7 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
       } else if (subType === 'github' || subType === 'local') {
         svc = await servicesApi.createApp(projectId, {
           name: form.name.trim(),
-          git_repo_url: subType === 'github' ? form.gitUrl.trim() : '',
+          git_repo_url: subType === 'github' ? (form.gitUrl.trim() || '') : '',
           local_path: subType === 'local' ? form.localPath.trim() : '',
           git_branch: form.branch.trim() || 'main',
           git_token: selectedResourceId === 'git-pat' ? form.token.trim() : '',
@@ -582,24 +585,29 @@ function AddServiceForm({ projectId, projectName, onCancel, onCreated }) {
         });
       }
 
-      // Auto-register a sslip.io domain for app services
+      // Auto-register one sslip.io domain for app services (skip if already assigned)
       if (svc && type !== 'database') {
         const svcData = svc.data || svc;
-        const port = Number(form.port) || 0;
+        const svcName = svcData.name || form.name.trim();
         const host = window.location.hostname;
-        const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
-        const autoDomain = `${randomStr}.${host}.sslip.io`;
-        try {
-          await domainsApi.create({
-            domain: autoDomain,
-            service: svcData.name || form.name.trim(),
-            project: projectName || '',
-            direction: 'both',
-          });
-        } catch (_) { /* domain already exists or conflict, skip */ }
+        const hasDomain = domains.some(d => d.service === svcName && d.project === (projectName || ''));
+        if (!hasDomain) {
+          const randomStr = Math.random().toString(36).substring(2, 10);
+          const autoDomain = `${randomStr}.${host}.sslip.io`;
+          try {
+            await domainsApi.create({
+              domain: autoDomain,
+              service: svcName,
+              project: projectName || '',
+              direction: 'both',
+            });
+          } catch (_) { /* domain already exists or conflict, skip */ }
+        }
 
-        // Auto-trigger first deploy
-        try { await servicesApi.deploy(svcData.id); } catch (_) { }
+        const skipAutoDeploy = selectedResourceId === 'git-private-app' && !form.gitUrl.trim();
+        if (!skipAutoDeploy) {
+          try { await servicesApi.deploy(svcData.id); } catch (_) { }
+        }
       }
 
       onCreated(svc);
@@ -1171,12 +1179,12 @@ function DeploymentsPanel({ serviceId }) {
   };
 
   const statusLabel = {
-    running: 'âœ… Running',
-    completed: 'âœ… Completed',
-    building: 'ðŸ”¨ Building...',
-    deploying: 'ðŸš€ Deploying...',
-    error: 'âŒ Failed',
-    idle: 'ðŸ’¤ Idle',
+    running: 'Running',
+    completed: 'Completed',
+    building: 'Building...',
+    deploying: 'Deploying...',
+    error: 'Failed',
+    idle: 'Idle',
   };
 
   return (
@@ -1194,7 +1202,7 @@ function DeploymentsPanel({ serviceId }) {
           fontSize: '1.05rem',
           color: '#f59e0b',
         }}>
-          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 16 }}>⚙️</span>
+          <span className="spinner" style={{ width: 16, height: 16 }} />
           <strong>Build in progress</strong> — logs are updating live below…
         </div>
       )}
@@ -1369,9 +1377,13 @@ function ContainerLogsPanel({ serviceId }) {
 }
 
 //  Webhook Panel 
-function WebhookPanel({ serviceId }) {
+function WebhookPanel({ serviceId, githubAppId, gitRepoUrl }) {
   const [copied, setCopied] = useState(false);
-  const webhookUrl = `${window.location.origin}/api/webhooks/${serviceId}`;
+  const isGitHubApp = !!githubAppId;
+  const webhookUrl = isGitHubApp
+    ? `${window.location.origin}/api/webhooks/github`
+    : `${window.location.origin}/api/webhooks/${serviceId}`;
+  const pendingRepo = gitRepoUrl === 'github-app://pending' || !gitRepoUrl;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(webhookUrl);
@@ -1382,10 +1394,19 @@ function WebhookPanel({ serviceId }) {
   return (
     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h4 style={{ margin: '0 0 6px 0', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Automatic Deployments Webhook</h4>
+        <h4 style={{ margin: '0 0 6px 0', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+          {isGitHubApp ? 'GitHub App auto-deploy' : 'Automatic deployments webhook'}
+        </h4>
         <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Configure a webhook in your repository provider to trigger automatic builds and deployments on every Git push event.
+          {isGitHubApp
+            ? 'Set this URL on your GitHub App (Sources page). Pushes to repos covered by the installation trigger deploy; the repository URL is linked on the first push.'
+            : 'Configure a webhook in your repository provider to trigger builds on every push.'}
         </p>
+        {isGitHubApp && pendingRepo && (
+          <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: 'var(--yellow)' }}>
+            Waiting for the first push to link this service to a repository.
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1399,18 +1420,24 @@ function WebhookPanel({ serviceId }) {
       </div>
 
       <div className="card" style={{ padding: '1rem', background: 'rgba(79,110,247,0.04)', border: '1px solid rgba(79,110,247,0.08)', borderRadius: 8 }}>
-        <h5 style={{ margin: '0 0 10px 0', fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>ðŸ› ï¸</span> How to configure GitHub Webhooks
+        <h5 style={{ margin: '0 0 10px 0', fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)' }}>
+          {isGitHubApp ? 'GitHub App setup' : 'Per-repository webhook setup'}
         </h5>
-        <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <li>Go to your repository on <strong>GitHub</strong>.</li>
-          <li>Navigate to <strong>Settings</strong> &rarr; <strong>Webhooks</strong> in the sidebar.</li>
-          <li>Click the <strong>Add webhook</strong> button on the right.</li>
-          <li>Paste the Payload URL copied above into the <strong>Payload URL</strong> input field.</li>
-          <li>Set Content type to <strong>application/json</strong>.</li>
-          <li>Set triggering events to <strong>Just the push event</strong>.</li>
-          <li>Click the green <strong>Add webhook</strong> button to save.</li>
-        </ol>
+        {isGitHubApp ? (
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <li>Open <strong>Sources</strong> and edit your GitHub App.</li>
+            <li>Set the app webhook URL to the value above (Push events).</li>
+            <li>Install the app on your organization or repositories.</li>
+            <li>Push to a linked branch — NanoFly deploys automatically.</li>
+          </ol>
+        ) : (
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <li>Go to your repository on <strong>GitHub</strong>.</li>
+            <li>Navigate to <strong>Settings</strong> &rarr; <strong>Webhooks</strong>.</li>
+            <li>Add a webhook with the Payload URL above.</li>
+            <li>Content type: <strong>application/json</strong>, events: <strong>push</strong>.</li>
+          </ol>
+        )}
       </div>
     </div>
   );
@@ -2579,6 +2606,7 @@ export default function ProjectDetail() {
   const confirmStop = async () => {
     if (!stoppingSvc) return;
     const svcId = stoppingSvc.id;
+    const prevStatus = stoppingSvc.status;
     setLoadingStates(prev => ({ ...prev, stopping: svcId }));
     patchServiceStatus(svcId, 'stopped');
     toast.promise(
@@ -2590,7 +2618,10 @@ export default function ProjectDetail() {
       {
         loading: 'Stopping service...',
         success: 'Service stopped successfully!',
-        error: (err) => err.message || 'Failed to stop service',
+        error: (err) => {
+          patchServiceStatus(svcId, prevStatus);
+          return err.message || 'Failed to stop service';
+        },
       }
     ).finally(() => {
       setLoadingStates(prev => ({ ...prev, stopping: null }));
@@ -2847,7 +2878,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
               { id: 'monitoring', label: 'Monitoring', icon: Cpu },
               { id: 'resources', label: 'Resource Limits', icon: Sliders },
-              ...(selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
+              ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
               { id: 'backup', label: 'Backup & Restore', icon: Database },
@@ -2881,9 +2912,13 @@ export default function ProjectDetail() {
             <TabsContent value="resources">
               <ResourceLimitsPanel service={selectedSvc} onUpdate={load} />
             </TabsContent>
-            {selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://') && (
+            {(selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) && (
               <TabsContent value="webhooks">
-                <WebhookPanel serviceId={activeSvc} />
+                <WebhookPanel
+                  serviceId={activeSvc}
+                  githubAppId={selectedSvc.github_app_id}
+                  gitRepoUrl={selectedSvc.git_repo_url}
+                />
               </TabsContent>
             )}
             {selectedSvc.git_repo_url?.startsWith('file://') && (
@@ -2925,6 +2960,7 @@ export default function ProjectDetail() {
 
       {showAddForm ? (
         <AddServiceForm
+          domains={domains}
           projectId={id}
           projectName={project?.name}
           onCancel={() => setShowAddForm(false)}

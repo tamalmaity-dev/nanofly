@@ -54,7 +54,7 @@ export default function SourceDetail() {
   
   if (!app) return null;
 
-  const webhookUrl = `${window.location.origin}/api/v1/github/app/webhook`;
+  const webhookUrl = `${window.location.origin}/api/webhooks/github`;
   const callbackUrl = `${window.location.origin}/api/v1/github/app/callback`;
 
   return (
