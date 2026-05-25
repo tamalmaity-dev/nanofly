@@ -500,7 +500,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		},
 		Init:       boolPtr(true),
 		CapDrop:    []string{"ALL"},
-		CapAdd:     []string{"NET_BIND_SERVICE"},
+		CapAdd:     []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE"},
 		Privileged: false,
 	}, nil, nil, oldName)
 	if err != nil {

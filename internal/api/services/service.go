@@ -1585,6 +1585,8 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 
 	if m.docker != nil && svc.Type == TypeDatabase {
 		volDir := filepath.Join(m.docker.DataDir(), "volumes", "db_"+svc.ID)
+		// Run a helper container to clean up any root-owned files inside the database mount before removing the directory
+		exec.CommandContext(ctx, "docker", "run", "--rm", "-v", volDir+":/data", "alpine", "sh", "-c", "rm -rf /data/* /data/.*").Run()
 		os.RemoveAll(volDir) //nolint:errcheck
 	}
 
@@ -1721,7 +1723,7 @@ func (m *Manager) Stop(ctx context.Context, serviceID string) error {
 		return fmt.Errorf("service not found: %w", err)
 	}
 	if err := m.teardownContainers(ctx, svc, false); err != nil {
-		return err
+		slog.Warn("stop teardown", "service", svc.Name, "err", err)
 	}
 	_, err = m.db.ExecContext(ctx, `UPDATE services SET status='stopped', updated_at=CURRENT_TIMESTAMP WHERE id=?`, serviceID)
 	return err

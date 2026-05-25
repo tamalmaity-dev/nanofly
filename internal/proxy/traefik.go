@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -47,9 +48,11 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		os.Chmod(acmePath, 0600)
 	}
 
-	// Wait, Docker on Windows doesn't easily map /var/run/docker.sock the same way,
-	// but NanoFly targets Linux primarily. We'll use the standard Linux socket.
-	// If it fails on Windows desktop, it's expected as this is a server tool.
+	// Use named pipe on Windows or unix socket on Unix-like OSes
+	dockerSocket := "/var/run/docker.sock:/var/run/docker.sock:ro"
+	if runtime.GOOS == "windows" {
+		dockerSocket = "//./pipe/docker_engine://./pipe/docker_engine"
+	}
 
 	// Start Traefik
 	runArgs := []string{
@@ -58,7 +61,7 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		"--restart", "always",
 		"-p", "80:80",
 		"-p", "443:443",
-		"-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
+		"-v", dockerSocket,
 		"-v", acmePath + ":/acme.json",
 		"--memory=64m",
 		"--cpus=0.5",
