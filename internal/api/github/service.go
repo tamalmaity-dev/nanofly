@@ -159,3 +159,44 @@ func (s *Service) GenerateInstallationToken(ctx context.Context, appID string) (
 
 	return result.Token, nil
 }
+
+// ListRepositories lists all repositories for a GitHub App
+type RepoInfo struct {
+	FullName string `json:"full_name"`
+	CloneURL string `json:"clone_url"`
+}
+
+func (s *Service) ListRepositories(ctx context.Context, appID string) ([]RepoInfo, error) {
+	token, err := s.GenerateInstallationToken(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/installation/repositories?per_page=100", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("github api returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Repositories []RepoInfo `json:"repositories"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Repositories, nil
+}
+

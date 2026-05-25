@@ -853,6 +853,9 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
 			}
 
+			if len(domains) > 0 {
+				log(fmt.Sprintf("[INFO] Registering domain routing: %s", strings.Join(domains, ", ")))
+			}
 			log("[INFO] Pulling image: " + svc.Image)
 			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
 			if err != nil {

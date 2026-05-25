@@ -24,6 +24,21 @@ const DB_VERSIONS = {
   clickhouse: ['clickhouse/clickhouse-server:latest', 'clickhouse/clickhouse-server:24.3'],
 };
 
+// A map of service types to their respective DB versions.
+const getDbVersions = (dbType) => {
+  switch (dbType) {
+    case 'postgres': return DB_VERSIONS.postgres;
+    case 'mysql': return DB_VERSIONS.mysql;
+    case 'mariadb': return DB_VERSIONS.mariadb;
+    case 'redis': return DB_VERSIONS.redis;
+    case 'mongo': return DB_VERSIONS.mongo;
+    case 'keydb': return DB_VERSIONS.keydb;
+    case 'dragonfly': return DB_VERSIONS.dragonfly;
+    case 'clickhouse': return DB_VERSIONS.clickhouse;
+    default: return [];
+  }
+};
+
 
 // helper function to get database key from type string
 const getDbKey = (typeStr) => {
@@ -79,6 +94,18 @@ const RUNTIME_VERSIONS = {
     { value: 'php:7.4-apache', label: 'PHP 7.4' },
   ],
 };
+
+const getSvcRuntimeVersions = (builderType) => {
+  switch (builderType) {
+    case 'node': return RUNTIME_VERSIONS.node;
+    case 'python': return RUNTIME_VERSIONS.python;
+    case 'go': return RUNTIME_VERSIONS.go;
+    case 'php': return RUNTIME_VERSIONS.php;
+    default: return [];
+  }
+};
+
+
 
 const parseBuilderValue = (val) => {
   if (!val || val === 'auto' || val === 'dockerfile' || val === 'docker-compose' || val === 'nixpacks' || val === 'static') {
@@ -163,8 +190,8 @@ function SourceFilesPanel({ service }) {
     try {
       const fd = new FormData();
       fd.append('path', currentPath);
-      for (let i = 0; i < selected.length; i++) {
-        fd.append('files', selected[i]);
+      for (const file of Array.from(selected)) {
+        fd.append('files', file);
       }
       await filesApi.upload(fd);
       await fetchFiles();
@@ -260,7 +287,7 @@ function SourceFilesPanel({ service }) {
       return crumbs;
     }
 
-    let accum = current.startsWith('/') ? '' : '';
+    let accum = '';
     current.split('/').filter(Boolean).forEach(part => {
       accum = accum ? `${accum}/${part}` : current.startsWith('/') ? `/${part}` : part;
       crumbs.push({ name: part, path: accum });
@@ -636,7 +663,7 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
       }));
     } else {
       setType('database');
-      const defaultVer = DB_VERSIONS[resource.dbType]?.[0] || resource.dbType;
+      const defaultVer = getDbVersions(resource.dbType)?.[0] || resource.dbType;
       setDbType(defaultVer);
       setForm(f => ({
         ...f,
@@ -886,10 +913,6 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                       <div style={{
-
-
-
-
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -937,11 +960,15 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
                   <SelectRoot value={dbType} onValueChange={setDbType}>
                     <SelectTrigger style={{ width: '100%' }} />
                     <SelectContent>
-                      {(DB_VERSIONS[getDbKey(dbType)] || [dbType]).map(v => (
-                        <SelectItem key={v} value={v}>
-                          {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : (v.includes('/') ? v.split('/')[1].toUpperCase() : v.toUpperCase())}
-                        </SelectItem>
-                      ))}
+                      {(() => {
+                        const versions = getDbVersions(getDbKey(dbType));
+                        const items = versions.length > 0 ? versions : [dbType];
+                        return items.map(v => (
+                          <SelectItem key={v} value={v}>
+                            {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : (v.includes('/') ? v.split('/')[1].toUpperCase() : v.toUpperCase())}
+                          </SelectItem>
+                        ));
+                      })()}
                     </SelectContent>
                   </SelectRoot>
                 </div>
@@ -1105,23 +1132,36 @@ function EnvVarsPanel({ serviceId }) {
                 {vars.length === 0 && (
                   <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No environment variables</td></tr>
                 )}
-                {vars.map(ev => (
-                  <tr key={ev.key}>
-                    <td><code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{ev.key}</code></td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
-                          {show[ev.key] ? ev.value : '••••••••'}
-                        </code>
-                        <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => setShow(s => ({ ...s, [ev.key]: !s[ev.key] }))} icon={show[ev.key] ? EyeOff : Eye} />
-                        <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
-                      </div>
-                    </td>
-                    <td>
-                      <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => remove(ev.key)} icon={Trash2} />
-                    </td>
-                  </tr>
-                ))}
+                {vars.map(ev => {
+                  const isShown = Object.prototype.hasOwnProperty.call(show, ev.key) && show[ev.key];
+                  return (
+                    <tr key={ev.key}>
+                      <td><code style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{ev.key}</code></td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.8125rem' }}>
+                            {isShown ? ev.value : '••••••••'}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            style={{ padding: 3, minWidth: 28, height: 28 }}
+                            onClick={() => {
+                              if (ev.key !== '__proto__' && ev.key !== 'constructor') {
+                                setShow(s => ({ ...s, [ev.key]: !isShown }));
+                              }
+                            }}
+                            icon={isShown ? EyeOff : Eye}
+                          />
+                          <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28 }} onClick={() => copy(ev.value)} icon={Copy} />
+                        </div>
+                      </td>
+                      <td>
+                        <Button variant="ghost" size="sm" style={{ padding: 3, minWidth: 28, height: 28, color: 'var(--red)' }} onClick={() => remove(ev.key)} icon={Trash2} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1138,7 +1178,72 @@ function EnvVarsPanel({ serviceId }) {
   );
 }
 
-//  Deployments Panel â”€
+// Helper component for copying deployment logs
+function DeploymentLogPre({ logText, logRef, d }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(logText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={handleCopy}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          background: 'rgba(0,0,0,0.6)',
+          border: '1px solid var(--border)',
+          borderRadius: 4,
+          color: '#fff',
+          padding: '2px 8px',
+          fontSize: '0.7rem',
+          cursor: 'pointer',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      <pre
+        ref={logRef}
+        style={{
+          margin: 0,
+          background: '#0a0d14',
+          padding: '1rem',
+          fontSize: '0.78rem',
+          color: '#a8d8a8',
+          overflow: 'auto',
+          maxHeight: 380,
+          fontFamily: 'JetBrains Mono, monospace',
+          whiteSpace: 'pre-wrap',
+          lineHeight: 1.6,
+        }}
+      >
+        {logText.split('\n').map((line, i) => {
+          let color = '#a8d8a8';
+          if (line.includes('❌') || line.includes('Error') || line.includes('error') || line.includes('failed')) color = '#ff6b6b';
+          else if (line.includes('✅') || line.includes('succeeded') || line.includes('complete')) color = '#51cf66';
+          else if (line.includes('⚠️') || line.includes('warn')) color = '#ffd43b';
+          else if (line.includes('📥') || line.includes('📦') || line.includes('🔨') || line.includes('🚀')) color = '#74c0fc';
+          return <span key={i} style={{ color, display: 'block' }}>{line}</span>;
+        })}
+        {(d.status === 'building' || d.status === 'deploying') && (
+          <span style={{ color: '#f59e0b', display: 'block', marginTop: 4 }}>▌ Building...</span>
+        )}
+      </pre>
+    </div>
+  );
+}
+
+//  Deployments Panel ─
 function DeploymentsPanel({ serviceId }) {
   const [deps, setDeps] = useState([]);
   const [open, setOpen] = useState(null);
@@ -1187,6 +1292,14 @@ function DeploymentsPanel({ serviceId }) {
     idle: 'Idle',
   };
 
+  const getStatusColor = (status) => {
+    return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
+  };
+
+  const getStatusLabel = (status) => {
+    return Object.prototype.hasOwnProperty.call(statusLabel, status) ? statusLabel[status] : status;
+  };
+
   return (
     <div>
       {isBuilding && (
@@ -1232,12 +1345,12 @@ function DeploymentsPanel({ serviceId }) {
           >
             <span style={{
               width: 9, height: 9, borderRadius: '50%',
-              background: statusColor[d.status] || 'var(--text-muted)',
+              background: getStatusColor(d.status),
               flexShrink: 0,
-              boxShadow: (d.status === 'building' || d.status === 'deploying') ? `0 0 6px ${statusColor[d.status]}` : 'none',
+              boxShadow: (d.status === 'building' || d.status === 'deploying') ? `0 0 6px ${getStatusColor(d.status)}` : 'none',
             }} />
             <span style={{ color: 'var(--text-primary)', fontWeight: 600, flex: 1 }}>
-              {statusLabel[d.status] || d.status}
+              {getStatusLabel(d.status)}
             </span>
             {d.commit_sha && (
               <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.75rem', color: 'var(--accent)', background: 'rgba(79,110,247,0.1)', padding: '2px 6px', borderRadius: 4 }}>
@@ -1254,33 +1367,7 @@ function DeploymentsPanel({ serviceId }) {
           {open === d.id && (
             <div style={{ borderTop: '1px solid var(--border)' }}>
               {d.log ? (
-                <pre
-                  ref={logRef}
-                  style={{
-                    margin: 0,
-                    background: '#0a0d14',
-                    padding: '1rem',
-                    fontSize: '0.78rem',
-                    color: '#a8d8a8',
-                    overflow: 'auto',
-                    maxHeight: 380,
-                    fontFamily: 'JetBrains Mono, monospace',
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {d.log.split('\n').map((line, i) => {
-                    let color = '#a8d8a8';
-                    if (line.includes('❌') || line.includes('Error') || line.includes('error') || line.includes('failed')) color = '#ff6b6b';
-                    else if (line.includes('✅') || line.includes('succeeded') || line.includes('complete')) color = '#51cf66';
-                    else if (line.includes('⚠️') || line.includes('warn')) color = '#ffd43b';
-                    else if (line.includes('📥') || line.includes('📦') || line.includes('🔨') || line.includes('🚀')) color = '#74c0fc';
-                    return <span key={i} style={{ color, display: 'block' }}>{line}</span>;
-                  })}
-                  {(d.status === 'building' || d.status === 'deploying') && (
-                    <span style={{ color: '#f59e0b', display: 'block', marginTop: 4 }}>▌ Building...</span>
-                  )}
-                </pre>
+                <DeploymentLogPre logText={d.log} logRef={logRef} d={d} />
               ) : (
                 <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '1.05rem', textAlign: 'center' }}>
                   {(d.status === 'building' || d.status === 'deploying') ? '⚙️ Starting build, logs will appear shortly...' : 'No log output.'}
@@ -1300,6 +1387,9 @@ function DeploymentsPanel({ serviceId }) {
 function ServiceCard({ svc, onDeploy, onDelete }) {
   const [deploying, setDeploying] = useState(false);
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
+  const getStatusColor = (status) => {
+    return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
+  };
 
   const handleDeploy = async (e) => {
     e.stopPropagation();
@@ -1311,7 +1401,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
     <div className="card hover-glow" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{svc.name}</span>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)', boxShadow: `0 0 6px ${statusColor[svc.status] || 'transparent'}` }} title={svc.status} />
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: getStatusColor(svc.status), boxShadow: `0 0 6px ${getStatusColor(svc.status)}` }} title={svc.status} />
       </div>
 
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
@@ -1335,6 +1425,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
 // Container Logs Panel
 function ContainerLogsPanel({ serviceId }) {
   const [logs, setLogs] = useState('Fetching container logs...');
+  const [copied, setCopied] = useState(false);
 
   const fetchLogs = useCallback(async () => {
     try {
@@ -1351,11 +1442,20 @@ function ContainerLogsPanel({ serviceId }) {
     return () => clearInterval(interval);
   }, [fetchLogs]);
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(logs);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Runtime Container Logs</span>
-        <Button variant="ghost" size="sm" onClick={fetchLogs} icon={RefreshCw}>Refresh</Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="ghost" size="sm" onClick={handleCopy} icon={copied ? Check : Copy}>{copied ? 'Copied' : 'Copy'}</Button>
+          <Button variant="ghost" size="sm" onClick={fetchLogs} icon={RefreshCw}>Refresh</Button>
+        </div>
       </div>
       <pre style={{
         background: '#0d1117',
@@ -1813,15 +1913,15 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                     }
                   }}
                 >
-                  <option value="auto">Auto-detect (Recommended)</option>
-                  <option value="node">Node.js</option>
-                  <option value="go">Go (Golang)</option>
-                  <option value="python">Python</option>
-                  <option value="php">PHP</option>
-                  <option value="static">HTML / Static Website</option>
-                  <option value="dockerfile">Dockerfile</option>
-                  <option value="docker-compose">Docker Compose</option>
-                  <option value="nixpacks">Nixpacks</option>
+                  <option value="auto">{"Auto-detect (Recommended)"}</option>
+                  <option value="node">{"Node.js"}</option>
+                  <option value="go">{"Go (Golang)"}</option>
+                  <option value="python">{"Python"}</option>
+                  <option value="php">{"PHP"}</option>
+                  <option value="static">{"HTML / Static Website"}</option>
+                  <option value="dockerfile">{"Dockerfile"}</option>
+                  <option value="docker-compose">{"Docker Compose"}</option>
+                  <option value="nixpacks">{"Nixpacks"}</option>
                 </select>
               </div>
 
@@ -1859,7 +1959,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                     value={gitBuilder}
                     onChange={e => setGitBuilder(e.target.value)}
                   >
-                    {RUNTIME_VERSIONS[parseBuilderValue(gitBuilder).type].map(v => (
+                    {getSvcRuntimeVersions(parseBuilderValue(gitBuilder).type).map(v => (
                       <option key={v.value} value={v.value}>
                         {v.label}
                       </option>
@@ -2691,14 +2791,23 @@ export default function ProjectDetail() {
   const dbs = services.filter(s => s.type === 'database');
   const selectedSvc = services.find(s => s.id === activeSvc);
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', stopped: 'var(--text-muted)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
+  const getSvcStatusColor = (status) => {
+    return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
+  };
 
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
   if (activeSvc && selectedSvc) {
-    const matchedDomain = domains.find(d => d.service === selectedSvc.name && d.project === project?.name);
-    const serviceUrl = matchedDomain
-      ? (matchedDomain.domain.startsWith('http') ? matchedDomain.domain : `http://${matchedDomain.domain}`)
-      : (selectedSvc.port > 0 && selectedSvc.type === 'app' ? `http://${window.location.hostname}:${selectedSvc.port}` : null);
+    const matchedDomain = (domains || []).find(d => d.service === selectedSvc.name && d.project === project?.name);
+    let httpUrl = null;
+    let httpsUrl = null;
+    if (matchedDomain) {
+      const cleanDomain = matchedDomain.domain.replace(/^https?:\/\//i, '');
+      httpUrl = `http://${cleanDomain}`;
+      httpsUrl = `https://${cleanDomain}`;
+    } else if (selectedSvc.port > 0 && selectedSvc.type === 'app') {
+      httpUrl = `http://${window.location.hostname}:${selectedSvc.port}`;
+    }
 
     return (
       <div className="page-content fade-in">
@@ -2733,8 +2842,8 @@ export default function ProjectDetail() {
               <ServiceLogo type={selectedSvc.type} name={selectedSvc.name} image={selectedSvc.image} builder={selectedSvc.git_builder} size={28} />
               <h2 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--text-primary)', lineHeight: 1 }}>{selectedSvc.name}</h2>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace' }}>localhost</span>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[selectedSvc.status] || 'var(--text-muted)' }} />
-              <span style={{ fontSize: '1.05rem', color: statusColor[selectedSvc.status] || 'var(--text-muted)', fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: getSvcStatusColor(selectedSvc.status) }} />
+              <span style={{ fontSize: '1.05rem', color: getSvcStatusColor(selectedSvc.status), fontWeight: 600, textTransform: 'capitalize' }}>{selectedSvc.status}</span>
             </div>
 
             {/* Metadata Subtitle */}
@@ -2752,9 +2861,14 @@ export default function ProjectDetail() {
                   <Globe size={14} color="var(--green)" /> :{selectedSvc.port}
                 </span>
               )}
-              {serviceUrl && (
-                <a href={serviceUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
-                  <ExternalLink size={13} /> {serviceUrl}
+              {httpUrl && (
+                <a href={httpUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
+                  <ExternalLink size={13} /> {httpUrl}
+                </a>
+              )}
+              {httpsUrl && (
+                <a href={httpsUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
+                  <ExternalLink size={13} /> {httpsUrl}
                 </a>
               )}
               {selectedSvc.resource_tier && (
@@ -3044,8 +3158,8 @@ export default function ProjectDetail() {
                         </td>
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[svc.status] || 'var(--text-muted)' }} />
-                            <span style={{ fontSize: '0.8rem', color: statusColor[svc.status] || 'var(--text-muted)', textTransform: 'capitalize' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: getSvcStatusColor(svc.status) }} />
+                            <span style={{ fontSize: '0.8rem', color: getSvcStatusColor(svc.status), textTransform: 'capitalize' }}>
                               {svc.status}
                             </span>
                           </div>

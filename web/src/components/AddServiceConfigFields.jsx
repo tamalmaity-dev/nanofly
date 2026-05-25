@@ -1,9 +1,11 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Info } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
 import { buildWordPressEnvTemplate } from '../utils/password';
+import { githubApi } from '../api/client';
 
 const RUNTIME_VERSIONS = {
   node: [
@@ -25,20 +27,20 @@ const RUNTIME_VERSIONS = {
     { value: 'golang:1.21-alpine', label: 'Go 1.21' },
   ],
   php: [
-    { value: 'php:8.3-apache', label: 'PHP 8.3 Apache (Latest)' },
-    { value: 'php:8.2-apache', label: 'PHP 8.2 Apache (Recommended)' },
+    { value: 'php:8.5-apache', label: 'PHP 8.5 Apache (Latest)' },
+    { value: 'php:8.4-apache', label: 'PHP 8.4 Apache (Recommended)' },
+    { value: 'php:8.3-apache', label: 'PHP 8.3 Apache (LTS)' },
+    { value: 'php:8.2-apache', label: 'PHP 8.2 Apache' },
     { value: 'php:8.1-apache', label: 'PHP 8.1 Apache' },
   ],
 };
 
 export const WORDPRESS_VERSIONS = [
-  { value: 'wordpress:php8.4-apache', label: 'PHP 8.4 — Apache (Latest)' },
-  { value: 'wordpress:php8.3-apache', label: 'PHP 8.3 — Apache (Recommended)' },
-  { value: 'wordpress:php8.2-apache', label: 'PHP 8.2 — Apache (LTS)' },
+  { value: 'wordpress:php8.5-apache', label: 'PHP 8.5 — Apache (Latest)' },
+  { value: 'wordpress:php8.4-apache', label: 'PHP 8.4 — Apache (Recommended)' },
+  { value: 'wordpress:php8.3-apache', label: 'PHP 8.3 — Apache (LTS)' },
+  { value: 'wordpress:php8.2-apache', label: 'PHP 8.2 — Apache' },
   { value: 'wordpress:php8.1-apache', label: 'PHP 8.1 — Apache' },
-  { value: 'wordpress:php8.4-fpm-alpine', label: 'PHP 8.4 — FPM Alpine (Latest)' },
-  { value: 'wordpress:php8.3-fpm-alpine', label: 'PHP 8.3 — FPM Alpine (Recommended)' },
-  { value: 'wordpress:php8.2-fpm-alpine', label: 'PHP 8.2 — FPM Alpine (LTS)' },
 ];
 
 export const WORDPRESS_ENV_TEMPLATE = buildWordPressEnvTemplate();
@@ -244,14 +246,21 @@ function BuilderTypeSelect({ value, onChange, lockTo }) {
 }
 
 function RuntimeVersionSelect({ builderType, value, onChange }) {
-  if (!RUNTIME_VERSIONS[builderType]) return null;
+  let versions = [];
+  switch (builderType) {
+    case 'node': versions = RUNTIME_VERSIONS.node; break;
+    case 'python': versions = RUNTIME_VERSIONS.python; break;
+    case 'go': versions = RUNTIME_VERSIONS.go; break;
+    case 'php': versions = RUNTIME_VERSIONS.php; break;
+    default: return null;
+  }
   return (
     <div className="form-group">
       <label className="form-label">Runtime Version</label>
       <SelectRoot value={value} onValueChange={onChange}>
         <SelectTrigger style={{ width: '100%' }} />
         <SelectContent>
-          {RUNTIME_VERSIONS[builderType].map(v => (
+          {versions.map(v => (
             <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
           ))}
         </SelectContent>
@@ -313,7 +322,15 @@ function LanguageFields({ builderType, form, setForm }) {
 
 function DockerfileEditor({ form, setForm, showTemplatePicker }) {
   const applyTemplate = lang => {
-    setForm(f => ({ ...f, dockerfileContent: DOCKERFILE_TEMPLATES[lang] || DOCKERFILE_TEMPLATES.generic }));
+    let content = '';
+    switch (lang) {
+      case 'node': content = DOCKERFILE_TEMPLATES.node; break;
+      case 'python': content = DOCKERFILE_TEMPLATES.python; break;
+      case 'go': content = DOCKERFILE_TEMPLATES.go; break;
+      case 'php': content = DOCKERFILE_TEMPLATES.php; break;
+      default: content = DOCKERFILE_TEMPLATES.generic;
+    }
+    setForm(f => ({ ...f, dockerfileContent: content }));
   };
 
   return (
@@ -382,6 +399,24 @@ export function AddServiceConfigFields({
   selectedResourceId,
   githubApps,
 }) {
+  const [repos, setRepos] = useState([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+
+  useEffect(() => {
+    if (selectedResourceId === 'git-private-app' && form.githubAppId) {
+      setLoadingRepos(true);
+      githubApi.listRepos(form.githubAppId)
+        .then(res => setRepos(res || []))
+        .catch(err => {
+          console.error(err);
+          setRepos([]);
+        })
+        .finally(() => setLoadingRepos(false));
+    } else {
+      setRepos([]);
+    }
+  }, [form.githubAppId, selectedResourceId]);
+
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
   const builderType = parseBuilderValue(form.gitBuilder).type;
   const title = resourceMeta?.title || 'Application';
@@ -597,9 +632,35 @@ export function AddServiceConfigFields({
                   </SelectRoot>
                 )}
               </div>
-              <div style={{ padding: '0.75rem', background: 'rgba(79,110,247,0.06)', borderRadius: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                No repository URL needed. After you create this resource, push to any repo covered by the GitHub App installation — NanoFly links the repo and deploys automatically.
-              </div>
+              {form.githubAppId && (
+                <div className="form-group">
+                  <label className="form-label">Repository</label>
+                  {loadingRepos ? (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Loading repositories...
+                    </div>
+                  ) : repos.length === 0 ? (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      No repositories found. Make sure the app is installed on your repositories.
+                    </div>
+                  ) : (
+                    <SelectRoot value={form.gitUrl || ""} onValueChange={val => setForm(f => ({ ...f, gitUrl: val }))}>
+                      <SelectTrigger style={{ width: '100%' }} placeholder="Select repository..." />
+                      <SelectContent>
+                        <SelectItem value="">-- Webhook push to deploy (Auto-link) --</SelectItem>
+                        {repos.map(r => (
+                          <SelectItem key={r.full_name} value={r.clone_url}>{r.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </SelectRoot>
+                  )}
+                </div>
+              )}
+              {!form.gitUrl && (
+                <div style={{ padding: '0.75rem', background: 'rgba(79,110,247,0.06)', borderRadius: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  No repository selected. After you create this resource, push to any repo covered by the GitHub App installation — NanoFly links the repo and deploys automatically.
+                </div>
+              )}
             </>
           )}
           {isPrivate && !['git-private-key', 'git-private-app'].includes(selectedResourceId) && (

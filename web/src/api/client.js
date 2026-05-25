@@ -173,4 +173,5 @@ export const githubApi = {
   listApps: () => get('/github/app'),
   getApp: (id) => get(`/github/app/${id}`),
   deleteApp: (id) => del(`/github/app/${id}`),
+  listRepos: (id) => get(`/github/app/${id}/repositories`),
 };

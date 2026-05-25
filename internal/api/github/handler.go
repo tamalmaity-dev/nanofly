@@ -26,6 +26,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/manifest", h.CreateManifest)
 	r.Get("/callback", h.ManifestCallback)
 	r.Get("/install-callback", h.InstallCallback)
+	r.Get("/{id}/repositories", h.ListRepositories)
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -209,3 +210,14 @@ func (h *Handler) InstallCallback(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/sources?github_app_installed=true", http.StatusTemporaryRedirect)
 }
+
+func (h *Handler) ListRepositories(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	repos, err := h.svc.ListRepositories(r.Context(), id)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "Failed to fetch repositories for GitHub App: "+err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, repos)
+}
+
