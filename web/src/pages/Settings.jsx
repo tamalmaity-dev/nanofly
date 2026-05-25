@@ -103,7 +103,25 @@ function NotificationsTab({ settings, setSetting, onSave, saving, saved }) {
         <div className="settings-section-title">Alert Events</div>
         {events.map(([key, label, desc]) => (
           <Field key={key} label={label} desc={desc}>
-            <Toggle checked={settings[key]} onChange={v => setSetting(key, v)} />
+            <Toggle
+              checked={
+                key === 'notifications.deploy_failed' ? settings['notifications.deploy_failed'] :
+                key === 'notifications.high_cpu' ? settings['notifications.high_cpu'] :
+                key === 'notifications.disk_warning' ? settings['notifications.disk_warning'] :
+                key === 'notifications.new_login' ? settings['notifications.new_login'] :
+                undefined
+              }
+              onChange={v => {
+                if (
+                  key === 'notifications.deploy_failed' ||
+                  key === 'notifications.high_cpu' ||
+                  key === 'notifications.disk_warning' ||
+                  key === 'notifications.new_login'
+                ) {
+                  setSetting(key, v);
+                }
+              }}
+            />
           </Field>
         ))}
       </div>
@@ -450,6 +468,24 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
 
       <div className="settings-section">
         <div className="settings-section-title">NanoFly System Updates</div>
+        {info?.error && (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            borderRadius: 'var(--radius)',
+            padding: '0.875rem 1.25rem',
+            marginTop: '1rem',
+            marginBottom: '1rem',
+            fontSize: '0.875rem',
+            color: 'var(--red)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}>
+            <AlertCircle size={16} />
+            {info.error}
+          </div>
+        )}
         <div className="settings-row" style={{ alignItems: 'flex-start' }}>
           <div><div className="settings-row-label">Current Version</div><div className="settings-row-desc" style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{info?.current_version || 'dev'}</div></div>
           <div><div className="settings-row-label">Latest Available</div><div className="settings-row-desc" style={{ fontFamily: 'monospace' }}>{info?.latest_version || 'dev'}</div></div>

@@ -734,11 +734,24 @@ func semverCompare(a, b string) int {
 	verA := parseSemverNums(partsA[0])
 	verB := parseSemverNums(partsB[0])
 
-	for i := 0; i < 3; i++ {
-		if verA[i] > verB[i] {
+	maxLen := len(verA)
+	if len(verB) > maxLen {
+		maxLen = len(verB)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		valA := 0
+		if i < len(verA) {
+			valA = verA[i]
+		}
+		valB := 0
+		if i < len(verB) {
+			valB = verB[i]
+		}
+		if valA > valB {
 			return 1
 		}
-		if verA[i] < verB[i] {
+		if valA < valB {
 			return -1
 		}
 	}
@@ -768,19 +781,13 @@ func semverCompare(a, b string) int {
 	return 0
 }
 
-func parseSemverNums(v string) [3]int {
-	var major, minor, patch int
-	parts := strings.SplitN(v, ".", 3)
-	if len(parts) > 0 {
-		fmt.Sscanf(parts[0], "%d", &major)
+func parseSemverNums(v string) []int {
+	parts := strings.Split(v, ".")
+	nums := make([]int, len(parts))
+	for i, p := range parts {
+		fmt.Sscanf(p, "%d", &nums[i])
 	}
-	if len(parts) > 1 {
-		fmt.Sscanf(parts[1], "%d", &minor)
-	}
-	if len(parts) > 2 {
-		fmt.Sscanf(parts[2], "%d", &patch)
-	}
-	return [3]int{major, minor, patch}
+	return nums
 }
 
 // semverGt returns true when a > b numerically.
@@ -801,6 +808,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 			"current_version": currentVersion,
 			"latest_version":  currentVersion,
 			"has_update":      false,
+			"error":           "Unable to reach GitHub — check your internet connection",
 			"message":         "Unable to reach GitHub — check your internet connection",
 		})
 		return
@@ -812,6 +820,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 			"current_version": currentVersion,
 			"latest_version":  currentVersion,
 			"has_update":      false,
+			"error":           fmt.Sprintf("GitHub returned status %d (rate limits might apply)", resp.StatusCode),
 			"message":         fmt.Sprintf("GitHub returned status %d", resp.StatusCode),
 		})
 		return
@@ -823,6 +832,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 			"current_version": currentVersion,
 			"latest_version":  currentVersion,
 			"has_update":      false,
+			"error":           "No releases found on GitHub",
 			"message":         "No releases found on GitHub",
 		})
 		return
