@@ -1551,7 +1551,7 @@ func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVo
 	for _, name := range m.primaryContainerNames(svc) {
 		args := []string{"stop", "-t", "5", name}
 		if removeVolumes {
-			args = []string{"rm", "-f", name}
+			args = []string{"rm", "-f", "-v", name}
 		}
 		if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
 			msg := strings.TrimSpace(string(out))
@@ -1586,7 +1586,7 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 	if m.docker != nil && svc.Type == TypeDatabase {
 		volDir := filepath.Join(m.docker.DataDir(), "volumes", "db_"+svc.ID)
 		// Run a helper container to clean up any root-owned files inside the database mount before removing the directory
-		exec.CommandContext(ctx, "docker", "run", "--rm", "-v", volDir+":/data", "alpine", "sh", "-c", "rm -rf /data/* /data/.*").Run()
+		exec.CommandContext(ctx, "docker", "run", "--rm", "-v", volDir+":/data", "alpine", "sh", "-c", "find /data -mindepth 1 -delete").Run()
 		os.RemoveAll(volDir) //nolint:errcheck
 	}
 
@@ -1599,6 +1599,12 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 			// Only remove paths explicitly under NanoFly-managed directories
 			os.RemoveAll(localPath) //nolint:errcheck
 		}
+	}
+
+	var projectName string
+	m.db.QueryRowContext(ctx, `SELECT name FROM projects WHERE id = ?`, svc.ProjectID).Scan(&projectName)
+	if svc.Name != "" && projectName != "" {
+		_, _ = m.db.ExecContext(ctx, `DELETE FROM domains_v2 WHERE service = ? AND project = ?`, svc.Name, projectName)
 	}
 
 	_, err = m.db.ExecContext(ctx, `DELETE FROM services WHERE id=?`, serviceID)
