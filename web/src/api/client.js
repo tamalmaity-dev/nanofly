@@ -153,6 +153,7 @@ export const filesApi = {
 export const settingsApi = {
   get:  ()     => get('/settings'),
   save: (body) => put('/settings', body),
+  reboot: ()   => post('/settings/reboot'),
 };
 
 // Backups Management

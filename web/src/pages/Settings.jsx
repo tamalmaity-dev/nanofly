@@ -131,6 +131,37 @@ function NotificationsTab({ settings, setSetting, onSave, saving, saved }) {
 }
 
 function SystemTab() {
+  const toast = useToast();
+  const [rebooting, setRebooting] = useState(false);
+
+  const handleReboot = async () => {
+    if (!confirm("Are you sure you want to reboot the NanoFlY Server? This will temporarily interrupt all running services and proxy routing.")) {
+      return;
+    }
+    setRebooting(true);
+    try {
+      await settingsApi.reboot();
+      toast.success("Reboot command sent! The VPS/Server is rebooting...");
+      setTimeout(pollHealthAndReload, 5000);
+    } catch (err) {
+      toast.error(err.message || "Failed to reboot server");
+      setRebooting(false);
+    }
+  };
+
+  const pollHealthAndReload = async () => {
+    try {
+      const res = await fetch('/health');
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        setTimeout(pollHealthAndReload, 2000);
+      }
+    } catch {
+      setTimeout(pollHealthAndReload, 2000);
+    }
+  };
+
   return (
     <div className="fade-in">
       <div className="settings-section">
@@ -157,6 +188,20 @@ function SystemTab() {
           <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> Traefik (Running)
           </div>
+        </Field>
+      </div>
+
+      <div className="settings-section" style={{ marginTop: '2rem' }}>
+        <div className="settings-section-title" style={{ color: 'var(--red)' }}>Danger Zone</div>
+        <Field label="Reboot VPS / Server" desc="Gracefully restart the host virtual private server. Active deployments, web sockets, and proxy routing will be temporarily offline.">
+          <Button
+            variant="danger"
+            onClick={handleReboot}
+            loading={rebooting}
+            icon={RefreshCw}
+          >
+            Reboot Server
+          </Button>
         </Field>
       </div>
     </div>
@@ -307,15 +352,15 @@ function UpdateProgressSteps({ status, log }) {
   return (
     <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Update Progress</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.5rem 1.25rem', overflowX: 'auto' }}>
         {steps.map((s, idx) => {
           const state = getStepState(s.key, idx);
           return (
-            <div key={s.key} style={{ display: 'flex', gap: 14, opacity: state === 'pending' ? 0.45 : 1 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <React.Fragment key={s.key}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: state === 'pending' ? 0.45 : 1 }}>
                 <div style={{
-                  width: 24,
-                  height: 24,
+                  width: 28,
+                  height: 28,
                   borderRadius: '50%',
                   display: 'flex',
                   alignItems: 'center',
@@ -325,32 +370,36 @@ function UpdateProgressSteps({ status, log }) {
                       state === 'error' ? 'var(--red)' : 'var(--bg-base)',
                   border: `1.5px solid ${state === 'pending' ? 'var(--border)' : 'transparent'}`,
                   color: '#fff',
-                  fontSize: '0.75rem',
+                  fontSize: '0.8rem',
                   fontWeight: 600,
                   boxShadow: state === 'active' ? '0 0 0 3px rgba(79, 110, 247, 0.25)' : 'none',
-                  transition: 'all 0.3s ease'
+                  transition: 'all 0.3s ease',
+                  flexShrink: 0
                 }}>
-                  {state === 'completed' ? <Check size={12} strokeWidth={3} /> :
-                    state === 'active' ? <div className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5, borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.2)' }} /> :
+                  {state === 'completed' ? <Check size={14} strokeWidth={3} /> :
+                    state === 'active' ? <div className="spinner" style={{ width: 14, height: 14, borderWidth: 1.5, borderTopColor: '#fff', borderColor: 'rgba(255,255,255,0.2)' }} /> :
                       state === 'error' ? '!' : idx + 1}
                 </div>
-                {idx < steps.length - 1 && (
-                  <div style={{
-                    width: 1.5,
-                    height: '1.5rem',
-                    background: state === 'completed' ? 'var(--green)' : 'var(--border)',
-                    marginTop: 4,
-                    marginBottom: 4
-                  }} />
-                )}
-              </div>
-              <div style={{ flex: 1, paddingTop: 2 }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: state === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                  {s.label}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: state === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                    {s.label}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', marginTop: 1 }}>
+                    {s.key === 'downloading' ? 'Download' : s.key === 'extracting' ? 'Extract' : s.key === 'installing' ? 'Install' : 'Restart'}
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{s.desc}</div>
               </div>
-            </div>
+              {idx < steps.length - 1 && (
+                <div style={{
+                  flex: 1,
+                  height: 2,
+                  background: state === 'completed' ? 'var(--green)' : 'var(--border)',
+                  minWidth: 16,
+                  marginLeft: 8,
+                  marginRight: 8
+                }} />
+              )}
+            </React.Fragment>
           );
         })}
       </div>
@@ -453,7 +502,10 @@ function UpdatesTab({ settings, setSetting, onSave, saving, saved }) {
         <Field label="Release Channel" desc="Stable receives fully tested versions. Beta receives pre-releases.">
           <SelectRoot
             value={settings['updates.channel'] || 'stable'}
-            onValueChange={val => setSetting('updates.channel', val)}
+            onValueChange={val => {
+              setSetting('updates.channel', val);
+              settingsApi.save({ ...settings, 'updates.channel': val }).catch(() => {});
+            }}
             disabled={updating}
           >
             <SelectTrigger style={{ width: 180 }} />

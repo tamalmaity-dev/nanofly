@@ -191,6 +191,7 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Get("/settings/update/check", s.handleUpdateCheck)
 		r.Post("/settings/update/apply", s.handleUpdateApply)
 		r.Get("/settings/update/log", s.handleUpdateLog)
+		r.Post("/settings/reboot", s.handleReboot)
 		r.Get("/settings/backups", s.handleBackupsList)
 		r.Post("/settings/backups", s.handleBackupCreate)
 		r.Get("/settings/backups/{name}/download", s.handleBackupDownload)
@@ -913,10 +914,37 @@ func (s *Server) getCurrentVersion() string {
 func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
+	
+	status := s.updateStatus
+	if status == "done" {
+		s.updateStatus = "idle"
+	}
+
 	response.Success(w, map[string]any{
-		"status": s.updateStatus,
+		"status": status,
 		"log":    s.updateLog,
 	})
+}
+
+func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		time.Sleep(2 * time.Second)
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("shutdown", "/r", "/t", "0")
+		} else {
+			cmd = exec.Command("sudo", "reboot")
+		}
+		slog.Info("Executing server reboot", "os", runtime.GOOS)
+		if err := cmd.Run(); err != nil {
+			if runtime.GOOS != "windows" {
+				cmd = exec.Command("reboot")
+				_ = cmd.Run()
+			}
+		}
+	}()
+
+	response.Success(w, map[string]string{"status": "rebooting"})
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
