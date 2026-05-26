@@ -11,6 +11,8 @@ import 'prismjs/components/prism-markup';
 import 'prismjs/themes/prism-tomorrow.css';
 
 
+const SimpleCodeEditor = typeof Editor === 'function' ? Editor : (Editor.default || Editor);
+
 export default function CodeEditor({ value, onChange, placeholder, style, readOnly = false, language = 'javascript' }) {
   const gutterRef = useRef(null);
   const [lineCount, setLineCount] = useState(1);
@@ -112,7 +114,7 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
           position: 'relative'
         }}
       >
-        <Editor
+        <SimpleCodeEditor
           value={value || ''}
           onValueChange={val => onChange && onChange(val)}
           highlight={highlight}
