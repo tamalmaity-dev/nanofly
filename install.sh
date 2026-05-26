@@ -54,7 +54,7 @@ echo -e " / /|  // /_/ // / / / /_/ / __/  / // /_/ /"
 echo -e "/_/ |_/ \\__,_//_/ /_/\\____/_/    /_/ \\__, /"
 echo -e "                                    /____/ "
 echo -e "${NC}"
-echo -e "${GREEN}${BOLD}      Self-Hosted Server Control Panel${NC}"
+echo -e "${GREEN}${BOLD}      🌟 NanoFly - Self-Hosted Server Control Panel${NC}"
 echo -e "${DIM}      https://github.com/${NANOFLY_REPO}${NC}"
 echo ""
 
@@ -144,11 +144,19 @@ else
     apt-get update -y -qq >/dev/null 2>&1
     apt-get install -y -qq curl >/dev/null 2>&1
   fi
-  curl -fsSL https://get.docker.com | sh >/dev/null 2>&1 || {
-    log_warn "Official installer failed, trying apt..."
+  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh >/dev/null 2>&1
+  if [ -f /tmp/get-docker.sh ]; then
+    sh /tmp/get-docker.sh >/dev/null 2>&1 || {
+      log_warn "Official installer failed, trying apt..."
+      apt-get update -y -qq >/dev/null 2>&1
+      apt-get install -y -qq docker.io >/dev/null 2>&1
+    }
+    rm -f /tmp/get-docker.sh
+  else
+    log_warn "Failed to download official installer, trying apt..."
     apt-get update -y -qq >/dev/null 2>&1
     apt-get install -y -qq docker.io >/dev/null 2>&1
-  }
+  fi
   systemctl start docker  >/dev/null 2>&1 || true
   systemctl enable docker >/dev/null 2>&1 || true
   log_success "Docker installed"

@@ -249,7 +249,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 
 	portBinding := nat.PortMap{
 		nat.Port(fmt.Sprintf("%d/tcp", containerPort)): []nat.PortBinding{
-			{HostIP: "127.0.0.1", HostPort: fmt.Sprintf("%d", hostPort)},
+			{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", hostPort)},
 		},
 	}
 

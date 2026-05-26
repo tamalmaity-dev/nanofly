@@ -113,6 +113,7 @@ export const activityApi = {
 // Metrics
 export const metricsApi = {
   snapshot: () => get('/metrics/snapshot'),
+  fixCgroups: () => post('/metrics/fix-cgroups'),
 };
 
 // Terminal WebSocket URL (for xterm.js)
