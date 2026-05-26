@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi, filesApi, githubApi, terminalWsUrl } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info } from 'lucide-react';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info, SaveAll, SaveIcon } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
@@ -139,7 +139,7 @@ const parseBulkEnv = (text) => {
   return parsed;
 };
 
-//  Source Files Panel â”€
+//  Source Files Panel
 function SourceFilesPanel({ service }) {
   const rootPath = service.git_repo_url?.startsWith('file://')
     ? service.git_repo_url.replace('file://', '')
@@ -518,6 +518,38 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
   const [isPrivate, setIsPrivate] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState('');
   const [githubApps, setGithubApps] = useState([]);
+  const [repos, setRepos] = useState([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
+
+  const handleSelectApp = (app) => {
+    if (app.installation_id === 0) {
+      alert('This GitHub App installation has not been finished yet. Please configure it in Sources first.');
+      return;
+    }
+    setForm(f => ({ ...f, githubAppId: String(app.id) }));
+    setLoadingRepos(true);
+    setError('');
+    githubApi.listRepos(app.id)
+      .then(res => {
+        setRepos(res || []);
+        setSelectedRepoUrl('');
+        setStep('select-repo');
+      })
+      .catch(err => {
+        setError(err.message || 'Failed to load repositories');
+      })
+      .finally(() => setLoadingRepos(false));
+  };
+
+  const refreshRepos = () => {
+    if (!form.githubAppId) return;
+    setLoadingRepos(true);
+    githubApi.listRepos(form.githubAppId)
+      .then(res => setRepos(res || []))
+      .catch(err => setError(err.message || 'Failed to load repositories'))
+      .finally(() => setLoadingRepos(false));
+  };
 
   useEffect(() => {
     if (subType === 'github') {
@@ -670,7 +702,11 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
         name: `my-${resource.dbType}`,
       }));
     }
-    setStep('config');
+    if (resource.id === 'git-private-app') {
+      setStep('select-app');
+    } else {
+      setStep('config');
+    }
   };
 
   const APP_RESOURCES = [
@@ -829,10 +865,6 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <div style={{
-
-
-
-
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -870,10 +902,6 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                         <div style={{
-
-
-
-
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -930,92 +958,286 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
           </div>
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: 6 }}>
-            <ConfigStepBackBar onBack={() => setStep('type')} />
-            {type === 'app' ? (
-              <AddServiceConfigFields
-                resourceMeta={APP_RESOURCES.find(r => r.id === selectedResourceId)}
-                form={form}
-                setForm={setForm}
-                subType={subType}
-                isPrivate={isPrivate}
-                selectedResourceId={selectedResourceId}
-                githubApps={githubApps}
-              />
+            <ConfigStepBackBar onBack={() => {
+              if (selectedResourceId === 'git-private-app') {
+                if (step === 'select-app') setStep('type');
+                else if (step === 'select-repo') setStep('select-app');
+                else if (step === 'configure-app') setStep('select-repo');
+                else setStep('type');
+              } else {
+                setStep('type');
+              }
+            }} />
+
+            {selectedResourceId === 'git-private-app' ? (
+              <>
+                {step === 'select-app' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Create a new Application</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                          Deploy any public or private Git repositories through a GitHub App.
+                        </p>
+                      </div>
+                      <Link to="/sources" className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--radius)', color: 'var(--text-primary)', textDecoration: 'none' }}>
+                        + Add GitHub App
+                      </Link>
+                    </div>
+
+                    <div style={{ marginTop: '1rem' }}>
+                      <h4 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Select a Github App</h4>
+                      {githubApps.length === 0 ? (
+                        <div className="card" style={{ padding: '2rem', textAlign: 'center', border: '1px solid var(--border)' }}>
+                          <p style={{ color: 'var(--text-muted)', margin: '0 0 12px' }}>No GitHub Apps configured yet.</p>
+                          <Link to="/sources" className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>Configure GitHub App</Link>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {githubApps.map(app => (
+                            <div
+                              key={app.id}
+                              className="card hover-glow"
+                              style={{ cursor: 'pointer', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border)' }}
+                              onClick={() => handleSelectApp(app)}
+                            >
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{app.name}</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>https://github.com</div>
+                              </div>
+                              <span style={{ fontSize: '0.8rem', color: app.installation_id === 0 ? 'var(--red)' : 'var(--green)', fontWeight: 500 }}>
+                                {app.installation_id === 0 ? 'Not Configured' : 'Installed'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {step === 'select-repo' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Create a new Application</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                          Deploy any public or private Git repositories through a GitHub App.
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Link to="/sources" className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 'var(--radius)', color: 'var(--text-primary)', textDecoration: 'none', fontSize: '0.8rem' }}>
+                          + Add GitHub App
+                        </Link>
+                        <button type="button" onClick={refreshRepos} className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', fontSize: '0.8rem', padding: '4px 10px' }}>
+                          Refresh Repository List
+                        </button>
+                        <a href="https://github.com/settings/installations" target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', fontSize: '0.8rem', padding: '4px 10px', textDecoration: 'none', color: 'var(--text-primary)' }}>
+                          Change Repositories on GitHub ↗
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="form-group" style={{ marginTop: '1rem' }}>
+                      <label className="form-label">Repository</label>
+                      {loadingRepos ? (
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, padding: '12px', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Loading repositories...
+                        </div>
+                      ) : repos.length === 0 ? (
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '12px', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          No repositories found. Make sure the app is installed on your repositories.
+                        </div>
+                      ) : (
+                        <SelectRoot value={selectedRepoUrl} onValueChange={setSelectedRepoUrl}>
+                          <SelectTrigger style={{ width: '100%' }} placeholder="Select repository..." />
+                          <SelectContent>
+                            {repos.map(r => (
+                              <SelectItem key={r.full_name} value={r.clone_url}>{r.full_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </SelectRoot>
+                      )}
+                    </div>
+
+                    {error && <p style={{ color: 'var(--red)', fontSize: '0.85rem', margin: 0 }}>⚠️ {error}</p>}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                      <Button variant="primary" disabled={!selectedRepoUrl} onClick={() => {
+                        const matched = repos.find(r => r.clone_url === selectedRepoUrl);
+                        if (matched) {
+                          const repoName = matched.full_name.split('/')[1] || matched.full_name;
+                          setForm(f => ({
+                            ...f,
+                            gitUrl: matched.clone_url,
+                            name: repoName,
+                          }));
+                          setStep('configure-app');
+                        }
+                      }}>
+                        Load Repository
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {step === 'configure-app' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Create a new Application</h3>
+                      <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        Deploy any public or private Git repositories through a GitHub App.
+                      </p>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Repository</label>
+                      <input className="form-input" value={repos.find(r => r.clone_url === form.gitUrl)?.full_name || form.gitUrl} disabled style={{ opacity: 0.7 }} />
+                    </div>
+
+                    <h4 style={{ margin: '10px 0 0', fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>Configuration</h4>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      <div className="form-group">
+                        <label className="form-label">Branch</label>
+                        <input className="form-input" value={form.branch} onChange={set('branch')} placeholder="main" />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Build Pack *</label>
+                        <select className="form-input" value={form.gitBuilder} onChange={e => {
+                          const val = e.target.value;
+                          setForm(f => ({ ...f, gitBuilder: val }));
+                        }}>
+                          <option value="nixpacks">Nixpacks</option>
+                          <option value="dockerfile">Dockerfile</option>
+                          <option value="docker-compose">Docker Compose</option>
+                          <option value="node:22-alpine">Node.js</option>
+                          <option value="python:3.11-slim">Python</option>
+                          <option value="golang:1.22-alpine">Go (Golang)</option>
+                          <option value="php:8.2-apache">PHP</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                      <div className="form-group">
+                        <label className="form-label">Base Directory ⓘ</label>
+                        <input className="form-input" value={form.appDirectory} onChange={set('appDirectory')} placeholder="/" />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Port ⓘ</label>
+                        <input className="form-input" value={form.port} onChange={set('port')} placeholder="3000" />
+                      </div>
+                    </div>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={form.gitBuilder === 'static'} onChange={e => {
+                        const checked = e.target.checked;
+                        setForm(f => ({ ...f, gitBuilder: checked ? 'static' : 'nixpacks' }));
+                      }} />
+                      Is it a static site? ⓘ
+                    </label>
+
+                    {error && <p style={{ color: 'var(--red)', fontSize: '0.85rem', margin: 0 }}>⚠️ {error}</p>}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '1rem' }}>
+                      <Button variant="outline" onClick={() => setStep('select-repo')}>Back</Button>
+                      <Button variant="primary" onClick={submit} loading={loading}>
+                        Continue
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(79,110,247,0.06)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(79,110,247,0.1)' }}>
-                  <span style={{ fontSize: '1.1rem' }}>ðŸ’¾</span>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      Deploying Database: {dbType.toUpperCase()}
+              <>
+                {type === 'app' ? (
+                  <AddServiceConfigFields
+                    resourceMeta={APP_RESOURCES.find(r => r.id === selectedResourceId)}
+                    form={form}
+                    setForm={setForm}
+                    subType={subType}
+                    isPrivate={isPrivate}
+                    selectedResourceId={selectedResourceId}
+                    githubApps={githubApps}
+                  />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(79,110,247,0.06)', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid rgba(79,110,247,0.1)' }}>
+                      {/* <span style={{ fontSize: '1.1rem' }}>💾</span> */}
+                      <SaveIcon className="text-blue-500" />
+                      <div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          Deploying Database: {dbType.toUpperCase()}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                          NanoFly will spin up an isolated database container and inject connection strings automatically.
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                      NanoFly will spin up an isolated database container and inject connection strings automatically.
+
+                    <div className="form-group">
+                      <label className="form-label">Database Version</label>
+                      <SelectRoot value={dbType} onValueChange={setDbType}>
+                        <SelectTrigger style={{ width: '100%' }} />
+                        <SelectContent>
+                          {(() => {
+                            const versions = getDbVersions(getDbKey(dbType));
+                            const items = versions.length > 0 ? versions : [dbType];
+                            return items.map(v => (
+                              <SelectItem key={v} value={v}>
+                                {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : (v.includes('/') ? v.split('/')[1].toUpperCase() : v.toUpperCase())}
+                              </SelectItem>
+                            ));
+                          })()}
+                        </SelectContent>
+                      </SelectRoot>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Database Instance Name *</label>
+                      <input className="form-input" placeholder={`my-${dbType.split(':')[0]}`} value={form.name} onChange={set('name')} autoFocus />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Resource Tier</label>
+                      <select className="form-input" value={form.resourceTier} onChange={set('resourceTier')}>
+                        <option value="nano">Nano (128MB / 0.25 CPU)</option>
+                        <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
+                        <option value="standard">Standard (512MB / 1.0 CPU)</option>
+                        <option value="large">Large (1GB / 2.0 CPU)</option>
+                        <option value="unlimited">Unlimited (No Limits)</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">Database User</label>
+                        <input className="form-input" value={form.dbUser} onChange={set('dbUser')} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Database Password</label>
+                        <input className="form-input" value={form.dbPassword} onChange={set('dbPassword')} />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Initial Database Name</label>
+                      <input className="form-input" placeholder="Leave empty to use instance name" value={form.dbName} onChange={set('dbName')} />
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div className="form-group">
-                  <label className="form-label">Database Version</label>
-                  <SelectRoot value={dbType} onValueChange={setDbType}>
-                    <SelectTrigger style={{ width: '100%' }} />
-                    <SelectContent>
-                      {(() => {
-                        const versions = getDbVersions(getDbKey(dbType));
-                        const items = versions.length > 0 ? versions : [dbType];
-                        return items.map(v => (
-                          <SelectItem key={v} value={v}>
-                            {v.includes(':') ? `${v.split(':')[0].toUpperCase()} ${v.split(':')[1]}` : (v.includes('/') ? v.split('/')[1].toUpperCase() : v.toUpperCase())}
-                          </SelectItem>
-                        ));
-                      })()}
-                    </SelectContent>
-                  </SelectRoot>
-                </div>
+                {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
 
-                <div className="form-group">
-                  <label className="form-label">Database Instance Name *</label>
-                  <input className="form-input" placeholder={`my-${dbType.split(':')[0]}`} value={form.name} onChange={set('name')} autoFocus />
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+                  <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
+                  <Button variant="solid" onClick={submit} loading={loading}>
+                    Deploy Now
+                  </Button>
                 </div>
-
-                <div className="form-group">
-                  <label className="form-label">Resource Tier</label>
-                  <select className="form-input" value={form.resourceTier} onChange={set('resourceTier')}>
-                    <option value="nano">Nano (128MB / 0.25 CPU)</option>
-                    <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
-                    <option value="standard">Standard (512MB / 1.0 CPU)</option>
-                    <option value="large">Large (1GB / 2.0 CPU)</option>
-                    <option value="unlimited">Unlimited (No Limits)</option>
-                  </select>
-                </div>
-
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div className="form-group">
-                    <label className="form-label">Database User</label>
-                    <input className="form-input" value={form.dbUser} onChange={set('dbUser')} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Database Password</label>
-                    <input className="form-input" value={form.dbPassword} onChange={set('dbPassword')} />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Initial Database Name</label>
-                  <input className="form-input" placeholder="Leave empty to use instance name" value={form.dbName} onChange={set('dbName')} />
-                </div>
-              </div>
+              </>
             )}
-
-            {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>âš ï¸ {error}</p>}
-
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-              <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
-              <Button variant="solid" onClick={submit} loading={loading}>
-                Deploy Now
-              </Button>
-            </div>
           </div>
         )}
       </div>
@@ -1023,7 +1245,7 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
   );
 }
 
-//  Env Vars Editor â”€
+//  Env Vars Editor
 function EnvVarsPanel({ serviceId }) {
   const [vars, setVars] = useState([]);
   const [newKey, setNewKey] = useState('');
@@ -2804,7 +3026,9 @@ export default function ProjectDetail() {
     if (matchedDomain) {
       const cleanDomain = matchedDomain.domain.replace(/^https?:\/\//i, '');
       httpUrl = `http://${cleanDomain}`;
-      httpsUrl = `https://${cleanDomain}`;
+      if (!cleanDomain.includes('.sslip.io')) {
+        httpsUrl = `https://${cleanDomain}`;
+      }
     } else if (selectedSvc.port > 0 && selectedSvc.type === 'app') {
       httpUrl = `http://${window.location.hostname}:${selectedSvc.port}`;
     }
@@ -3051,6 +3275,59 @@ export default function ProjectDetail() {
             </TabsContent>
           </Tabs>
         </div>
+
+        {/* Delete Service Modal */}
+        <Modal open={!!deletingSvc} onClose={() => setDeletingSvc(null)} title="Delete Service">
+          <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <p style={{ color: 'var(--red)', marginBottom: 12 }}>
+              <strong>Warning:</strong> Deleting this service will permanently destroy its data, containers, and entirely remove it from the disk space. This cannot be undone.
+            </p>
+            <p style={{ marginBottom: 8 }}>
+              Please type <strong>{deletingSvc?.name}</strong> to confirm.
+            </p>
+            <input
+              className="form-input"
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={deletingSvc?.name}
+              style={{ width: '100%' }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+              <Button variant="ghost" onClick={() => setDeletingSvc(null)} disabled={loadingStates.deleting === deletingSvc?.id}>Cancel</Button>
+              <Button
+                variant="solid"
+                style={{ background: 'var(--red)', color: '#fff' }}
+                onClick={confirmDelete}
+                disabled={deleteConfirmName !== deletingSvc?.name || loadingStates.deleting === deletingSvc?.id}
+                loading={loadingStates.deleting === deletingSvc?.id}
+              >
+                I understand, delete this service
+              </Button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Stop Service Modal */}
+        <Modal open={!!stoppingSvc} onClose={() => setStoppingSvc(null)} title="Stop Service">
+          <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <p style={{ marginBottom: 20 }}>
+              Are you sure you want to stop <strong>{stoppingSvc?.name}</strong>? The service will stop running and become unavailable.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <Button variant="ghost" onClick={() => setStoppingSvc(null)} disabled={loadingStates.stopping === stoppingSvc?.id}>Cancel</Button>
+              <Button
+                variant="solid"
+                style={{ background: 'var(--red)', color: '#fff' }}
+                onClick={confirmStop}
+                disabled={loadingStates.stopping === stoppingSvc?.id}
+                loading={loadingStates.stopping === stoppingSvc?.id}
+              >
+                Stop Service
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </div>
     );
   }

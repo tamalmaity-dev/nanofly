@@ -28,13 +28,14 @@ export function ToastProvider({ children }) {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const promise = useCallback((promiseFn, messages) => {
+  const promise = useCallback((promiseOrFn, messages) => {
     const loadingId = Math.random().toString(36).substring(2, 9);
     const loadingTitle = typeof messages.loading === 'string' ? messages.loading : 'Working...';
     setToasts(prev => [...prev, { id: loadingId, title: loadingTitle, description: '', type: 'loading' }]);
 
-    return Promise.resolve()
-      .then(() => promiseFn())
+    const p = typeof promiseOrFn === 'function' ? promiseOrFn() : promiseOrFn;
+
+    return Promise.resolve(p)
       .then((result) => {
         dismiss(loadingId);
         const successMsg = typeof messages.success === 'function' ? messages.success(result) : messages.success;
