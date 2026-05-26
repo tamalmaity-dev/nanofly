@@ -103,17 +103,64 @@ func (h *Handler) CreateManifest(w http.ResponseWriter, r *http.Request) {
 	manifestBytes, _ := json.Marshal(manifest)
 	manifestJSON := string(manifestBytes)
 
-	// Return HTML form that auto-submits to GitHub
+	// Return HTML form as an interstitial page so the user can login if needed
 	html := fmt.Sprintf(`
-	<html>
-		<body>
+	<!DOCTYPE html>
+	<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Create GitHub App</title>
+		<style>
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+				display: flex; justify-content: center; align-items: center; height: 100vh;
+				background-color: #0d1117; color: #c9d1d9; margin: 0;
+			}
+			.card {
+				background: #161b22; border: 1px solid #30363d; padding: 40px;
+				border-radius: 8px; text-align: center; max-width: 480px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+			}
+			.title { font-size: 24px; font-weight: 600; margin-bottom: 16px; color: #fff; }
+			.subtitle { margin-bottom: 24px; font-size: 14px; line-height: 1.5; color: #8b949e; }
+			.btn-primary {
+				background-color: #238636; color: white; padding: 10px 24px; border-radius: 6px;
+				border: 1px solid rgba(240,246,252,0.1); font-weight: 600; cursor: pointer;
+				font-size: 16px; display: inline-block; text-decoration: none; transition: .2s; width: 100%%; box-sizing: border-box;
+			}
+			.btn-primary:hover { background-color: #2ea043; }
+			.btn-secondary {
+				background-color: #21262d; color: #c9d1d9; padding: 10px 24px; border-radius: 6px;
+				border: 1px solid #30363d; font-weight: 600; cursor: pointer; margin-top: 12px;
+				font-size: 14px; display: inline-block; text-decoration: none; transition: .2s; width: 100%%; box-sizing: border-box;
+			}
+			.btn-secondary:hover { background-color: #30363d; }
+			.alert {
+				background-color: rgba(248, 81, 73, 0.1); border: 1px solid rgba(248, 81, 73, 0.4);
+				color: #ff7b72; padding: 12px; border-radius: 6px; font-size: 13px; text-align: left; margin-bottom: 24px;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<svg height="48" viewBox="0 0 16 16" version="1.1" width="48" aria-hidden="true" style="fill: #c9d1d9; margin-bottom: 20px;">
+				<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+			</svg>
+			<div class="title">Create GitHub App</div>
+			<div class="subtitle">You're about to be redirected to GitHub to create a new GitHub App for NanoFly.</div>
+			
+			<div class="alert">
+				<strong>Important:</strong> You must be logged into GitHub to create an app. If you are not logged in, GitHub will show an error page instead of a login prompt.
+			</div>
+			
 			<form id="github-form" action="https://github.com/settings/apps/new" method="post">
 				<input type="hidden" name="manifest" id="manifest" value='%s' />
+				<button type="submit" class="btn-primary">Create App on GitHub</button>
 			</form>
-			<script>
-				document.getElementById('github-form').submit();
-			</script>
-		</body>
+			
+			<a href="https://github.com/login" target="_blank" class="btn-secondary">Log in to GitHub first (opens in new tab)</a>
+		</div>
+	</body>
 	</html>
 	`, manifestJSON)
 
