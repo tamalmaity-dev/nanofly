@@ -503,9 +503,9 @@ function SourceFilesPanel({ service }) {
 
 // generate random password
 const generatePassword = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let pass = '';
-  for (let i = 0; i < 16; i++) pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  for (let i = 0; i < 24; i++) pass += chars.charAt(Math.floor(Math.random() * chars.length));
   return pass;
 };
 
@@ -2507,13 +2507,22 @@ function ConnectionDetailsPanel({ service }) {
         }
         username = '(none)';
       } else if (connString.startsWith('postgres://') || connString.startsWith('mysql://') || connString.startsWith('mongodb://') || connString.startsWith('clickhouse://')) {
-        const urlStr = connString.replace('mongodb://', 'http://').replace('postgres://', 'http://').replace('mysql://', 'http://').replace('clickhouse://', 'http://');
-        const parsed = new URL(urlStr);
-        host = 'localhost';
-        port = parseInt(parsed.port, 10) || port;
-        username = parsed.username || 'nanofly';
-        password = parsed.password || '';
-        dbName = parsed.pathname ? parsed.pathname.replace('/', '') : dbName;
+        const match = connString.match(/^([a-z0-9]+):\/\/([^:]+):(.*)@([^:]+):([0-9]+)\/(.*)$/);
+        if (match) {
+          host = 'localhost';
+          username = match[2];
+          password = match[3];
+          port = parseInt(match[5], 10) || port;
+          dbName = match[6];
+        } else {
+          const urlStr = connString.replace('mongodb://', 'http://').replace('postgres://', 'http://').replace('mysql://', 'http://').replace('clickhouse://', 'http://');
+          const parsed = new URL(urlStr);
+          host = 'localhost';
+          port = parseInt(parsed.port, 10) || port;
+          username = parsed.username || 'nanofly';
+          password = parsed.password || '';
+          dbName = parsed.pathname ? parsed.pathname.replace('/', '') : dbName;
+        }
       }
     } catch (e) {
       console.error('Error parsing connection string:', e);

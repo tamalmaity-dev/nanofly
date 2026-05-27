@@ -1,6 +1,6 @@
 /** Cryptographically strong password for DB / WordPress env vars. */
 export function generateSecurePassword(length = 24) {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => chars[b % chars.length]).join('');
