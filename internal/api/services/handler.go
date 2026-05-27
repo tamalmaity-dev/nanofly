@@ -121,11 +121,15 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, svc)
 }
 
+// creates a database service
 func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string `json:"name"`
-		DBType   string `json:"db_type"`
-		TierName string `json:"tier_name"`
+		Name       string `json:"name"`
+		DBType     string `json:"db_type"`
+		DBUser     string `json:"db_user"`
+		DBPassword string `json:"db_password"`
+		DBName     string `json:"db_name"`
+		TierName   string `json:"tier_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -137,10 +141,13 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	svc, err := h.mgr.CreateDatabase(r.Context(), CreateDBReq{
-		ProjectID: chi.URLParam(r, "projectID"),
-		Name:      req.Name,
-		DBType:    req.DBType,
-		TierName:  req.TierName,
+		ProjectID:  chi.URLParam(r, "projectID"),
+		Name:       req.Name,
+		DBType:     req.DBType,
+		DBUser:     req.DBUser,
+		DBPassword: req.DBPassword,
+		DBName:     req.DBName,
+		TierName:   req.TierName,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

@@ -622,16 +622,59 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 	var id string
 	err := m.db.QueryRowContext(ctx, `
 		INSERT INTO services (project_id, name, db_user, db_password, db_name, type, status, image, port, resource_tier, custom_memory, custom_cpu)
-		VALUES (?, ?, ?, ?, ?, 'database', 'idle', ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, 'database', 'deploying', ?, ?, ?, ?, ?)
 		RETURNING id
 	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType, hostPort, req.TierName, req.CustomMemory, req.CustomCPU).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
 
+	// Create deployment record
+	var deployID string
+	err = m.db.QueryRowContext(ctx, `
+		INSERT INTO deployments (service_id, status) VALUES (?, 'building') RETURNING id
+	`, id).Scan(&deployID)
+	if err != nil {
+		slog.Error("creating deployment record for database", "err", err)
+	}
+
 	// Create container asynchronously
 	go func() {
 		bgCtx := context.Background()
+		var logBuf strings.Builder
+		var finalStatus string
+
+		log := func(line string) {
+			slog.Info("[deploy-db]", "svc", req.Name, "line", line)
+			logBuf.WriteString(line + "\n")
+			if deployID != "" {
+				m.db.ExecContext(bgCtx, `UPDATE deployments SET log=? WHERE id=?`, logBuf.String(), deployID) //nolint:errcheck
+			}
+		}
+
+		defer func() {
+			now := time.Now().Format("2006-01-02 15:04:05")
+			if deployID != "" {
+				m.db.ExecContext(bgCtx, `
+					UPDATE deployments SET status=?, log=?, finished_at=? WHERE id=?
+				`, finalStatus, logBuf.String(), now, deployID) //nolint:errcheck
+
+				if finalStatus == "running" {
+					m.db.ExecContext(bgCtx, `
+						UPDATE deployments 
+						SET status='completed', finished_at=? 
+						WHERE service_id=? AND id != ? AND status IN ('running', 'building')
+					`, now, id, deployID) //nolint:errcheck
+				}
+			}
+
+			m.db.ExecContext(bgCtx, `UPDATE services SET status=? WHERE id=?`, finalStatus, id) //nolint:errcheck
+		}()
+
+		log("[INFO] Starting database container setup: " + req.Name)
+		log(fmt.Sprintf("[INFO] Engine: %s, User: %s, DB Name: %s, Port: %d", req.DBType, req.DBUser, dbName, hostPort))
+		log("[INFO] Launching database container...")
+
 		_, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 			ServiceID:    id,
 			DBType:       req.DBType,
@@ -645,8 +688,8 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 			CustomCPU:    req.CustomCPU,
 		})
 		if err != nil {
-			slog.Error("creating DB container", "err", err)
-			m.db.ExecContext(bgCtx, `UPDATE services SET status='error' WHERE id=?`, id) //nolint:errcheck
+			log("[ERROR] Failed to create database container: " + err.Error())
+			finalStatus = "error"
 			return
 		}
 
@@ -656,7 +699,8 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 			ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
 		`, id, connStr) //nolint:errcheck
 
-		m.db.ExecContext(bgCtx, `UPDATE services SET status='running' WHERE id=?`, id) //nolint:errcheck
+		log("[OK] Database container started successfully.")
+		finalStatus = "running"
 	}()
 
 	return m.Get(ctx, id)

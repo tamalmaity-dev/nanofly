@@ -3253,7 +3253,7 @@ export default function ProjectDetail() {
             onValueChange={setActiveTab}
             items={[
               ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
-              ...(selectedSvc.type !== 'database' ? [{ id: 'deployments', label: 'Deployments' }] : []),
+              { id: 'deployments', label: 'Deployments' },
               { id: 'logs', label: 'Logs' },
               ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
               { id: 'monitoring', label: 'Monitoring', icon: Cpu },
