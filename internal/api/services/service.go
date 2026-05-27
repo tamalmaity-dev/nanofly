@@ -2146,22 +2146,102 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 		return ""
 	}
 
-	if !hasKey("WORDPRESS_DB_HOST") {
-		envSlice = append(envSlice, "WORDPRESS_DB_HOST=host.docker.internal:3306")
+	// Try to auto-detect a database in the same project
+	var dbDetected bool
+	if database != nil && serviceID != "" {
+		var projectID string
+		_ = database.QueryRowContext(ctx, "SELECT project_id FROM services WHERE id = ?", serviceID).Scan(&projectID)
+		if projectID != "" {
+			var dbPort int
+			var dbType, dbUser, dbPassword, dbName string
+			err := database.QueryRowContext(ctx, `
+				SELECT port, image, db_user, db_password, db_name 
+				FROM services 
+				WHERE project_id = ? AND type = 'database' AND (image LIKE '%mysql%' OR image LIKE '%maria%' OR status = 'running')
+				LIMIT 1
+			`, projectID).Scan(&dbPort, &dbType, &dbUser, &dbPassword, &dbName)
+
+			if err == nil && dbPort > 0 {
+				dbHost := fmt.Sprintf("host.docker.internal:%d", dbPort)
+				dbDetected = true
+				
+				hasHost := false
+				hasUser := false
+				hasPassword := false
+				hasName := false
+
+				for i, e := range envSlice {
+					if strings.HasPrefix(e, "WORDPRESS_DB_HOST=") {
+						val := strings.TrimPrefix(e, "WORDPRESS_DB_HOST=")
+						if val == "host.docker.internal:3306" || val == "" {
+							envSlice[i] = "WORDPRESS_DB_HOST=" + dbHost
+						}
+						hasHost = true
+					}
+					if strings.HasPrefix(e, "WORDPRESS_DB_USER=") {
+						val := strings.TrimPrefix(e, "WORDPRESS_DB_USER=")
+						if val == "wordpress" || val == "" {
+							if dbUser == "" {
+								dbUser = "root"
+							}
+							envSlice[i] = "WORDPRESS_DB_USER=" + dbUser
+						}
+						hasUser = true
+					}
+					if strings.HasPrefix(e, "WORDPRESS_DB_PASSWORD=") {
+						val := strings.TrimPrefix(e, "WORDPRESS_DB_PASSWORD=")
+						if val == "" || val == "change_me_secure_password" || val == "changeme" {
+							envSlice[i] = "WORDPRESS_DB_PASSWORD=" + dbPassword
+						}
+						hasPassword = true
+					}
+					if strings.HasPrefix(e, "WORDPRESS_DB_NAME=") {
+						val := strings.TrimPrefix(e, "WORDPRESS_DB_NAME=")
+						if val == "wordpress" || val == "" {
+							envSlice[i] = "WORDPRESS_DB_NAME=" + dbName
+						}
+						hasName = true
+					}
+				}
+
+				if !hasHost {
+					envSlice = append(envSlice, "WORDPRESS_DB_HOST="+dbHost)
+				}
+				if !hasUser {
+					if dbUser == "" {
+						dbUser = "root"
+					}
+					envSlice = append(envSlice, "WORDPRESS_DB_USER="+dbUser)
+				}
+				if !hasPassword {
+					envSlice = append(envSlice, "WORDPRESS_DB_PASSWORD="+dbPassword)
+				}
+				if !hasName {
+					envSlice = append(envSlice, "WORDPRESS_DB_NAME="+dbName)
+				}
+			}
+		}
 	}
 
-	weakPassword := func(p string) bool {
-		p = strings.TrimSpace(p)
-		return p == "" || p == "change_me_secure_password" || p == "changeme" || len(p) < 12
-	}
-	if weakPassword(getVal("WORDPRESS_DB_PASSWORD")) {
-		newPass := docker.RandPassword()
-		envSlice = upsertEnvEntry(envSlice, "WORDPRESS_DB_PASSWORD", newPass)
-		if database != nil && serviceID != "" {
-			database.ExecContext(ctx, `
-				INSERT INTO env_vars (service_id, key, value) VALUES (?, 'WORDPRESS_DB_PASSWORD', ?)
-				ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
-			`, serviceID, newPass) //nolint:errcheck
+	// Fallback/standard behavior if no database service was auto-detected in the project
+	if !dbDetected {
+		if !hasKey("WORDPRESS_DB_HOST") {
+			envSlice = append(envSlice, "WORDPRESS_DB_HOST=host.docker.internal:3306")
+		}
+
+		weakPassword := func(p string) bool {
+			p = strings.TrimSpace(p)
+			return p == "" || p == "change_me_secure_password" || p == "changeme" || len(p) < 12
+		}
+		if weakPassword(getVal("WORDPRESS_DB_PASSWORD")) {
+			newPass := docker.RandPassword()
+			envSlice = upsertEnvEntry(envSlice, "WORDPRESS_DB_PASSWORD", newPass)
+			if database != nil && serviceID != "" {
+				database.ExecContext(ctx, `
+					INSERT INTO env_vars (service_id, key, value) VALUES (?, 'WORDPRESS_DB_PASSWORD', ?)
+					ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
+				`, serviceID, newPass) //nolint:errcheck
+			}
 		}
 	}
 
