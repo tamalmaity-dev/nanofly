@@ -639,23 +639,26 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
         let finalEnvVars = [...envVars];
         
         if (form.dbSetupType === 'create-mysql' || form.dbSetupType === 'create-mariadb') {
-          const dbName = `wp-db-${form.name.trim()}`;
-          const dbPass = generatePassword();
+          const dbContainerName = `wp-db-${form.name.trim()}`;
+          const dbUser = form.dbUser ? form.dbUser.trim() : 'wordpress';
+          const dbPass = form.dbPassword ? form.dbPassword.trim() : generatePassword();
+          const dbName = form.dbName ? form.dbName.trim() : 'wordpress';
+
           const dbSvc = await servicesApi.createDB(projectId, {
-            name: dbName,
+            name: dbContainerName,
             db_type: form.dbSetupType === 'create-mariadb' ? 'mariadb' : 'mysql',
-            db_user: 'wordpress',
+            db_user: dbUser,
             db_password: dbPass,
-            db_name: 'wordpress',
+            db_name: dbName,
             tier_name: 'micro'
           });
           const dbData = dbSvc.data || dbSvc;
           
           finalEnvVars = finalEnvVars.filter(ev => !['WORDPRESS_DB_HOST', 'WORDPRESS_DB_USER', 'WORDPRESS_DB_PASSWORD', 'WORDPRESS_DB_NAME'].includes(ev.key));
           finalEnvVars.push({ key: 'WORDPRESS_DB_HOST', value: `host.docker.internal:${dbData.port}` });
-          finalEnvVars.push({ key: 'WORDPRESS_DB_USER', value: 'wordpress' });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_USER', value: dbUser });
           finalEnvVars.push({ key: 'WORDPRESS_DB_PASSWORD', value: dbPass });
-          finalEnvVars.push({ key: 'WORDPRESS_DB_NAME', value: 'wordpress' });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_NAME', value: dbName });
         } else if (form.dbSetupType && form.dbSetupType.startsWith('link-')) {
           const dbId = form.dbSetupType.split('link-')[1];
           const dbSvc = await servicesApi.get(dbId);

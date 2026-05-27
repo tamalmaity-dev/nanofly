@@ -4,7 +4,7 @@ import { ArrowLeft, Info } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
-import { buildWordPressEnvTemplate } from '../utils/password';
+import { buildWordPressEnvTemplate, generateSecurePassword } from '../utils/password';
 import { githubApi, servicesApi } from '../api/client';
 
 const RUNTIME_VERSIONS = {
@@ -168,6 +168,9 @@ export function getResourceFormDefaults(resource) {
       return {
         ...shared,
         port: '0',
+        dbUser: 'wordpress',
+        dbName: 'wordpress',
+        dbPassword: generateSecurePassword(16),
         envText: buildWordPressEnvTemplate(),
       };
     case 'docker-image':
@@ -516,6 +519,74 @@ export function AddServiceConfigFields({
               <span>WordPress will connect to the selected database container. Credentials will be auto-mapped from the selected database service.</span>
             )}
           </div>
+          {(!form.dbSetupType || form.dbSetupType.startsWith('create-')) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 4, padding: '1rem', border: '1px dashed var(--border)', borderRadius: 8, background: 'var(--bg-card)' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Database Credentials (Editable)</span>
+              
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Name *</label>
+                <input
+                  className="form-input"
+                  value={form.dbName || ''}
+                  onChange={e => {
+                    const newVal = e.target.value;
+                    setForm(f => {
+                      let updatedEnv = f.envText || '';
+                      if (updatedEnv.includes('WORDPRESS_DB_NAME=')) {
+                        updatedEnv = updatedEnv.replace(/WORDPRESS_DB_NAME=.*/, `WORDPRESS_DB_NAME=${newVal}`);
+                      } else {
+                        updatedEnv += `\nWORDPRESS_DB_NAME=${newVal}`;
+                      }
+                      return { ...f, dbName: newVal, envText: updatedEnv };
+                    });
+                  }}
+                  placeholder="wordpress"
+                />
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Username *</label>
+                <input
+                  className="form-input"
+                  value={form.dbUser || ''}
+                  onChange={e => {
+                    const newVal = e.target.value;
+                    setForm(f => {
+                      let updatedEnv = f.envText || '';
+                      if (updatedEnv.includes('WORDPRESS_DB_USER=')) {
+                        updatedEnv = updatedEnv.replace(/WORDPRESS_DB_USER=.*/, `WORDPRESS_DB_USER=${newVal}`);
+                      } else {
+                        updatedEnv += `\nWORDPRESS_DB_USER=${newVal}`;
+                      }
+                      return { ...f, dbUser: newVal, envText: updatedEnv };
+                    });
+                  }}
+                  placeholder="wordpress"
+                />
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Password *</label>
+                <input
+                  className="form-input"
+                  value={form.dbPassword || ''}
+                  onChange={e => {
+                    const newVal = e.target.value;
+                    setForm(f => {
+                      let updatedEnv = f.envText || '';
+                      if (updatedEnv.includes('WORDPRESS_DB_PASSWORD=')) {
+                        updatedEnv = updatedEnv.replace(/WORDPRESS_DB_PASSWORD=.*/, `WORDPRESS_DB_PASSWORD=${newVal}`);
+                      } else {
+                        updatedEnv += `\nWORDPRESS_DB_PASSWORD=${newVal}`;
+                      }
+                      return { ...f, dbPassword: newVal, envText: updatedEnv };
+                    });
+                  }}
+                  placeholder="Database password"
+                />
+              </div>
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Environment variables</label>
             <textarea className="form-input" style={{ minHeight: 130, fontFamily: 'monospace', fontSize: '0.8rem' }} value={form.envText} onChange={set('envText')} />
