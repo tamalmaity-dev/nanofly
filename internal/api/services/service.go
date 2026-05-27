@@ -2224,34 +2224,22 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 
 				for i, e := range envSlice {
 					if strings.HasPrefix(e, "WORDPRESS_DB_HOST=") {
-						val := strings.TrimPrefix(e, "WORDPRESS_DB_HOST=")
-						if val == "host.docker.internal:3306" || val == "" {
-							envSlice[i] = "WORDPRESS_DB_HOST=" + dbHost
-						}
+						envSlice[i] = "WORDPRESS_DB_HOST=" + dbHost
 						hasHost = true
 					}
 					if strings.HasPrefix(e, "WORDPRESS_DB_USER=") {
-						val := strings.TrimPrefix(e, "WORDPRESS_DB_USER=")
-						if val == "wordpress" || val == "" {
-							if dbUser == "" {
-								dbUser = "root"
-							}
-							envSlice[i] = "WORDPRESS_DB_USER=" + dbUser
+						if dbUser == "" {
+							dbUser = "root"
 						}
+						envSlice[i] = "WORDPRESS_DB_USER=" + dbUser
 						hasUser = true
 					}
 					if strings.HasPrefix(e, "WORDPRESS_DB_PASSWORD=") {
-						val := strings.TrimPrefix(e, "WORDPRESS_DB_PASSWORD=")
-						if val == "" || val == "change_me_secure_password" || val == "changeme" {
-							envSlice[i] = "WORDPRESS_DB_PASSWORD=" + dbPassword
-						}
+						envSlice[i] = "WORDPRESS_DB_PASSWORD=" + dbPassword
 						hasPassword = true
 					}
 					if strings.HasPrefix(e, "WORDPRESS_DB_NAME=") {
-						val := strings.TrimPrefix(e, "WORDPRESS_DB_NAME=")
-						if val == "wordpress" || val == "" {
-							envSlice[i] = "WORDPRESS_DB_NAME=" + dbName
-						}
+						envSlice[i] = "WORDPRESS_DB_NAME=" + dbName
 						hasName = true
 					}
 				}
