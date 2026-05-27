@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Info } from 'lucide-react';
+import { ArrowLeft, Info, RefreshCw } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
@@ -164,15 +164,21 @@ export function getResourceFormDefaults(resource) {
         localPath: path,
         dockerComposeContent: DEFAULT_COMPOSE,
       };
-    case 'wordpress':
+    case 'wordpress': {
+      const initPass = generateSecurePassword(16);
       return {
         ...shared,
         port: '0',
         dbUser: 'wordpress',
         dbName: 'wordpress',
-        dbPassword: generateSecurePassword(16),
-        envText: buildWordPressEnvTemplate(),
+        dbPassword: initPass,
+        envText: `WORDPRESS_DB_HOST=host.docker.internal:3306
+WORDPRESS_DB_USER=wordpress
+WORDPRESS_DB_PASSWORD=${initPass}
+WORDPRESS_DB_NAME=wordpress
+WORDPRESS_TABLE_PREFIX=wp_`,
       };
+    }
     case 'docker-image':
       return { ...shared, port: '80' };
     default:
@@ -567,23 +573,45 @@ export function AddServiceConfigFields({
 
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ fontSize: '0.75rem' }}>Database Password *</label>
-                <input
-                  className="form-input"
-                  value={form.dbPassword || ''}
-                  onChange={e => {
-                    const newVal = e.target.value;
-                    setForm(f => {
-                      let updatedEnv = f.envText || '';
-                      if (updatedEnv.includes('WORDPRESS_DB_PASSWORD=')) {
-                        updatedEnv = updatedEnv.replace(/WORDPRESS_DB_PASSWORD=.*/, `WORDPRESS_DB_PASSWORD=${newVal}`);
-                      } else {
-                        updatedEnv += `\nWORDPRESS_DB_PASSWORD=${newVal}`;
-                      }
-                      return { ...f, dbPassword: newVal, envText: updatedEnv };
-                    });
-                  }}
-                  placeholder="Database password"
-                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="form-input"
+                    value={form.dbPassword || ''}
+                    onChange={e => {
+                      const newVal = e.target.value;
+                      setForm(f => {
+                        let updatedEnv = f.envText || '';
+                        if (updatedEnv.includes('WORDPRESS_DB_PASSWORD=')) {
+                          updatedEnv = updatedEnv.replace(/WORDPRESS_DB_PASSWORD=.*/, `WORDPRESS_DB_PASSWORD=${newVal}`);
+                        } else {
+                          updatedEnv += `\nWORDPRESS_DB_PASSWORD=${newVal}`;
+                        }
+                        return { ...f, dbPassword: newVal, envText: updatedEnv };
+                      });
+                    }}
+                    placeholder="Database password"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      const newPass = generateSecurePassword(24);
+                      setForm(f => {
+                        let updatedEnv = f.envText || '';
+                        if (updatedEnv.includes('WORDPRESS_DB_PASSWORD=')) {
+                          updatedEnv = updatedEnv.replace(/WORDPRESS_DB_PASSWORD=.*/, `WORDPRESS_DB_PASSWORD=${newPass}`);
+                        } else {
+                          updatedEnv += `\nWORDPRESS_DB_PASSWORD=${newPass}`;
+                        }
+                        return { ...f, dbPassword: newPass, envText: updatedEnv };
+                      });
+                    }}
+                    style={{ border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, padding: '0.5rem 0.75rem', fontSize: '0.75rem', height: 38 }}
+                  >
+                    <RefreshCw size={14} /> Generate
+                  </button>
+                </div>
               </div>
             </div>
           )}
