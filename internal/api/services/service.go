@@ -617,12 +617,14 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 		dbName = strings.ReplaceAll(strings.ToLower(req.Name), "-", "_")
 	}
 
+	hostPort := docker.ResolveHostPort(0)
+
 	var id string
 	err := m.db.QueryRowContext(ctx, `
 		INSERT INTO services (project_id, name, db_user, db_password, db_name, type, status, image, port, resource_tier, custom_memory, custom_cpu)
 		VALUES (?, ?, ?, ?, ?, 'database', 'idle', ?, ?, ?, ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType, 0, req.TierName, req.CustomMemory, req.CustomCPU).Scan(&id)
+	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType, hostPort, req.TierName, req.CustomMemory, req.CustomCPU).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -630,13 +632,14 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 	// Create container asynchronously
 	go func() {
 		bgCtx := context.Background()
-		hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
+		_, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 			ServiceID:    id,
 			DBType:       req.DBType,
 			Name:         req.Name,
 			Username:     req.DBUser,
 			Password:     password,
 			DBName:       dbName,
+			HostPort:     hostPort,
 			TierName:     req.TierName,
 			CustomMemory: req.CustomMemory,
 			CustomCPU:    req.CustomCPU,
@@ -653,7 +656,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 			ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
 		`, id, connStr) //nolint:errcheck
 
-		m.db.ExecContext(bgCtx, `UPDATE services SET status='running', port=? WHERE id=?`, hostPort, id) //nolint:errcheck
+		m.db.ExecContext(bgCtx, `UPDATE services SET status='running' WHERE id=?`, id) //nolint:errcheck
 	}()
 
 	return m.Get(ctx, id)
@@ -774,6 +777,10 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			}
 
 			log("[INFO] Launching " + svc.Image + " container...")
+			dbHostPort := svc.Port
+			if dbHostPort <= 0 || docker.IsPortInUse(dbHostPort) {
+				dbHostPort = docker.ResolveHostPort(dbHostPort)
+			}
 			hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 				ServiceID:    svc.ID,
 				DBType:       svc.Image, // stores dbType in s.Image
@@ -781,6 +788,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				Username:     svc.DBUser,
 				Password:     password,
 				DBName:       dbName,
+				HostPort:     dbHostPort,
 				TierName:     svc.ResourceTier,
 				CustomMemory: svc.CustomMemory,
 				CustomCPU:    float64(svc.CustomCPU),

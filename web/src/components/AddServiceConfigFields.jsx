@@ -5,7 +5,7 @@ import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
 import { buildWordPressEnvTemplate } from '../utils/password';
-import { githubApi } from '../api/client';
+import { githubApi, servicesApi } from '../api/client';
 
 const RUNTIME_VERSIONS = {
   node: [
@@ -391,6 +391,7 @@ function LocalPathFields({ form, setForm, required }) {
 }
 
 export function AddServiceConfigFields({
+  projectId,
   resourceMeta,
   form,
   setForm,
@@ -401,6 +402,18 @@ export function AddServiceConfigFields({
 }) {
   const [repos, setRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
+  const [projectDatabases, setProjectDatabases] = useState([]);
+
+  useEffect(() => {
+    if (selectedResourceId === 'wordpress' && projectId) {
+      servicesApi.listByProject(projectId)
+        .then(services => {
+          const dbs = (services || []).filter(s => s.type === 'database' && (s.image?.includes('mysql') || s.image?.includes('maria')));
+          setProjectDatabases(dbs);
+        })
+        .catch(() => {});
+    }
+  }, [projectId, selectedResourceId]);
 
   useEffect(() => {
     if (selectedResourceId === 'git-private-app' && form.githubAppId) {
@@ -480,9 +493,28 @@ export function AddServiceConfigFields({
             <label className="form-label">Host port</label>
             <input className="form-input" value={form.port} onChange={set('port')} placeholder="8080" />
           </div>
+          <div className="form-group">
+            <label className="form-label">Database Configuration *</label>
+            <SelectRoot value={form.dbSetupType || 'create-mysql'} onValueChange={val => setForm(f => ({ ...f, dbSetupType: val }))}>
+              <SelectTrigger style={{ width: '100%' }} placeholder="Select database setup..." />
+              <SelectContent>
+                <SelectItem value="create-mysql">Create new MySQL database automatically</SelectItem>
+                <SelectItem value="create-mariadb">Create new MariaDB database automatically</SelectItem>
+                {projectDatabases.map(db => (
+                  <SelectItem key={db.id} value={`link-${db.id}`}>
+                    Use existing: {db.name} ({db.image?.split(':')[0]?.toUpperCase() || 'MySQL'})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </SelectRoot>
+          </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '0.75rem', background: 'rgba(59,130,246,0.08)', borderRadius: 8 }}>
             <Info size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-            Create a MySQL/MariaDB database in this project first. Set <code>WORDPRESS_DB_HOST=host.docker.internal:PORT</code> below.
+            {(!form.dbSetupType || form.dbSetupType.startsWith('create-')) ? (
+              <span>NanoFly will automatically deploy an isolated database container and inject configuration credentials into WordPress.</span>
+            ) : (
+              <span>WordPress will connect to the selected database container. Credentials will be auto-mapped from the selected database service.</span>
+            )}
           </div>
           <div className="form-group">
             <label className="form-label">Environment variables</label>

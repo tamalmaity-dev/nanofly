@@ -581,6 +581,7 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
     dbPassword: generatePassword(),
     dbName: '',
     resourceTier: 'micro',
+    dbSetupType: 'create-mysql',
   }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -632,6 +633,46 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
           env_vars: envVars,
           dockerfile_content: form.dockerfileContent,
           docker_compose_content: form.dockerComposeContent,
+          tier_name: form.resourceTier,
+        });
+      } else if (selectedResourceId === 'wordpress') {
+        let finalEnvVars = [...envVars];
+        
+        if (form.dbSetupType === 'create-mysql' || form.dbSetupType === 'create-mariadb') {
+          const dbName = `wp-db-${form.name.trim()}`;
+          const dbPass = generatePassword();
+          const dbSvc = await servicesApi.createDB(projectId, {
+            name: dbName,
+            db_type: form.dbSetupType === 'create-mariadb' ? 'mariadb' : 'mysql',
+            db_user: 'wordpress',
+            db_password: dbPass,
+            db_name: 'wordpress',
+            tier_name: 'micro'
+          });
+          const dbData = dbSvc.data || dbSvc;
+          
+          finalEnvVars = finalEnvVars.filter(ev => !['WORDPRESS_DB_HOST', 'WORDPRESS_DB_USER', 'WORDPRESS_DB_PASSWORD', 'WORDPRESS_DB_NAME'].includes(ev.key));
+          finalEnvVars.push({ key: 'WORDPRESS_DB_HOST', value: `host.docker.internal:${dbData.port}` });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_USER', value: 'wordpress' });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_PASSWORD', value: dbPass });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_NAME', value: 'wordpress' });
+        } else if (form.dbSetupType && form.dbSetupType.startsWith('link-')) {
+          const dbId = form.dbSetupType.split('link-')[1];
+          const dbSvc = await servicesApi.get(dbId);
+          const dbData = dbSvc.data || dbSvc;
+          
+          finalEnvVars = finalEnvVars.filter(ev => !['WORDPRESS_DB_HOST', 'WORDPRESS_DB_USER', 'WORDPRESS_DB_PASSWORD', 'WORDPRESS_DB_NAME'].includes(ev.key));
+          finalEnvVars.push({ key: 'WORDPRESS_DB_HOST', value: `host.docker.internal:${dbData.port}` });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_USER', value: dbData.db_user || 'root' });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_PASSWORD', value: dbData.db_password || '' });
+          finalEnvVars.push({ key: 'WORDPRESS_DB_NAME', value: dbData.db_name || '' });
+        }
+        
+        svc = await servicesApi.createApp(projectId, {
+          name: form.name.trim(),
+          image: form.image.trim() || 'wordpress:php8.3-apache',
+          port: Number(form.port) || 8080,
+          env_vars: finalEnvVars,
           tier_name: form.resourceTier,
         });
       } else {
@@ -1153,6 +1194,7 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
               <>
                 {type === 'app' ? (
                   <AddServiceConfigFields
+                    projectId={projectId}
                     resourceMeta={APP_RESOURCES.find(r => r.id === selectedResourceId)}
                     form={form}
                     setForm={setForm}
