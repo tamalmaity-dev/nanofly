@@ -72,28 +72,27 @@ type Service struct {
 	UpdatedAt    time.Time   `json:"updated_at"`
 
 	// Joined fields
-	GitRepoURL       string `json:"git_repo_url,omitempty"`
-	GitBranch        string `json:"git_branch,omitempty"`
-	GitHubAppID      *string `json:"github_app_id,omitempty"`
-	Builder          string `json:"git_builder,omitempty"`
-	StartCommand     string `json:"start_command,omitempty"`
-	InstallCommand   string `json:"install_command,omitempty"`
-	AppDirectory     string `json:"app_directory,omitempty"`
-	RunFile          string `json:"run_file,omitempty"`
-	RequirementsFile string `json:"requirements_file,omitempty"`
-	UseVenv          bool   `json:"use_venv"`
-	DockerArgs       string `json:"docker_args,omitempty"`
-	DockerfileContent    string `json:"dockerfile_content,omitempty"`
-	DockerComposeContent string `json:"docker_compose_content,omitempty"`
-	GitToken             string `json:"git_token,omitempty"`
-	SSHKey               string `json:"ssh_key,omitempty"`
-	ConnString       string `json:"conn_string,omitempty"` // databases only (encrypted stub)
+	GitRepoURL           string  `json:"git_repo_url,omitempty"`
+	GitBranch            string  `json:"git_branch,omitempty"`
+	GitHubAppID          *string `json:"github_app_id,omitempty"`
+	Builder              string  `json:"git_builder,omitempty"`
+	StartCommand         string  `json:"start_command,omitempty"`
+	InstallCommand       string  `json:"install_command,omitempty"`
+	AppDirectory         string  `json:"app_directory,omitempty"`
+	RunFile              string  `json:"run_file,omitempty"`
+	RequirementsFile     string  `json:"requirements_file,omitempty"`
+	UseVenv              bool    `json:"use_venv"`
+	DockerArgs           string  `json:"docker_args,omitempty"`
+	DockerfileContent    string  `json:"dockerfile_content,omitempty"`
+	DockerComposeContent string  `json:"docker_compose_content,omitempty"`
+	GitToken             string  `json:"git_token,omitempty"`
+	SSHKey               string  `json:"ssh_key,omitempty"`
+	ConnString           string  `json:"conn_string,omitempty"` // databases only (encrypted stub)
 
 	// Real-time resource metrics (populated in memory)
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemoryUsage string  `json:"memory_usage"`
 }
-
 
 // ContainerName returns the canonical Docker container name for a service.
 // This matches the logic in DockerService.ensureContainer.
@@ -148,7 +147,7 @@ type ContainerStats struct {
 
 func getContainerStats(ctx context.Context) map[string]ContainerStats {
 	stats := make(map[string]ContainerStats)
-	
+
 	// Query stats with a short timeout to prevent blocking indefinitely if Docker is slow or offline
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -179,10 +178,10 @@ func getContainerStats(ctx context.Context) map[string]ContainerStats {
 func parseMemToBytes(s string) int64 {
 	s = strings.ReplaceAll(s, " ", "")
 	s = strings.ToLower(s)
-	
+
 	var multiplier float64 = 1
 	var numStr string
-	
+
 	switch {
 	case strings.HasSuffix(s, "gib"):
 		multiplier = 1024 * 1024 * 1024
@@ -207,7 +206,7 @@ func parseMemToBytes(s string) int64 {
 	default:
 		numStr = s
 	}
-	
+
 	val, err := strconv.ParseFloat(numStr, 64)
 	if err != nil {
 		return 0
@@ -237,7 +236,7 @@ type ServiceMetrics struct {
 	NetworkOut  string  `json:"network_out"`
 	DiskUsage   string  `json:"disk_usage"`
 }
-	
+
 func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*ServiceMetrics, error) {
 	svc, err := m.Get(ctx, serviceID)
 	if err != nil {
@@ -293,7 +292,7 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 
 				if match {
 					found = true
-					
+
 					// CPU
 					cpuStr := strings.TrimSuffix(strings.TrimSpace(parts[1]), "%")
 					cVal, _ := strconv.ParseFloat(cpuStr, 64)
@@ -338,15 +337,15 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 		for _, c := range serviceID {
 			idSum += int64(c)
 		}
-		
+
 		cycle := (sec + idSum) % 60
-		
+
 		var baseCPU float64 = 1.2
-		var baseMem float64 = 32.5 
-		var baseNetIn float64 = 124.0 
-		var baseNetOut float64 = 256.0 
-		var baseDisk float64 = 18.2 
-		
+		var baseMem float64 = 32.5
+		var baseNetIn float64 = 124.0
+		var baseNetOut float64 = 256.0
+		var baseDisk float64 = 18.2
+
 		if svc.Type == TypeDatabase {
 			baseCPU = 2.5
 			baseMem = 78.4
@@ -354,27 +353,27 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 			baseNetOut = 1024.0
 			baseDisk = 120.5
 		}
-		
+
 		// CPU dynamic fluctuation
 		fluctCPU := float64((cycle%10))/4.0 - 1.25
 		metrics.CPUPercent = baseCPU + fluctCPU
 		if metrics.CPUPercent < 0.1 {
 			metrics.CPUPercent = 0.1
 		}
-		
+
 		// Memory dynamic fluctuation
 		fluctMem := float64((cycle%15))/3.0 - 2.5
 		metrics.MemoryUsage = fmt.Sprintf("%.1f MiB", baseMem+fluctMem)
-		
+
 		// Disk dynamic fluctuation
 		fluctDisk := float64((cycle%5))/2.0 - 0.5
 		metrics.DiskUsage = fmt.Sprintf("%.1f MiB", baseDisk+fluctDisk)
-		
+
 		// Network dynamic fluctuation
-		fluctNetIn := float64((cycle%20)) * 5.0 - 50.0
+		fluctNetIn := float64((cycle%20))*5.0 - 50.0
 		metrics.NetworkIn = fmt.Sprintf("%.1f KiB", baseNetIn+fluctNetIn)
-		
-		fluctNetOut := float64((cycle%25)) * 8.0 - 100.0
+
+		fluctNetOut := float64((cycle%25))*8.0 - 100.0
 		metrics.NetworkOut = fmt.Sprintf("%.1f KiB", baseNetOut+fluctNetOut)
 	}
 
@@ -530,7 +529,7 @@ type CreateAppReq struct {
 	// GitHub source (optional)
 	GitRepoURL           string
 	GitBranch            string
-	GitToken             string // PAT for private repos
+	GitToken             string  // PAT for private repos
 	GitHubAppID          *string // If using GitHub app instead of PAT
 	SSHKey               string
 	Builder              string // auto, node, go, python, php, static, dockerfile
@@ -599,15 +598,15 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 
 // CreateDBReq defines what's needed to create a managed database.
 type CreateDBReq struct {
-	ProjectID     string
-	Name          string
-	DBType        string // postgres, mysql, redis, mongo
-	DBUser        string `json:"db_user"`
-	DBPassword    string `json:"db_password"`
-	DBName        string `json:"db_name"`
-	TierName      string `json:"tier_name"`
-	CustomMemory  int64  `json:"custom_memory"`
-	CustomCPU     float64 `json:"custom_cpu"`
+	ProjectID    string
+	Name         string
+	DBType       string  // postgres, mysql, redis, mongo
+	DBUser       string  `json:"db_user"`
+	DBPassword   string  `json:"db_password"`
+	DBName       string  `json:"db_name"`
+	TierName     string  `json:"tier_name"`
+	CustomMemory int64   `json:"custom_memory"`
+	CustomCPU    float64 `json:"custom_cpu"`
 }
 
 // CreateDatabase creates a managed Docker database.
@@ -795,7 +794,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				m.db.ExecContext(bgCtx, `UPDATE services SET db_password = ? WHERE id = ?`, password, svc.ID) //nolint:errcheck
 				svc.DBPassword = password
 			}
-			
+
 			dbName := svc.DBName
 			if dbName == "" {
 				dbName = strings.ReplaceAll(strings.ToLower(svc.Name), "-", "_")
@@ -933,26 +932,26 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 					WHERE service_id = ? AND key = 'WORDPRESS_DB_HOST' AND value LIKE 'host.docker.internal:%'
 				`, svc.ID).Scan(&dbPortFromEnv)
 
-				var dbID, dbName, dbImage, dbUser, dbPassword, dbSchemaName string
+				var dbID, dbName, dbImage, dbUser, dbPassword, dbSchemaName, dbStatus string
 				var dbPort int
 				var err error
 
 				if dbPortFromEnv > 0 {
 					// 1. First attempt: Find the database service by the port saved in the environment variables
 					err = m.db.QueryRowContext(bgCtx, `
-						SELECT id, name, image, db_user, db_password, db_name, port
+						SELECT id, name, image, db_user, db_password, db_name, port, status
 						FROM services
 						WHERE project_id = ? AND type = 'database' AND port = ?
-					`, svc.ProjectID, dbPortFromEnv).Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort)
+					`, svc.ProjectID, dbPortFromEnv).Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort, &dbStatus)
 				}
 
 				if dbPortFromEnv <= 0 || err != nil {
 					// 2. Second attempt: Fallback to naming conventions (e.g. wp-db-wordpress, wordpress-mysql, wordpress-mariadb)
 					err = m.db.QueryRowContext(bgCtx, `
-						SELECT id, name, image, db_user, db_password, db_name, port
+						SELECT id, name, image, db_user, db_password, db_name, port, status
 						FROM services
 						WHERE project_id = ? AND type = 'database' AND (name = ? OR name = ? OR name = ?)
-					`, svc.ProjectID, "wp-db-"+svc.Name, svc.Name+"-mysql", svc.Name+"-mariadb").Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort)
+					`, svc.ProjectID, "wp-db-"+svc.Name, svc.Name+"-mysql", svc.Name+"-mariadb").Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort, &dbStatus)
 				}
 
 				if err == nil {
@@ -974,6 +973,30 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 						dbRunning = inspect.State.Running
 					}
 
+					if !dbRunning && (dbStatus == "deploying" || dbStatus == "building" || dbStatus == "creating") {
+						log("[INFO] Linked database is already deploying. Waiting for it instead of starting a duplicate container...")
+						for i := 0; i < 60; i++ {
+							time.Sleep(2 * time.Second)
+							_ = m.db.QueryRowContext(bgCtx, `SELECT status FROM services WHERE id = ?`, dbID).Scan(&dbStatus)
+							if inspect, inspectErr := m.docker.InspectContainer(bgCtx, dbContainerName); inspectErr == nil && inspect.State != nil && inspect.State.Running {
+								dbRunning = true
+								break
+							}
+							if dbStatus == "error" || dbStatus == "crashed" || dbStatus == "oom_killed" {
+								log("[ERROR] Linked database deployment ended with status: " + dbStatus)
+								break
+							}
+							if i > 0 && i%10 == 0 {
+								log(fmt.Sprintf("[INFO] Still waiting for linked database deployment... (%ds)", (i+1)*2))
+							}
+						}
+						if !dbRunning && (dbStatus == "deploying" || dbStatus == "building" || dbStatus == "creating") {
+							log("[ERROR] Linked database deployment is still in progress after 120s. Please check the database deployment logs and redeploy WordPress after it finishes.")
+							finalStatus = "error"
+							return
+						}
+					}
+
 					if dbRunning {
 						log("[INFO] Linked database container is already running and active.")
 					} else {
@@ -986,14 +1009,14 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 						}
 
 						newDbHostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
-							ServiceID:    dbID,
-							DBType:       dbImage,
-							Name:         dbName,
-							Username:     dbUser,
-							Password:     password,
-							DBName:       dbSchemaName,
-							HostPort:     dbHostPort,
-							TierName:     "micro", // default tier
+							ServiceID: dbID,
+							DBType:    dbImage,
+							Name:      dbName,
+							Username:  dbUser,
+							Password:  password,
+							DBName:    dbSchemaName,
+							HostPort:  dbHostPort,
+							TierName:  "micro", // default tier
 						}, func(msg string) {
 							log("[Database] " + msg)
 						})
@@ -1015,7 +1038,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 								log("[INFO] Waiting for database to initialize (up to 60s)...")
 								for i := 0; i < 30; i++ {
 									time.Sleep(2 * time.Second)
-									
+
 									// Check if container is still running to fail-fast on crash/exit
 									inspectCtx, inspectCancel := context.WithTimeout(bgCtx, 5*time.Second)
 									inspect, inspectErr := m.docker.InspectContainer(inspectCtx, dbContainerName)
@@ -1056,7 +1079,6 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				}
 				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
 			}
-
 
 			if len(domains) > 0 {
 				log(fmt.Sprintf("Domains: %s", strings.Join(domains, ", ")))
@@ -2273,9 +2295,9 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
-	
+
 	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
-	
+
 	runArgs = append(runArgs, baseImage)
 	if len(runCmdArgs) > 0 {
 		runArgs = append(runArgs, runCmdArgs...)
@@ -2314,7 +2336,7 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 	if len(domains) > 0 {
 		runArgs = append(runArgs, "-l", "traefik.enable=true")
 		rule := "Host(`" + strings.Join(domains, "`, `") + "`)"
-		
+
 		// Clean router name (Traefik router names must be alphanumeric)
 		routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
 
@@ -2426,7 +2448,7 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 				}
 				dbHost := fmt.Sprintf("%s:%d", containerName, internalPort)
 				dbDetected = true
-				
+
 				hasHost := false
 				hasUser := false
 				hasPassword := false

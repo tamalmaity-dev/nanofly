@@ -53,6 +53,67 @@ const getDbKey = (typeStr) => {
   return typeStr.split(':')[0];
 };
 
+const normalizeResourceText = (value = '') => String(value).trim().toLowerCase();
+
+const isWordPressService = (svc) => {
+  const haystack = `${svc?.name || ''} ${svc?.image || ''}`;
+  return normalizeResourceText(haystack).includes('wordpress');
+};
+
+const getDatabaseEngine = (svc) => {
+  const haystack = normalizeResourceText(`${svc?.name || ''} ${svc?.image || ''}`);
+  if (haystack.includes('mariadb') || haystack.includes('maria')) return 'mariadb';
+  if (haystack.includes('mysql')) return 'mysql';
+  if (haystack.includes('postgres')) return 'postgres';
+  if (haystack.includes('mongo')) return 'mongo';
+  if (haystack.includes('redis')) return 'redis';
+  return normalizeResourceText(svc?.image || svc?.type || 'database').split(':')[0] || 'database';
+};
+
+const getLinkedDatabaseCandidates = (app, services = []) => {
+  if (!app) return [];
+  const appName = normalizeResourceText(app.name);
+  const directNames = new Set([
+    `wp-db-${appName}`,
+    `${appName}-mysql`,
+    `${appName}-mariadb`,
+    `${appName}-maria`,
+  ]);
+
+  return services.filter((svc) => {
+    if (svc.type !== 'database') return false;
+    const name = normalizeResourceText(svc.name);
+    const image = normalizeResourceText(svc.image);
+    const isMysqlFamily = image.includes('mysql') || image.includes('mariadb') || name.includes('mysql') || name.includes('mariadb') || name.includes('maria');
+    if (!isMysqlFamily) return false;
+    return directNames.has(name) || (name.includes(appName) && (name.includes('wp') || name.includes('wordpress') || name.includes('mysql') || name.includes('maria')));
+  });
+};
+
+const buildServiceStacks = (services = []) => {
+  const stacks = [];
+  const groupedIds = new Set();
+
+  services.forEach((svc) => {
+    if (svc.type !== 'app' || !isWordPressService(svc)) return;
+    const databases = getLinkedDatabaseCandidates(svc, services);
+    if (databases.length === 0) return;
+
+    stacks.push({
+      id: svc.id,
+      name: svc.name,
+      type: 'wordpress',
+      app: svc,
+      databases,
+      db: databases[0],
+    });
+    groupedIds.add(svc.id);
+    databases.forEach(db => groupedIds.add(db.id));
+  });
+
+  return { stacks, groupedIds };
+};
+
 
 // Extracted to components/ServiceLogo.jsx
 const RUNTIME_VERSIONS = {
@@ -1708,7 +1769,11 @@ function StackCard({ stack, onDeploy, onDelete, setActiveSvc, setActiveTab }) {
   };
 
   const app = stack.app;
-  const db = stack.db;
+  const databases = stack.databases || (stack.db ? [stack.db] : []);
+  const primaryDb = databases[0];
+  const databaseLabel = databases.length > 1
+    ? `${databases.length} linked databases`
+    : `linked ${primaryDb ? getDatabaseEngine(primaryDb) : 'database'}`;
 
   return (
     <div className="card hover-glow" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', position: 'relative', border: '1px solid var(--border)', background: 'var(--card-bg)' }}>
@@ -1717,13 +1782,13 @@ function StackCard({ stack, onDeploy, onDelete, setActiveSvc, setActiveTab }) {
           <ServiceLogo type="app" name={app.name} image={app.image} builder={app.git_builder} size={20} />
         </div>
         <div>
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{app.name.toUpperCase()} Stack</span>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>WordPress Service Stack</div>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{app.name} stack</span>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>WordPress with {databaseLabel}</div>
         </div>
       </div>
 
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
-        {app.description || `WordPress application with linked ${db ? db.image || 'database' : 'database'}.`}
+        {app.description || 'Application and database resources are managed together as one service stack.'}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1764,9 +1829,10 @@ function StackCard({ stack, onDeploy, onDelete, setActiveSvc, setActiveTab }) {
           </div>
         </div>
 
-        {/* Database Item */}
-        {db && (
+        {/* Database Items */}
+        {databases.map((db) => (
           <div 
+            key={db.id}
             onClick={(e) => {
               e.stopPropagation();
               setActiveSvc(db.id);
@@ -1801,7 +1867,7 @@ function StackCard({ stack, onDeploy, onDelete, setActiveSvc, setActiveTab }) {
               <span style={{ fontSize: '0.75rem', color: getStatusColor(db.status), textTransform: 'capitalize' }}>{db.status}</span>
             </div>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
@@ -1838,9 +1904,7 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const projectDbs = selectedSvc?.type === 'app'
-    ? services.filter(s => s.type === 'database' && (s.name === `wp-db-${selectedSvc.name}` || s.name === `${selectedSvc.name}-mysql` || s.name === `${selectedSvc.name}-mariadb`))
-    : [];
+  const projectDbs = selectedSvc?.type === 'app' ? getLinkedDatabaseCandidates(selectedSvc, services) : [];
 
   return (
     <div>
@@ -3264,26 +3328,9 @@ export default function ProjectDetail() {
     setActiveTab('deployments');
   };
 
-  const apps = services.filter(s => s.type === 'app');
-  const dbs = services.filter(s => s.type === 'database');
-
-  const stacks = [];
-  const groupedIds = new Set();
-  services.forEach(svc => {
-    if (svc.type === 'app' && svc.image && svc.image.toLowerCase().includes('wordpress')) {
-      const linkedDb = services.find(d => d.type === 'database' && (d.name === `wp-db-${svc.name}` || d.name === `${svc.name}-mysql` || d.name === `${svc.name}-mariadb`));
-      if (linkedDb) {
-        stacks.push({
-          id: svc.id,
-          name: svc.name,
-          app: svc,
-          db: linkedDb
-        });
-        groupedIds.add(svc.id);
-        groupedIds.add(linkedDb.id);
-      }
-    }
-  });
+  const { stacks, groupedIds } = buildServiceStacks(services);
+  const apps = services.filter(s => s.type === 'app' && !groupedIds.has(s.id));
+  const dbs = services.filter(s => s.type === 'database' && !groupedIds.has(s.id));
 
   const standaloneApps = services.filter(s => s.type === 'app' && !groupedIds.has(s.id));
   const standaloneDbs = services.filter(s => s.type === 'database' && !groupedIds.has(s.id));
@@ -3292,6 +3339,41 @@ export default function ProjectDetail() {
   const getSvcStatusColor = (status) => {
     return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
   };
+  const getStackStatus = (stack) => {
+    const members = [stack.app, ...(stack.databases || [])].filter(Boolean);
+    if (members.some(s => ['error', 'crashed', 'oom_killed'].includes(s.status))) return 'error';
+    if (members.some(s => ['deploying', 'building', 'creating'].includes(s.status))) return 'deploying';
+    if (members.length > 0 && members.every(s => s.status === 'running')) return 'running';
+    return stack.app?.status || 'idle';
+  };
+  const monitoringRows = [
+    ...stacks.map(stack => ({
+      id: `stack-${stack.id}`,
+      kind: 'stack',
+      name: stack.name,
+      typeLabel: 'Service Stack',
+      status: getStackStatus(stack),
+      displaySvc: stack.app,
+      members: [stack.app, ...(stack.databases || [])].filter(Boolean),
+      onOpen: () => {
+        setActiveSvc(stack.app.id);
+        setActiveTab('deployments');
+      },
+    })),
+    ...services.filter(s => !groupedIds.has(s.id)).map(svc => ({
+      id: svc.id,
+      kind: 'service',
+      name: svc.name,
+      typeLabel: svc.type === 'database' ? 'Database' : 'Application',
+      status: svc.status,
+      displaySvc: svc,
+      members: [svc],
+      onOpen: () => {
+        setActiveSvc(svc.id);
+        setActiveTab(svc.type === 'database' ? 'connection' : 'deployments');
+      },
+    })),
+  ];
 
   if (loading) return <div className="page-content"><div className="spinner" /></div>;
 
@@ -3682,11 +3764,12 @@ export default function ProjectDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {services.map(svc => {
-                    const hasMetrics = svc.status === 'running' && (svc.cpu_percent > 0 || svc.memory_usage);
+                  {monitoringRows.map(row => {
+                    const svc = row.displaySvc;
+                    const hasMetrics = row.status === 'running' && (svc.cpu_percent > 0 || svc.memory_usage);
                     return (
                       <tr
-                        key={svc.id}
+                        key={row.id}
                         style={{
                           borderBottom: '1px solid var(--border)',
                           cursor: 'pointer',
@@ -3694,27 +3777,31 @@ export default function ProjectDetail() {
                         }}
                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-elevated)'}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        onClick={() => {
-                          setActiveSvc(svc.id);
-                          setActiveTab(svc.type === 'database' ? 'connection' : 'deployments');
-                        }}
+                        onClick={row.onOpen}
                       >
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <ServiceLogo type={svc.type} name={svc.name} image={svc.image} builder={svc.git_builder} size={20} />
-                            <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{svc.name}</span>
+                            <div>
+                              <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{row.name}</span>
+                              {row.kind === 'stack' && (
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                                  {row.members.map(member => member.name).join(' + ')}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td style={{ padding: '12px' }}>
                           <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                            {svc.type === 'database' ? 'Database' : 'Application'}
+                            {row.typeLabel}
                           </span>
                         </td>
                         <td style={{ padding: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: getSvcStatusColor(svc.status) }} />
-                            <span style={{ fontSize: '0.8rem', color: getSvcStatusColor(svc.status), textTransform: 'capitalize' }}>
-                              {svc.status}
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: getSvcStatusColor(row.status) }} />
+                            <span style={{ fontSize: '0.8rem', color: getSvcStatusColor(row.status), textTransform: 'capitalize' }}>
+                              {row.status}
                             </span>
                           </div>
                         </td>

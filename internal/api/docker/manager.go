@@ -238,19 +238,58 @@ func imageFor(dbType string) (string, int, error) {
 	}
 }
 
-
 func randomPort() int {
 	return 20000 + rand.Intn(10000)
 }
 
+const imagePullTimeout = 15 * time.Minute
+
 // PullImage pulls a Docker image, writing progress to out.
 func (m *Manager) PullImage(ctx context.Context, img string, out io.Writer) error {
-	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
+	pullCtx, cancel := context.WithTimeout(ctx, imagePullTimeout)
+	defer cancel()
+
+	rc, err := m.cli.ImagePull(pullCtx, img, image.PullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling image %s: %w", img, err)
 	}
 	defer rc.Close()
 	io.Copy(out, rc) //nolint:errcheck
+	if err := pullCtx.Err(); err != nil {
+		return fmt.Errorf("pulling image %s timed out after %s: %w", img, imagePullTimeout, err)
+	}
+	return nil
+}
+
+func (m *Manager) ensureImage(ctx context.Context, img string, logFn func(string)) error {
+	inspectCtx, inspectCancel := context.WithTimeout(ctx, 20*time.Second)
+	_, inspectErr := m.cli.ImageInspect(inspectCtx, img)
+	inspectCancel()
+	if inspectErr == nil {
+		if logFn != nil {
+			logFn("Image " + img + " already available locally.")
+		}
+		return nil
+	}
+
+	if logFn != nil {
+		logFn("Pulling image: " + img)
+	}
+	pullCtx, pullCancel := context.WithTimeout(ctx, imagePullTimeout)
+	defer pullCancel()
+
+	rc, err := m.cli.ImagePull(pullCtx, img, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pulling image %s: %w", img, err)
+	}
+	defer rc.Close()
+	streamPull(rc, logFn)
+	if err := pullCtx.Err(); err != nil {
+		return fmt.Errorf("pulling image %s timed out after %s: %w", img, imagePullTimeout, err)
+	}
+	if logFn != nil {
+		logFn("Image " + img + " Pulled")
+	}
 	return nil
 }
 
@@ -262,18 +301,8 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		return 0, "", err
 	}
 
-	if logFn != nil {
-		logFn("Pulling images.")
-		logFn("  Image " + img + " Pulling")
-	}
-	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
-	if err != nil {
-		return 0, "", fmt.Errorf("pulling image %s: %w", img, err)
-	}
-	defer rc.Close()
-	streamPull(rc, logFn)
-	if logFn != nil {
-		logFn("  Image " + img + " Pulled")
+	if err := m.ensureImage(ctx, img, logFn); err != nil {
+		return 0, "", err
 	}
 
 	hostPort := cfg.HostPort
@@ -307,7 +336,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	case cfg.DBType == "mysql" || strings.HasPrefix(cfg.DBType, "mysql:") || cfg.DBType == "mariadb" || strings.HasPrefix(cfg.DBType, "mariadb:"):
 		env = []string{
 			"MYSQL_ROOT_PASSWORD=" + cfg.Password,
-			"MYSQL_DATABASE="      + cfg.DBName,
+			"MYSQL_DATABASE=" + cfg.DBName,
 		}
 		if user != "root" {
 			env = append(env, "MYSQL_USER="+user, "MYSQL_PASSWORD="+cfg.Password)
@@ -492,7 +521,6 @@ func (m *Manager) RemoveContainer(ctx context.Context, nameOrID string) error {
 	return nil
 }
 
-
 // Logs returns the last N lines of container logs, demultiplexed and formatted.
 func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (string, error) {
 	if tail == "" {
@@ -626,17 +654,8 @@ func streamPull(rc io.Reader, logFn func(string)) {
 // logFn receives pull/deploy progress messages; pass nil to discard.
 func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, logFn func(string)) (string, error) {
 	slog.Info("pulling image", "image", img)
-	if logFn != nil {
-		logFn("Pulling image: " + img)
-	}
-	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
-	if err != nil {
-		return "", fmt.Errorf("pulling image %s: %w", img, err)
-	}
-	defer rc.Close()
-	streamPull(rc, logFn)
-	if logFn != nil {
-		logFn("Image " + img + " Pulled")
+	if err := m.ensureImage(ctx, img, logFn); err != nil {
+		return "", err
 	}
 
 	oldName := "nf-app-" + name
@@ -676,12 +695,12 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	if len(domains) > 0 {
 		labels["traefik.enable"] = "true"
 		labels[fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", name)] = fmt.Sprintf("%d", exposedPort)
-		
+
 		var hostRules []string
 		for _, d := range domains {
 			hostRules = append(hostRules, fmt.Sprintf("Host(`%s`)", d))
 		}
-		
+
 		rule := strings.Join(hostRules, " || ")
 		labels[fmt.Sprintf("traefik.http.routers.%s.rule", name)] = rule
 		labels[fmt.Sprintf("traefik.http.routers.%s.tls", name)] = "true"
@@ -698,8 +717,8 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	}
 	createCtx, createCancel := context.WithTimeout(ctx, 30*time.Second)
 	resp, err := m.cli.ContainerCreate(createCtx, &container.Config{
-		Image: img,
-		Env:   envVars,
+		Image:  img,
+		Env:    envVars,
 		Labels: labels,
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
@@ -792,7 +811,6 @@ func (c *hijackedCloser) Close() error {
 	return nil
 }
 
-
 func boolPtr(b bool) *bool {
 	return &b
 }
@@ -842,14 +860,14 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 			"nanofly.name": "traefik",
 		},
 	}, &container.HostConfig{
-		PortBindings:  portBinding,
-		Binds:         []string{
+		PortBindings: portBinding,
+		Binds: []string{
 			hostVol + ":/certs",
 			"//var/run/docker.sock:/var/run/docker.sock:ro",
 		},
 		RestartPolicy: container.RestartPolicy{Name: "always"},
 		Resources: container.Resources{
-			Memory: 64 * 1024 * 1024,
+			Memory:   64 * 1024 * 1024,
 			CPUQuota: 50000,
 		},
 	}, nil, nil, "nf-traefik")
@@ -868,6 +886,7 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 	slog.Info("traefik proxy started successfully")
 	return nil
 }
+
 // PruneSystem cleans up dangling images, stopped containers, unused volumes, and unused networks.
 func (m *Manager) PruneSystem(ctx context.Context) error {
 	slog.Info("Running Docker system prune")
