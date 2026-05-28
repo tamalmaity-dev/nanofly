@@ -351,6 +351,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	}
 
 	containerName := "nf-db-" + cfg.Name
+	m.RemoveContainer(ctx, containerName) //nolint:errcheck
 	tier := GetTierWithCustom(cfg.TierName, cfg.CustomMemory, cfg.CustomCPU)
 
 	// Ensure the shared network exists so app containers can reach this DB by name

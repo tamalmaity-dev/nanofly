@@ -9,6 +9,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+
+	dockertypes "github.com/docker/docker/api/types"
 )
 
 const nanoflyNetwork = "nanofly-network"
@@ -95,4 +97,8 @@ func (m *Manager) Exec(ctx context.Context, containerID string, cmd []string, st
 
 func (m *Manager) PruneSystem(ctx context.Context) error {
 	return fmt.Errorf("docker not available on Windows")
+}
+
+func (m *Manager) InspectContainer(ctx context.Context, nameOrID string) (*dockertypes.ContainerJSON, error) {
+	return nil, fmt.Errorf("docker not available on Windows")
 }

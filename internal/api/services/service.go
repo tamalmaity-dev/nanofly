@@ -928,37 +928,56 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 				if err == nil {
 					log(fmt.Sprintf("[INFO] Linked database detected: %s (%s)", dbName, dbImage))
-					log("[INFO] Ensuring database service is running...")
 
-					// Deploy/start database service and stream progress to our log
-					dbHostPort := dbPort
-					if dbHostPort <= 0 || docker.IsPortInUse(dbHostPort) {
-						dbHostPort = docker.ResolveHostPort(dbHostPort)
+					password := dbPassword
+					if password == "" {
+						password = docker.RandPassword()
+						m.db.ExecContext(bgCtx, `UPDATE services SET db_password = ? WHERE id = ?`, password, dbID) //nolint:errcheck
 					}
 
-					hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
-						ServiceID:    dbID,
-						DBType:       dbImage,
-						Name:         dbName,
-						Username:     dbUser,
-						Password:     dbPassword,
-						DBName:       dbSchemaName,
-						HostPort:     dbHostPort,
-						TierName:     "micro", // default tier
-					}, func(msg string) {
-						log("[Database] " + msg)
-					})
+					dbRunning := false
+					// Only skip deployment if the container is running AND we have a valid non-empty password
+					if dbPassword != "" {
+						if inspect, inspectErr := m.docker.InspectContainer(bgCtx, "nf-db-"+dbName); inspectErr == nil && inspect.State != nil {
+							dbRunning = inspect.State.Running
+						}
+					}
 
-					if err != nil {
-						log("[ERROR] Linked database deployment failed: " + err.Error())
+					if dbRunning {
+						log("[INFO] Linked database container is already running and active.")
 					} else {
-						log("[OK] Database is ready.")
-						// Update port & connection string for the database service
-						m.db.ExecContext(bgCtx, `UPDATE services SET port=?, status='running' WHERE id=?`, hostPort, dbID) //nolint:errcheck
-						m.db.ExecContext(bgCtx, `
-							INSERT INTO env_vars (service_id, key, value) VALUES (?, 'CONNECTION_STRING', ?)
-							ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
-						`, dbID, connStr) //nolint:errcheck
+						log("[INFO] Ensuring database service is running...")
+
+						// Deploy/start database service and stream progress to our log
+						dbHostPort := dbPort
+						if dbHostPort <= 0 || docker.IsPortInUse(dbHostPort) {
+							dbHostPort = docker.ResolveHostPort(dbHostPort)
+						}
+
+						hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
+							ServiceID:    dbID,
+							DBType:       dbImage,
+							Name:         dbName,
+							Username:     dbUser,
+							Password:     password,
+							DBName:       dbSchemaName,
+							HostPort:     dbHostPort,
+							TierName:     "micro", // default tier
+						}, func(msg string) {
+							log("[Database] " + msg)
+						})
+
+						if err != nil {
+							log("[ERROR] Linked database deployment failed: " + err.Error())
+						} else {
+							log("[OK] Database is ready.")
+							// Update port & connection string for the database service
+							m.db.ExecContext(bgCtx, `UPDATE services SET port=?, status='running' WHERE id=?`, hostPort, dbID) //nolint:errcheck
+							m.db.ExecContext(bgCtx, `
+								INSERT INTO env_vars (service_id, key, value) VALUES (?, 'CONNECTION_STRING', ?)
+								ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
+							`, dbID, connStr) //nolint:errcheck
+						}
 					}
 				}
 			}
