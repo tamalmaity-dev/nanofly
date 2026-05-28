@@ -59,7 +59,7 @@ func New(dataDir string) (*Manager, error) {
 
 // nanoflyNetwork is the name of the shared Docker bridge network used by all
 // NanoFly containers so they can discover each other by container name.
-const nanoflyNetwork = "nanofly"
+const nanoflyNetwork = "nanofly-network"
 
 // EnsureNetwork creates the shared "nanofly" bridge network if it doesn't exist.
 func (m *Manager) EnsureNetwork(ctx context.Context) {
@@ -255,18 +255,26 @@ func (m *Manager) PullImage(ctx context.Context, img string, out io.Writer) erro
 }
 
 // CreateDB creates and starts a managed database container.
-func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, error) {
+// logFn receives pull/deploy progress messages; pass nil to discard.
+func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)) (int, string, error) {
 	img, containerPort, err := imageFor(cfg.DBType)
 	if err != nil {
 		return 0, "", err
 	}
 
+	if logFn != nil {
+		logFn("Pulling images.")
+		logFn("  Image " + img + " Pulling")
+	}
 	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
 		return 0, "", fmt.Errorf("pulling image %s: %w", img, err)
 	}
 	defer rc.Close()
-	_, _ = io.Copy(io.Discard, rc)
+	streamPull(rc, logFn)
+	if logFn != nil {
+		logFn("  Image " + img + " Pulled")
+	}
 
 	hostPort := cfg.HostPort
 	if hostPort == 0 {
@@ -347,6 +355,11 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	// Ensure the shared network exists so app containers can reach this DB by name
 	m.EnsureNetwork(ctx)
 
+	if logFn != nil {
+		logFn("Creating Docker network: " + nanoflyNetwork)
+		logFn("Starting service.")
+		logFn(fmt.Sprintf("Container %s Creating", containerName))
+	}
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
 		Image: img,
 		Env:   env,
@@ -374,12 +387,21 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	if err != nil {
 		return 0, "", fmt.Errorf("creating container: %w", err)
 	}
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Created", containerName))
+	}
 
-	// Connect to the shared nanofly network for container-to-container DNS
+	// Connect to the shared nanofly-network for container-to-container DNS
 	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
 
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Starting", containerName))
+	}
 	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return 0, "", fmt.Errorf("starting container: %w", err)
+	}
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Started", containerName))
 	}
 
 	return hostPort, connStr, nil
@@ -471,26 +493,57 @@ type pullEvent struct {
 
 // streamPull reads image pull JSON events from rc and writes human-readable
 // progress lines to logFn. It MUST drain rc fully so the pull completes.
+// Emits "Extracting NNB" / "Pull complete" per layer, and a periodic progress
+// tick every 5 s during long pulls so the UI never looks frozen.
 func streamPull(rc io.Reader, logFn func(string)) {
 	dec := json.NewDecoder(rc)
 	seen := map[string]bool{}
+	lastTick := time.Now()
+	totalEvents := 0
+
 	for {
 		var evt pullEvent
 		if err := dec.Decode(&evt); err != nil {
 			break
 		}
+		totalEvents++
 		if logFn == nil {
 			continue
 		}
-		// Only log each unique "Pull complete" / "Already exists" event once
+		// Emit a periodic "still downloading…" tick so the UI doesn't freeze
+		if time.Since(lastTick) > 5*time.Second {
+			lastTick = time.Now()
+			logFn("  Downloading image layers...")
+		}
+
 		key := evt.ID + "|" + evt.Status
 		switch evt.Status {
-		case "Pulling from", "Pulling fs layer", "Waiting", "Downloading", "Verifying Checksum":
+		case "Pulling from", "Waiting", "Verifying Checksum":
 			// Too noisy — skip
+		case "Pulling fs layer":
+			if !seen[key] {
+				seen[key] = true
+				logFn(fmt.Sprintf("  %s Pulling fs layer 0B", evt.ID))
+			}
+		case "Downloading":
+			// Show meaningful progress: "NNB" from current bytes
+			if evt.ProgressDetail.Current > 0 && !seen[key] {
+				seen[key] = true
+				logFn(fmt.Sprintf("  %s Downloading %dB", evt.ID, evt.ProgressDetail.Current))
+			}
+		case "Extracting":
+			if !seen[key] {
+				seen[key] = true
+				sz := evt.ProgressDetail.Current
+				if sz == 0 {
+					sz = evt.ProgressDetail.Total
+				}
+				logFn(fmt.Sprintf("  %s Extracting %dB", evt.ID, sz))
+			}
 		case "Pull complete", "Already exists":
 			if !seen[key] {
 				seen[key] = true
-				logFn(fmt.Sprintf("  %s %s", evt.ID, evt.Status))
+				logFn(fmt.Sprintf("  %s %s 0B", evt.ID, evt.Status))
 			}
 		default:
 			if evt.Status != "" && !seen[key] {

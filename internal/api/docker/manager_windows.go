@@ -11,7 +11,7 @@ import (
 	"io"
 )
 
-const nanoflyNetwork = "nanofly"
+const nanoflyNetwork = "nanofly-network"
 
 type OomEvent struct {
 	ContainerName string
@@ -65,7 +65,7 @@ func (m *Manager) ListByLabel(ctx context.Context, serviceID string) ([]Containe
 	return nil, fmt.Errorf("docker not available on Windows")
 }
 
-func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, error) {
+func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)) (int, string, error) {
 	return 0, "", fmt.Errorf("docker not available on Windows")
 }
 

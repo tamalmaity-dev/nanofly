@@ -15,7 +15,7 @@ import (
 )
 
 // nanoflyNet is the shared Docker bridge network name.
-const nanoflyNet = "nanofly"
+const nanoflyNet = "nanofly-network"
 
 // ensureNanoflyNetwork creates the shared nanofly network if it doesn't exist.
 func ensureNanoflyNetwork(ctx context.Context) {
