@@ -355,10 +355,9 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		containerName = fmt.Sprintf("%s-%s", containerName, cfg.ServiceID[:8])
 	}
 	m.RemoveContainer(ctx, containerName) //nolint:errcheck
-	tierName := cfg.TierName
-	if tierName == "micro" || tierName == "nano" || tierName == "" {
-		tierName = "unlimited" // Databases need sufficient RAM to initialize/run stably without OOM kills
-	}
+	// Always default databases to the unlimited tier to prevent OOM kills on startup/operation,
+	// unless the user has explicitly configured custom limits.
+	tierName := "unlimited"
 	tier := GetTierWithCustom(tierName, cfg.CustomMemory, cfg.CustomCPU)
 
 	// Ensure the shared network exists so app containers can reach this DB by name
