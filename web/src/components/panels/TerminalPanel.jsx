@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -14,9 +14,11 @@ function ContainerTerminalPanel({ service }) {
   const [status, setStatus] = useState('connecting'); // connecting | open | closed | error
   const [reconnectCount, setReconnectCount] = useState(0);
 
+  // 
+  const suffix = service.id && service.id.length >= 8 ? `-${service.id.substring(0, 8)}` : '';
   const containerName = service.type === 'database'
-    ? `nf-db-${service.name}`
-    : `nf-app-${service.name}`;
+    ? `nf-db-${service.name}${suffix}`
+    : `nf-app-${service.name}${suffix}`;
 
   useEffect(() => {
     //  1. Create xterm instance   

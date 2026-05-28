@@ -355,6 +355,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		containerName = fmt.Sprintf("%s-%s", containerName, cfg.ServiceID[:8])
 	}
 	m.RemoveContainer(ctx, containerName) //nolint:errcheck
+
 	// Always default databases to the unlimited tier to prevent OOM kills on startup/operation,
 	// unless the user has explicitly configured custom limits.
 	tierName := "unlimited"
