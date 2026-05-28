@@ -14,16 +14,40 @@ import (
 	"time"
 )
 
+// nanoflyNet is the shared Docker bridge network name.
+const nanoflyNet = "nanofly"
+
+// ensureNanoflyNetwork creates the shared nanofly network if it doesn't exist.
+func ensureNanoflyNetwork(ctx context.Context) {
+	checkCmd := exec.CommandContext(ctx, "docker", "network", "inspect", nanoflyNet)
+	if checkCmd.Run() == nil {
+		return // already exists
+	}
+	createCmd := exec.CommandContext(ctx, "docker", "network", "create", "--driver", "bridge",
+		"--label", "nanofly.type=system", nanoflyNet)
+	if out, err := createCmd.CombinedOutput(); err != nil {
+		slog.Warn("failed to create nanofly network", "error", err, "output", string(out))
+	} else {
+		slog.Info("created nanofly Docker network")
+	}
+}
+
 // EnsureTraefik checks if the global nanofly-traefik container is running.
 // If it is not, it starts it, binding to ports 80 and 443.
 func EnsureTraefik(ctx context.Context, dataDir string) error {
 	containerName := "nanofly-traefik"
+
+	// Ensure the shared network exists first
+	ensureNanoflyNetwork(ctx)
 
 	// Check if already running
 	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", containerName)
 	out, err := checkCmd.CombinedOutput()
 	if err == nil && strings.TrimSpace(string(out)) == "true" {
 		slog.Info("Traefik is already running")
+		// Ensure it's on the nanofly network (idempotent — docker returns error if already connected)
+		connectCmd := exec.CommandContext(ctx, "docker", "network", "connect", nanoflyNet, containerName)
+		connectCmd.Run() //nolint:errcheck — may already be connected
 		return nil
 	}
 
@@ -54,11 +78,12 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		dockerSocket = "//./pipe/docker_engine://./pipe/docker_engine"
 	}
 
-	// Start Traefik
+	// Start Traefik — attach to the nanofly network so it can reach app containers
 	runArgs := []string{
 		"run", "-d",
 		"--name", containerName,
 		"--restart", "always",
+		"--network", nanoflyNet,
 		"-p", "80:80",
 		"-p", "443:443",
 		"-v", dockerSocket,

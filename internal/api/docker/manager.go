@@ -7,6 +7,7 @@ package docker
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -458,15 +459,64 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 	return sb.String(), nil
 }
 
+// pullEvent is a single JSON event from Docker's image pull stream.
+type pullEvent struct {
+	Status         string `json:"status"`
+	ProgressDetail struct {
+		Current int64 `json:"current"`
+		Total   int64 `json:"total"`
+	} `json:"progressDetail"`
+	ID string `json:"id"`
+}
+
+// streamPull reads image pull JSON events from rc and writes human-readable
+// progress lines to logFn. It MUST drain rc fully so the pull completes.
+func streamPull(rc io.Reader, logFn func(string)) {
+	dec := json.NewDecoder(rc)
+	seen := map[string]bool{}
+	for {
+		var evt pullEvent
+		if err := dec.Decode(&evt); err != nil {
+			break
+		}
+		if logFn == nil {
+			continue
+		}
+		// Only log each unique "Pull complete" / "Already exists" event once
+		key := evt.ID + "|" + evt.Status
+		switch evt.Status {
+		case "Pulling from", "Pulling fs layer", "Waiting", "Downloading", "Verifying Checksum":
+			// Too noisy — skip
+		case "Pull complete", "Already exists":
+			if !seen[key] {
+				seen[key] = true
+				logFn(fmt.Sprintf("  %s %s", evt.ID, evt.Status))
+			}
+		default:
+			if evt.Status != "" && !seen[key] {
+				seen[key] = true
+				logFn(evt.Status)
+			}
+		}
+	}
+}
+
 // DeployApp deploys a Docker image as an app container.
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64) (string, error) {
+// logFn receives pull/deploy progress messages; pass nil to discard.
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, logFn func(string)) (string, error) {
 	slog.Info("pulling image", "image", img)
+	if logFn != nil {
+		logFn("Pulling image: " + img)
+	}
 	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
 		return "", fmt.Errorf("pulling image %s: %w", img, err)
 	}
 	defer rc.Close()
-	_, _ = io.Copy(io.Discard, rc)
+	streamPull(rc, logFn)
+	if logFn != nil {
+		logFn("Image " + img + " Pulled")
+	}
 
 	oldName := "nf-app-" + name
 	m.RemoveContainer(ctx, oldName) //nolint:errcheck
@@ -518,6 +568,9 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	// Ensure the shared network exists for container-to-container DNS
 	m.EnsureNetwork(ctx)
 
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Creating", oldName))
+	}
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
 		Image: img,
 		Env:   envVars,
@@ -540,12 +593,21 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Created", oldName))
+	}
 
 	// Connect to the shared nanofly network for container-to-container DNS
 	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
 
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Starting", oldName))
+	}
 	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
+	}
+	if logFn != nil {
+		logFn(fmt.Sprintf("Container %s Started", oldName))
 	}
 
 	return resp.ID[:12], nil
@@ -665,6 +727,10 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("starting traefik container: %w", err)
 	}
+
+	// Connect Traefik to the nanofly network so it can reach app containers
+	m.EnsureNetwork(ctx)
+	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
 
 	slog.Info("traefik proxy started successfully")
 	return nil

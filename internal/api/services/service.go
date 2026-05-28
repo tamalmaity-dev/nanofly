@@ -906,16 +906,20 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			}
 
 			if len(domains) > 0 {
-				log(fmt.Sprintf("[INFO] Registering domain routing: %s", strings.Join(domains, ", ")))
+				log(fmt.Sprintf("Domains: %s", strings.Join(domains, ", ")))
 			}
-			log("[INFO] Pulling image: " + svc.Image)
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+			log("Pulling images.")
+			log("Creating Docker network: " + docker.NanoflyNetworkName())
+			log("Starting service.")
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU), func(msg string) {
+				log(msg)
+			})
 			if err != nil {
 				log("[ERROR] " + err.Error())
 				finalStatus = "error"
 				return
 			}
-			log("[OK] Container started: " + containerID)
+			log("Container started: " + containerID)
 			m.db.ExecContext(bgCtx, `UPDATE services SET status='running', port=? WHERE id=?`, hostPort, serviceID) //nolint:errcheck
 		}
 
