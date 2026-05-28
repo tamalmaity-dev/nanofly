@@ -925,13 +925,35 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			if strings.Contains(strings.ToLower(svc.Image), "wordpress") {
 				// Auto-deploy/start linked database FIRST, before enriching WordPress env,
 				// so enrichWordPressEnv can see the running container and correct credentials.
+				// Let's find the port of the linked database from the saved environment variables of this wordpress app!
+				var dbPortFromEnv int
+				_ = m.db.QueryRowContext(bgCtx, `
+					SELECT CAST(SUBSTR(value, INSTR(value, ':') + 1) AS INTEGER)
+					FROM env_vars
+					WHERE service_id = ? AND key = 'WORDPRESS_DB_HOST' AND value LIKE 'host.docker.internal:%'
+				`, svc.ID).Scan(&dbPortFromEnv)
+
 				var dbID, dbName, dbImage, dbUser, dbPassword, dbSchemaName string
 				var dbPort int
-				err := m.db.QueryRowContext(bgCtx, `
-					SELECT id, name, image, db_user, db_password, db_name, port
-					FROM services
-					WHERE project_id = ? AND type = 'database' AND name = ?
-				`, svc.ProjectID, "wp-db-"+svc.Name).Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort)
+				var err error
+
+				if dbPortFromEnv > 0 {
+					// 1. First attempt: Find the database service by the port saved in the environment variables
+					err = m.db.QueryRowContext(bgCtx, `
+						SELECT id, name, image, db_user, db_password, db_name, port
+						FROM services
+						WHERE project_id = ? AND type = 'database' AND port = ?
+					`, svc.ProjectID, dbPortFromEnv).Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort)
+				}
+
+				if dbPortFromEnv <= 0 || err != nil {
+					// 2. Second attempt: Fallback to naming conventions (e.g. wp-db-wordpress, wordpress-mysql, wordpress-mariadb)
+					err = m.db.QueryRowContext(bgCtx, `
+						SELECT id, name, image, db_user, db_password, db_name, port
+						FROM services
+						WHERE project_id = ? AND type = 'database' AND (name = ? OR name = ? OR name = ?)
+					`, svc.ProjectID, "wp-db-"+svc.Name, svc.Name+"-mysql", svc.Name+"-mariadb").Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort)
+				}
 
 				if err == nil {
 					log(fmt.Sprintf("[INFO] Linked database detected: %s (%s)", dbName, dbImage))
@@ -993,8 +1015,15 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 								log("[INFO] Waiting for database to initialize (up to 60s)...")
 								for i := 0; i < 30; i++ {
 									time.Sleep(2 * time.Second)
+									
+									// Check if container is still running to fail-fast on crash/exit
+									if inspect, inspectErr := m.docker.InspectContainer(bgCtx, dbContainerName); inspectErr == nil && inspect.State != nil && !inspect.State.Running {
+										log("[ERROR] Database container stopped running/exited during initialization.")
+										break
+									}
+
 									// Check container logs for readiness signal
-									logs, _ := m.docker.Logs(bgCtx, dbContainerName, "20")
+									logs, _ := m.docker.Logs(bgCtx, dbContainerName, "100")
 									if strings.Contains(logs, "ready for connections") || strings.Contains(logs, "mysqld: ready") {
 										log("[OK] Database is ready for connections.")
 										break
@@ -2333,12 +2362,44 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 			var dbID string
 			var dbPort int
 			var dbType, dbUser, dbPassword, dbSchemaName, dbServiceName string
-			err := database.QueryRowContext(ctx, `
-				SELECT id, port, image, db_user, db_password, db_name, name 
-				FROM services 
-				WHERE project_id = ? AND type = 'database' AND (image LIKE '%mysql%' OR image LIKE '%maria%' OR status = 'running')
-				LIMIT 1
-			`, projectID).Scan(&dbID, &dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
+			var err error
+
+			// 1. Try to find the db port from envSlice (e.g. host.docker.internal:3306 or host.docker.internal:32890)
+			originalHost := getVal("WORDPRESS_DB_HOST")
+			var dbPortFromEnv int
+			if strings.Contains(originalHost, ":") {
+				parts := strings.Split(originalHost, ":")
+				fmt.Sscanf(parts[len(parts)-1], "%d", &dbPortFromEnv)
+			}
+
+			if dbPortFromEnv > 0 {
+				err = database.QueryRowContext(ctx, `
+					SELECT id, port, image, db_user, db_password, db_name, name 
+					FROM services 
+					WHERE project_id = ? AND type = 'database' AND port = ?
+				`, projectID, dbPortFromEnv).Scan(&dbID, &dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
+			}
+
+			if dbPortFromEnv <= 0 || err != nil {
+				// 2. Try naming conventions
+				var appName string
+				_ = database.QueryRowContext(ctx, "SELECT name FROM services WHERE id = ?", serviceID).Scan(&appName)
+				err = database.QueryRowContext(ctx, `
+					SELECT id, port, image, db_user, db_password, db_name, name 
+					FROM services 
+					WHERE project_id = ? AND type = 'database' AND (name = ? OR name = ? OR name = ?)
+				`, projectID, "wp-db-"+appName, appName+"-mysql", appName+"-mariadb").Scan(&dbID, &dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
+			}
+
+			if err != nil {
+				// 3. General fallback
+				err = database.QueryRowContext(ctx, `
+					SELECT id, port, image, db_user, db_password, db_name, name 
+					FROM services 
+					WHERE project_id = ? AND type = 'database' AND (image LIKE '%mysql%' OR image LIKE '%maria%' OR status = 'running')
+					LIMIT 1
+				`, projectID).Scan(&dbID, &dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
+			}
 
 			if err == nil {
 				// Use the Docker container name for DNS on the shared nanofly network.

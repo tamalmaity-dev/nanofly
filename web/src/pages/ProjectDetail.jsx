@@ -639,14 +639,25 @@ function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCrea
         let finalEnvVars = [...envVars];
         
         if (form.dbSetupType === 'create-mysql' || form.dbSetupType === 'create-mariadb') {
-          const dbContainerName = `wp-db-${form.name.trim()}`;
+          const isMariaDB = form.dbSetupType === 'create-mariadb';
+          const dbContainerName = `${form.name.trim()}-${isMariaDB ? 'mariadb' : 'mysql'}`;
           const dbUser = form.dbUser ? form.dbUser.trim() : 'wordpress';
           const dbPass = form.dbPassword ? form.dbPassword.trim() : generatePassword();
           const dbName = form.dbName ? form.dbName.trim() : 'wordpress';
 
+          // Prevent duplicate DB services by checking if it already exists and deleting it first
+          const existingDb = services.find(s => s.type === 'database' && s.name === dbContainerName);
+          if (existingDb) {
+            try {
+              await servicesApi.delete(existingDb.id);
+            } catch (err) {
+              console.warn('Failed to delete existing duplicate database service:', err);
+            }
+          }
+
           const dbSvc = await servicesApi.createDB(projectId, {
             name: dbContainerName,
-            db_type: form.dbSetupType === 'create-mariadb' ? 'mariadb' : 'mysql',
+            db_type: isMariaDB ? 'mariadb' : 'mysql',
             db_user: dbUser,
             db_password: dbPass,
             db_name: dbName,
@@ -1828,7 +1839,7 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   };
 
   const projectDbs = selectedSvc?.type === 'app'
-    ? services.filter(s => s.type === 'database' && s.name === `wp-db-${selectedSvc.name}`)
+    ? services.filter(s => s.type === 'database' && (s.name === `wp-db-${selectedSvc.name}` || s.name === `${selectedSvc.name}-mysql` || s.name === `${selectedSvc.name}-mariadb`))
     : [];
 
   return (
@@ -2873,6 +2884,28 @@ function ResourceLimitsPanel({ service, onUpdate }) {
         </Button>
       </div>
 
+      {service.type === 'database' && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 12,
+          padding: '1rem',
+          background: 'rgba(234, 179, 8, 0.08)',
+          border: '1px solid rgba(234, 179, 8, 0.2)',
+          borderRadius: 8,
+          marginBottom: '1.25rem',
+          color: '#eab308',
+          fontSize: '0.85rem',
+          lineHeight: 1.5
+        }}>
+          <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <strong style={{ display: 'block', marginBottom: 4 }}>Database Service Detected</strong>
+            To prevent unexpected Out-Of-Memory (OOM) crashes during database initialization or query operations, database services on NanoFly default to <strong>Unlimited</strong>. Adjust these resource constraints carefully.
+          </div>
+        </div>
+      )}
+
       {/* Tier Selection */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
         <div className="section-title" style={{ marginBottom: '1rem' }}>
@@ -3238,7 +3271,7 @@ export default function ProjectDetail() {
   const groupedIds = new Set();
   services.forEach(svc => {
     if (svc.type === 'app' && svc.image && svc.image.toLowerCase().includes('wordpress')) {
-      const linkedDb = services.find(d => d.type === 'database' && d.name === `wp-db-${svc.name}`);
+      const linkedDb = services.find(d => d.type === 'database' && (d.name === `wp-db-${svc.name}` || d.name === `${svc.name}-mysql` || d.name === `${svc.name}-mariadb`));
       if (linkedDb) {
         stacks.push({
           id: svc.id,
