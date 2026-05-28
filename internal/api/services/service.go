@@ -905,24 +905,11 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
 			}
 
-			var links []string
-			rowsDb, _ := m.db.QueryContext(bgCtx, `SELECT name FROM services WHERE project_id=? AND type='database'`, svc.ProjectID)
-			if rowsDb != nil {
-				for rowsDb.Next() {
-					var dbName string
-					rowsDb.Scan(&dbName) //nolint:errcheck
-					if dbName != "" {
-						links = append(links, "nf-db-"+dbName+":"+dbName)
-					}
-				}
-				rowsDb.Close()
-			}
-
 			if len(domains) > 0 {
 				log(fmt.Sprintf("[INFO] Registering domain routing: %s", strings.Join(domains, ", ")))
 			}
 			log("[INFO] Pulling image: " + svc.Image)
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU), links)
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
 			if err != nil {
 				log("[ERROR] " + err.Error())
 				finalStatus = "error"
@@ -1111,18 +1098,8 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
 
-	// Link database containers if any exist
-	rowsDb, _ := m.db.QueryContext(ctx, `SELECT name FROM services WHERE project_id=? AND type='database'`, svc.ProjectID)
-	if rowsDb != nil {
-		for rowsDb.Next() {
-			var dbName string
-			rowsDb.Scan(&dbName) //nolint:errcheck
-			if dbName != "" {
-				runArgs = append(runArgs, "--link", "nf-db-"+dbName+":"+dbName)
-			}
-		}
-		rowsDb.Close()
-	}
+	// Join the shared nanofly network for container-to-container DNS
+	runArgs = append(runArgs, "--network", docker.NanoflyNetworkName())
 
 	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
 	runArgs = append(runArgs, imageTag)
@@ -1985,18 +1962,8 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 			}
 		}
 
-		// Link database containers if any exist
-		rowsDb, _ := m.db.QueryContext(ctx, `SELECT name FROM services WHERE project_id=? AND type='database'`, svc.ProjectID)
-		if rowsDb != nil {
-			for rowsDb.Next() {
-				var dbName string
-				rowsDb.Scan(&dbName) //nolint:errcheck
-				if dbName != "" {
-					runArgs = append(runArgs, "--link", "nf-db-"+dbName+":"+dbName)
-				}
-			}
-			rowsDb.Close()
-		}
+		// Join the shared nanofly network for container-to-container DNS
+		runArgs = append(runArgs, "--network", docker.NanoflyNetworkName())
 
 		// Append custom docker run arguments
 		if svc.DockerArgs != "" {
@@ -2253,10 +2220,21 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 			`, projectID).Scan(&dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
 
 			if err == nil && dbPort > 0 {
-				dbHost := fmt.Sprintf("host.docker.internal:%d", dbPort)
-				if dbServiceName != "" {
-					dbHost = dbServiceName + ":3306"
+				// Use the Docker container name for DNS on the shared nanofly network.
+				// Container names are "nf-db-<serviceName>", and Docker DNS resolves them.
+				containerName := "nf-db-" + dbServiceName
+				internalPort := 3306 // MySQL/MariaDB default
+				dbTypeLower := strings.ToLower(dbType)
+				if strings.Contains(dbTypeLower, "postgres") {
+					internalPort = 5432
+				} else if strings.Contains(dbTypeLower, "mongo") {
+					internalPort = 27017
+				} else if strings.Contains(dbTypeLower, "redis") || strings.Contains(dbTypeLower, "keydb") || strings.Contains(dbTypeLower, "dragonfly") {
+					internalPort = 6379
+				} else if strings.Contains(dbTypeLower, "clickhouse") {
+					internalPort = 8123
 				}
+				dbHost := fmt.Sprintf("%s:%d", containerName, internalPort)
 				dbDetected = true
 				
 				hasHost := false

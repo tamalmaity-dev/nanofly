@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
@@ -53,6 +54,30 @@ func New(dataDir string) (*Manager, error) {
 	m := &Manager{cli: cli, dataDir: dataDir}
 	go m.WatchEvents(context.Background())
 	return m, nil
+}
+
+// nanoflyNetwork is the name of the shared Docker bridge network used by all
+// NanoFly containers so they can discover each other by container name.
+const nanoflyNetwork = "nanofly"
+
+// EnsureNetwork creates the shared "nanofly" bridge network if it doesn't exist.
+func (m *Manager) EnsureNetwork(ctx context.Context) {
+	_, err := m.cli.NetworkInspect(ctx, nanoflyNetwork, network.InspectOptions{})
+	if err == nil {
+		return // already exists
+	}
+	_, err = m.cli.NetworkCreate(ctx, nanoflyNetwork, network.CreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{"nanofly.type": "system"},
+	})
+	if err != nil {
+		slog.Warn("failed to create nanofly network (may already exist)", "error", err)
+	}
+}
+
+// NanoflyNetworkName returns the name of the shared Docker bridge network.
+func NanoflyNetworkName() string {
+	return nanoflyNetwork
 }
 
 // WatchEvents subscribes to Docker events and fires OomHandler for oom/die events.
@@ -318,6 +343,9 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	containerName := "nf-db-" + cfg.Name
 	tier := GetTierWithCustom(cfg.TierName, cfg.CustomMemory, cfg.CustomCPU)
 
+	// Ensure the shared network exists so app containers can reach this DB by name
+	m.EnsureNetwork(ctx)
+
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
 		Image: img,
 		Env:   env,
@@ -345,6 +373,9 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig) (int, string, erro
 	if err != nil {
 		return 0, "", fmt.Errorf("creating container: %w", err)
 	}
+
+	// Connect to the shared nanofly network for container-to-container DNS
+	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
 
 	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return 0, "", fmt.Errorf("starting container: %w", err)
@@ -428,7 +459,7 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 }
 
 // DeployApp deploys a Docker image as an app container.
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, links []string) (string, error) {
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64) (string, error) {
 	slog.Info("pulling image", "image", img)
 	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
@@ -484,6 +515,9 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 
 	tier := GetTierWithCustom(tierName, customMemory, customCPU)
 
+	// Ensure the shared network exists for container-to-container DNS
+	m.EnsureNetwork(ctx)
+
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
 		Image: img,
 		Env:   envVars,
@@ -491,7 +525,6 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
 		ExtraHosts:    []string{"host.docker.internal:host-gateway"},
-		Links:         links,
 		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
 		Resources: container.Resources{
 			Memory:     tier.Memory,
@@ -507,6 +540,9 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
+
+	// Connect to the shared nanofly network for container-to-container DNS
+	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
 
 	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
