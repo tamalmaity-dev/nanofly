@@ -368,13 +368,22 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	// MySQL --initialize conflict: if we remove the container but the data directory (host bind
 	// mount) still has MySQL files, a brand-new container's entrypoint calls --initialize and
 	// fails with "data directory has files in it".
-	if existing, inspectErr := m.cli.ContainerInspect(ctx, containerName); inspectErr == nil {
+	inspectCtx, inspectCancel := context.WithTimeout(ctx, 30*time.Second)
+	existing, inspectErr := m.cli.ContainerInspect(inspectCtx, containerName)
+	inspectCancel()
+	if inspectErr == nil {
 		if logFn != nil {
 			logFn(fmt.Sprintf("Container %s exists (state: %s); restarting instead of recreating.", containerName, existing.State.Status))
 		}
 		// Make sure it's connected to the shared network
-		_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, existing.ID, nil)
-		if err := m.cli.ContainerStart(ctx, existing.ID, container.StartOptions{}); err != nil {
+		connectCtx, connectCancel := context.WithTimeout(ctx, 30*time.Second)
+		_ = m.cli.NetworkConnect(connectCtx, nanoflyNetwork, existing.ID, nil)
+		connectCancel()
+
+		startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
+		err := m.cli.ContainerStart(startCtx, existing.ID, container.StartOptions{})
+		startCancel()
+		if err != nil {
 			return 0, "", fmt.Errorf("starting existing container: %w", err)
 		}
 		if logFn != nil {
@@ -389,7 +398,8 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		logFn("Starting service.")
 		logFn(fmt.Sprintf("Container %s Creating", containerName))
 	}
-	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
+	createCtx, createCancel := context.WithTimeout(ctx, 30*time.Second)
+	resp, err := m.cli.ContainerCreate(createCtx, &container.Config{
 		Image: img,
 		Env:   env,
 		Labels: map[string]string{
@@ -414,6 +424,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		CapAdd:     []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
 		Privileged: false,
 	}, nil, nil, containerName)
+	createCancel()
 	if err != nil {
 		return 0, "", fmt.Errorf("creating container: %w", err)
 	}
@@ -422,12 +433,17 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	}
 
 	// Connect to the shared nanofly-network for container-to-container DNS
-	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
+	connectCtx2, connectCancel2 := context.WithTimeout(ctx, 30*time.Second)
+	_ = m.cli.NetworkConnect(connectCtx2, nanoflyNetwork, resp.ID, nil)
+	connectCancel2()
 
 	if logFn != nil {
 		logFn(fmt.Sprintf("Container %s Starting", containerName))
 	}
-	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	startCtx2, startCancel2 := context.WithTimeout(ctx, 30*time.Second)
+	err = m.cli.ContainerStart(startCtx2, resp.ID, container.StartOptions{})
+	startCancel2()
+	if err != nil {
 		return 0, "", fmt.Errorf("starting container: %w", err)
 	}
 	if logFn != nil {
@@ -680,7 +696,8 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	if logFn != nil {
 		logFn(fmt.Sprintf("Container %s Creating", oldName))
 	}
-	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
+	createCtx, createCancel := context.WithTimeout(ctx, 30*time.Second)
+	resp, err := m.cli.ContainerCreate(createCtx, &container.Config{
 		Image: img,
 		Env:   envVars,
 		Labels: labels,
@@ -700,6 +717,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		CapAdd:     []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
 		Privileged: false,
 	}, nil, nil, oldName)
+	createCancel()
 	if err != nil {
 		return "", fmt.Errorf("creating container: %w", err)
 	}
@@ -708,12 +726,17 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	}
 
 	// Connect to the shared nanofly network for container-to-container DNS
-	_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, resp.ID, nil)
+	connectCtx, connectCancel := context.WithTimeout(ctx, 30*time.Second)
+	_ = m.cli.NetworkConnect(connectCtx, nanoflyNetwork, resp.ID, nil)
+	connectCancel()
 
 	if logFn != nil {
 		logFn(fmt.Sprintf("Container %s Starting", oldName))
 	}
-	if err := m.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
+	err = m.cli.ContainerStart(startCtx, resp.ID, container.StartOptions{})
+	startCancel()
+	if err != nil {
 		return "", fmt.Errorf("starting container: %w", err)
 	}
 	if logFn != nil {

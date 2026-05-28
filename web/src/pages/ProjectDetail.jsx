@@ -510,7 +510,7 @@ const generatePassword = () => {
 };
 
 //  Add Service Form 
-function AddServiceForm({ projectId, projectName, domains = [], onCancel, onCreated }) {
+function AddServiceForm({ projectId, projectName, domains = [], services = [], onCancel, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
   const [type, setType] = useState('app'); // app | database
   const [subType, setSubType] = useState('docker'); // docker | github
@@ -3628,6 +3628,7 @@ export default function ProjectDetail() {
       {showAddForm ? (
         <AddServiceForm
           domains={domains}
+          services={services}
           projectId={id}
           projectName={project?.name}
           onCancel={() => setShowAddForm(false)}

@@ -1017,13 +1017,18 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 									time.Sleep(2 * time.Second)
 									
 									// Check if container is still running to fail-fast on crash/exit
-									if inspect, inspectErr := m.docker.InspectContainer(bgCtx, dbContainerName); inspectErr == nil && inspect.State != nil && !inspect.State.Running {
+									inspectCtx, inspectCancel := context.WithTimeout(bgCtx, 5*time.Second)
+									inspect, inspectErr := m.docker.InspectContainer(inspectCtx, dbContainerName)
+									inspectCancel()
+									if inspectErr == nil && inspect.State != nil && !inspect.State.Running {
 										log("[ERROR] Database container stopped running/exited during initialization.")
 										break
 									}
 
 									// Check container logs for readiness signal
-									logs, _ := m.docker.Logs(bgCtx, dbContainerName, "100")
+									logsCtx, logsCancel := context.WithTimeout(bgCtx, 5*time.Second)
+									logs, _ := m.docker.Logs(logsCtx, dbContainerName, "100")
+									logsCancel()
 									if strings.Contains(logs, "ready for connections") || strings.Contains(logs, "mysqld: ready") {
 										log("[OK] Database is ready for connections.")
 										break
