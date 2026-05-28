@@ -905,11 +905,24 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
 			}
 
+			var links []string
+			rowsDb, _ := m.db.QueryContext(bgCtx, `SELECT name FROM services WHERE project_id=? AND type='database'`, svc.ProjectID)
+			if rowsDb != nil {
+				for rowsDb.Next() {
+					var dbName string
+					rowsDb.Scan(&dbName) //nolint:errcheck
+					if dbName != "" {
+						links = append(links, "nf-db-"+dbName+":"+dbName)
+					}
+				}
+				rowsDb.Close()
+			}
+
 			if len(domains) > 0 {
 				log(fmt.Sprintf("[INFO] Registering domain routing: %s", strings.Join(domains, ", ")))
 			}
 			log("[INFO] Pulling image: " + svc.Image)
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU), links)
 			if err != nil {
 				log("[ERROR] " + err.Error())
 				finalStatus = "error"
@@ -1096,6 +1109,19 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	// Append custom docker run arguments
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
+	}
+
+	// Link database containers if any exist
+	rowsDb, _ := m.db.QueryContext(ctx, `SELECT name FROM services WHERE project_id=? AND type='database'`, svc.ProjectID)
+	if rowsDb != nil {
+		for rowsDb.Next() {
+			var dbName string
+			rowsDb.Scan(&dbName) //nolint:errcheck
+			if dbName != "" {
+				runArgs = append(runArgs, "--link", "nf-db-"+dbName+":"+dbName)
+			}
+		}
+		rowsDb.Close()
 	}
 
 	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
@@ -1959,6 +1985,19 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 			}
 		}
 
+		// Link database containers if any exist
+		rowsDb, _ := m.db.QueryContext(ctx, `SELECT name FROM services WHERE project_id=? AND type='database'`, svc.ProjectID)
+		if rowsDb != nil {
+			for rowsDb.Next() {
+				var dbName string
+				rowsDb.Scan(&dbName) //nolint:errcheck
+				if dbName != "" {
+					runArgs = append(runArgs, "--link", "nf-db-"+dbName+":"+dbName)
+				}
+			}
+			rowsDb.Close()
+		}
+
 		// Append custom docker run arguments
 		if svc.DockerArgs != "" {
 			runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
@@ -2205,16 +2244,19 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 		_ = database.QueryRowContext(ctx, "SELECT project_id FROM services WHERE id = ?", serviceID).Scan(&projectID)
 		if projectID != "" {
 			var dbPort int
-			var dbType, dbUser, dbPassword, dbName string
+			var dbType, dbUser, dbPassword, dbSchemaName, dbServiceName string
 			err := database.QueryRowContext(ctx, `
-				SELECT port, image, db_user, db_password, db_name 
+				SELECT port, image, db_user, db_password, db_name, name 
 				FROM services 
 				WHERE project_id = ? AND type = 'database' AND (image LIKE '%mysql%' OR image LIKE '%maria%' OR status = 'running')
 				LIMIT 1
-			`, projectID).Scan(&dbPort, &dbType, &dbUser, &dbPassword, &dbName)
+			`, projectID).Scan(&dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
 
 			if err == nil && dbPort > 0 {
 				dbHost := fmt.Sprintf("host.docker.internal:%d", dbPort)
+				if dbServiceName != "" {
+					dbHost = dbServiceName + ":3306"
+				}
 				dbDetected = true
 				
 				hasHost := false
@@ -2222,16 +2264,19 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 				hasPassword := false
 				hasName := false
 
+				// Use 'nanofly' as default user if empty to avoid MySQL root remote connection limits
+				defaultUser := dbUser
+				if defaultUser == "" {
+					defaultUser = "nanofly"
+				}
+
 				for i, e := range envSlice {
 					if strings.HasPrefix(e, "WORDPRESS_DB_HOST=") {
 						envSlice[i] = "WORDPRESS_DB_HOST=" + dbHost
 						hasHost = true
 					}
 					if strings.HasPrefix(e, "WORDPRESS_DB_USER=") {
-						if dbUser == "" {
-							dbUser = "root"
-						}
-						envSlice[i] = "WORDPRESS_DB_USER=" + dbUser
+						envSlice[i] = "WORDPRESS_DB_USER=" + defaultUser
 						hasUser = true
 					}
 					if strings.HasPrefix(e, "WORDPRESS_DB_PASSWORD=") {
@@ -2239,7 +2284,7 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 						hasPassword = true
 					}
 					if strings.HasPrefix(e, "WORDPRESS_DB_NAME=") {
-						envSlice[i] = "WORDPRESS_DB_NAME=" + dbName
+						envSlice[i] = "WORDPRESS_DB_NAME=" + dbSchemaName
 						hasName = true
 					}
 				}
@@ -2248,16 +2293,26 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 					envSlice = append(envSlice, "WORDPRESS_DB_HOST="+dbHost)
 				}
 				if !hasUser {
-					if dbUser == "" {
-						dbUser = "root"
-					}
-					envSlice = append(envSlice, "WORDPRESS_DB_USER="+dbUser)
+					envSlice = append(envSlice, "WORDPRESS_DB_USER="+defaultUser)
 				}
 				if !hasPassword {
 					envSlice = append(envSlice, "WORDPRESS_DB_PASSWORD="+dbPassword)
 				}
 				if !hasName {
-					envSlice = append(envSlice, "WORDPRESS_DB_NAME="+dbName)
+					envSlice = append(envSlice, "WORDPRESS_DB_NAME="+dbSchemaName)
+				}
+
+				// Inject DATABASE_URL connection string
+				dbURL := fmt.Sprintf("mysql://%s:%s@%s/%s", defaultUser, dbPassword, dbHost, dbSchemaName)
+				hasURL := false
+				for i, e := range envSlice {
+					if strings.HasPrefix(e, "DATABASE_URL=") {
+						envSlice[i] = "DATABASE_URL=" + dbURL
+						hasURL = true
+					}
+				}
+				if !hasURL {
+					envSlice = append(envSlice, "DATABASE_URL="+dbURL)
 				}
 			}
 		}

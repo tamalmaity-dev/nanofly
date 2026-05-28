@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Fragment } from 'react';
 import { useAuth } from '../store/auth';
 import {
   AlertCircle, Archive, Bell, CheckCircle2, Download, Key, RefreshCw,
@@ -356,7 +356,7 @@ function UpdateProgressSteps({ status, log }) {
         {steps.map((s, idx) => {
           const state = getStepState(s.key, idx);
           return (
-            <React.Fragment key={s.key}>
+            <Fragment key={s.key}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: state === 'pending' ? 0.45 : 1 }}>
                 <div style={{
                   width: 28,
@@ -399,7 +399,7 @@ function UpdateProgressSteps({ status, log }) {
                   marginRight: 8
                 }} />
               )}
-            </React.Fragment>
+            </Fragment>
           );
         })}
       </div>

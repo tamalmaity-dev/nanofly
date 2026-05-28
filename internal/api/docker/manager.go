@@ -428,7 +428,7 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 }
 
 // DeployApp deploys a Docker image as an app container.
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64) (string, error) {
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, links []string) (string, error) {
 	slog.Info("pulling image", "image", img)
 	rc, err := m.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
@@ -491,6 +491,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
 		ExtraHosts:    []string{"host.docker.internal:host-gateway"},
+		Links:         links,
 		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
 		Resources: container.Resources{
 			Memory:     tier.Memory,
