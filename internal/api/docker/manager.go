@@ -307,9 +307,10 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	case cfg.DBType == "mysql" || strings.HasPrefix(cfg.DBType, "mysql:") || cfg.DBType == "mariadb" || strings.HasPrefix(cfg.DBType, "mariadb:"):
 		env = []string{
 			"MYSQL_ROOT_PASSWORD=" + cfg.Password,
-			"MYSQL_USER=" + user,
-			"MYSQL_PASSWORD=" + cfg.Password,
-			"MYSQL_DATABASE=" + cfg.DBName,
+			"MYSQL_DATABASE="      + cfg.DBName,
+		}
+		if user != "root" {
+			env = append(env, "MYSQL_USER="+user, "MYSQL_PASSWORD="+cfg.Password)
 		}
 		connStr = fmt.Sprintf("mysql://%s:%s@localhost:%d/%s", user, cfg.Password, hostPort, cfg.DBName)
 	case cfg.DBType == "redis" || strings.HasPrefix(cfg.DBType, "redis:") || cfg.DBType == "keydb":
@@ -371,6 +372,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		},
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
+		NetworkMode:   container.NetworkMode(nanoflyNetwork),
 		Binds:         []string{hostVol + ":" + containerVol},
 		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
 		Resources: container.Resources{
@@ -630,6 +632,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		Labels: labels,
 	}, &container.HostConfig{
 		PortBindings:  portBinding,
+		NetworkMode:   container.NetworkMode(nanoflyNetwork),
 		ExtraHosts:    []string{"host.docker.internal:host-gateway"},
 		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
 		Resources: container.Resources{

@@ -1690,18 +1690,23 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
 }
 
 // Container Logs Panel
-function ContainerLogsPanel({ serviceId }) {
+function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   const [logs, setLogs] = useState('Fetching container logs...');
   const [copied, setCopied] = useState(false);
+  const [selectedLogSvcId, setSelectedLogSvcId] = useState(serviceId);
+
+  useEffect(() => {
+    setSelectedLogSvcId(serviceId);
+  }, [serviceId]);
 
   const fetchLogs = useCallback(async () => {
     try {
-      const res = await servicesApi.getLogs(serviceId);
+      const res = await servicesApi.getLogs(selectedLogSvcId);
       setLogs(res.logs || 'No runtime logs found. Container might be stopped or starting.');
     } catch (err) {
       setLogs(`Error: ${err.message}`);
     }
-  }, [serviceId]);
+  }, [selectedLogSvcId]);
 
   useEffect(() => {
     fetchLogs();
@@ -1715,8 +1720,33 @@ function ContainerLogsPanel({ serviceId }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const projectDbs = selectedSvc?.type === 'app'
+    ? services.filter(s => s.type === 'database')
+    : [];
+
   return (
     <div>
+      {projectDbs.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <Button
+            variant={selectedLogSvcId === serviceId ? 'solid' : 'ghost'}
+            size="sm"
+            onClick={() => setSelectedLogSvcId(serviceId)}
+          >
+            {selectedSvc?.name} (App)
+          </Button>
+          {projectDbs.map(db => (
+            <Button
+              key={db.id}
+              variant={selectedLogSvcId === db.id ? 'solid' : 'ghost'}
+              size="sm"
+              onClick={() => setSelectedLogSvcId(db.id)}
+            >
+              {db.name} ({db.image || 'Database'})
+            </Button>
+          ))}
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Runtime Container Logs</span>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -3284,7 +3314,7 @@ export default function ProjectDetail() {
               <DeploymentsPanel serviceId={activeSvc} />
             </TabsContent>
             <TabsContent value="logs">
-              <ContainerLogsPanel serviceId={activeSvc} />
+              <ContainerLogsPanel serviceId={activeSvc} services={services} selectedSvc={selectedSvc} />
             </TabsContent>
             <TabsContent value="terminal">
               <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading terminal...</div>}>
