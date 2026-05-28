@@ -94,6 +94,24 @@ type Service struct {
 	MemoryUsage string  `json:"memory_usage"`
 }
 
+
+// ContainerName returns the canonical Docker container name for a service.
+// This matches the logic in DockerService.ensureContainer.
+//
+// Example:
+// Service{Name: "wordpress", ID: "12345678-abcd-efgh-ijkl-mnopqrstuv", Type: TypeApplication}.ContainerName() == "nf-app-wordpress-12345678"
+func (s *Service) ContainerName() string {
+	prefix := "nf-app-"
+	if s.Type == TypeDatabase {
+		prefix = "nf-db-"
+	}
+	name := prefix + s.Name
+	if len(s.ID) >= 8 {
+		name = fmt.Sprintf("%s-%s", name, s.ID[:8])
+	}
+	return name
+}
+
 // EnvVar is a key=value pair stored encrypted in DB.
 type EnvVar struct {
 	Key   string `json:"key"`
@@ -397,12 +415,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		s.Type = ServiceType(string(s.Type))
 
 		// Map stats
-		cName := ""
-		if s.Type == TypeDatabase {
-			cName = "nf-db-" + s.Name
-		} else {
-			cName = "nf-app-" + s.Name
-		}
+		cName := s.ContainerName()
 		if s.Builder == "docker-compose" {
 			var totalCPU float64
 			var totalMemBytes int64
@@ -473,12 +486,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 
 	// Map stats
 	containerStats := getContainerStats(ctx)
-	cName := ""
-	if s.Type == TypeDatabase {
-		cName = "nf-db-" + s.Name
-	} else {
-		cName = "nf-app-" + s.Name
-	}
+	cName := s.ContainerName()
 	if s.Builder == "docker-compose" {
 		var totalCPU float64
 		var totalMemBytes int64
@@ -779,7 +787,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			}
 			log("[INFO] Starting database deployment: " + svc.Name)
 			log("[INFO] Cleaning up any existing container...")
-			m.docker.RemoveContainer(bgCtx, "nf-db-"+svc.Name) //nolint:errcheck
+			m.docker.RemoveContainer(bgCtx, svc.ContainerName()) //nolint:errcheck
 
 			password := svc.DBPassword
 			if password == "" {
@@ -936,9 +944,13 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 					}
 
 					dbRunning := false
+					dbContainerName := "nf-db-" + dbName
+					if len(dbID) >= 8 {
+						dbContainerName = fmt.Sprintf("%s-%s", dbContainerName, dbID[:8])
+					}
 					// Only skip deployment if the container is running AND we have a valid non-empty password
 					if dbPassword != "" {
-						if inspect, inspectErr := m.docker.InspectContainer(bgCtx, "nf-db-"+dbName); inspectErr == nil && inspect.State != nil {
+						if inspect, inspectErr := m.docker.InspectContainer(bgCtx, dbContainerName); inspectErr == nil && inspect.State != nil {
 							dbRunning = inspect.State.Running
 						}
 					}
@@ -1138,7 +1150,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 
 	log("🚀 Starting container…")
 	runArgs := []string{"run", "-d", "--restart=unless-stopped",
-		"--name", "nf-app-" + svc.Name,
+		"--name", svc.ContainerName(),
 		"-l", "nanofly.service=" + svc.ID,
 	}
 
@@ -1185,7 +1197,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
 	runArgs = append(runArgs, imageTag)
 
-	exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
+	exec.CommandContext(ctx, "docker", "rm", "-f", svc.ContainerName()).Run() //nolint:errcheck
 	runCmd := exec.CommandContext(ctx, "docker", runArgs...)
 	runOut, err := runCmd.CombinedOutput()
 	log(string(runOut))
@@ -1649,10 +1661,7 @@ func normalizeDockerName(name string) string {
 }
 
 func (m *Manager) primaryContainerNames(svc *Service) []string {
-	if svc.Type == TypeDatabase {
-		return []string{"nf-db-" + svc.Name}
-	}
-	return []string{"nf-app-" + svc.Name}
+	return []string{svc.ContainerName()}
 }
 
 func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVolumes bool) error {
@@ -2009,7 +2018,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 
 		log("🚀 Starting container…")
 		runArgs := []string{"run", "-d", "--restart=unless-stopped",
-			"--name", "nf-app-" + svc.Name,
+			"--name", svc.ContainerName(),
 			"-l", "nanofly.service=" + svc.ID,
 		}
 
@@ -2054,7 +2063,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
 		runArgs = append(runArgs, imageTag)
 
-		exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
+		exec.CommandContext(ctx, "docker", "rm", "-f", svc.ContainerName()).Run() //nolint:errcheck
 		runCmd := exec.CommandContext(ctx, "docker", runArgs...)
 		runOut, err := runCmd.CombinedOutput()
 		log(string(runOut))
@@ -2155,7 +2164,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	log("🚀 Deploying local app via volume mount: " + localPath + " -> " + targetDir)
 
 	runArgs := []string{"run", "-d", "--restart=unless-stopped",
-		"--name", "nf-app-" + svc.Name,
+		"--name", svc.ContainerName(),
 		"-l", "nanofly.service=" + svc.ID,
 		"-v", localPath + ":" + targetDir,
 		"-w", targetDir,
@@ -2208,7 +2217,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		runArgs = append(runArgs, runCmdArgs...)
 	}
 
-	exec.CommandContext(ctx, "docker", "rm", "-f", "nf-app-"+svc.Name).Run() //nolint:errcheck
+	exec.CommandContext(ctx, "docker", "rm", "-f", svc.ContainerName()).Run() //nolint:errcheck
 	runCmd := exec.CommandContext(ctx, "docker", runArgs...)
 	runOut, err := runCmd.CombinedOutput()
 	log(string(runOut))
@@ -2291,19 +2300,23 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 		var projectID string
 		_ = database.QueryRowContext(ctx, "SELECT project_id FROM services WHERE id = ?", serviceID).Scan(&projectID)
 		if projectID != "" {
+			var dbID string
 			var dbPort int
 			var dbType, dbUser, dbPassword, dbSchemaName, dbServiceName string
 			err := database.QueryRowContext(ctx, `
-				SELECT port, image, db_user, db_password, db_name, name 
+				SELECT id, port, image, db_user, db_password, db_name, name 
 				FROM services 
 				WHERE project_id = ? AND type = 'database' AND (image LIKE '%mysql%' OR image LIKE '%maria%' OR status = 'running')
 				LIMIT 1
-			`, projectID).Scan(&dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
+			`, projectID).Scan(&dbID, &dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
 
 			if err == nil && dbPort > 0 {
 				// Use the Docker container name for DNS on the shared nanofly network.
-				// Container names are "nf-db-<serviceName>", and Docker DNS resolves them.
+				// Container names are "nf-db-<serviceName>-<serviceID[:8]>", and Docker DNS resolves them.
 				containerName := "nf-db-" + dbServiceName
+				if len(dbID) >= 8 {
+					containerName = fmt.Sprintf("%s-%s", containerName, dbID[:8])
+				}
 				internalPort := 3306 // MySQL/MariaDB default
 				dbTypeLower := strings.ToLower(dbType)
 				if strings.Contains(dbTypeLower, "postgres") {
@@ -2404,7 +2417,7 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 		cleaned := domains[0]
 		cleaned = strings.TrimPrefix(cleaned, "http://")
 		cleaned = strings.TrimPrefix(cleaned, "https://")
-		siteURL = "http://" + cleaned
+		siteURL = "https://" + cleaned
 	} else if hostPort > 0 {
 		siteURL = fmt.Sprintf("http://host.docker.internal:%d", hostPort)
 	}

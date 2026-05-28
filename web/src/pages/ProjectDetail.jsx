@@ -1689,6 +1689,113 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
   );
 }
 
+// Stack Card for Grouped Services (e.g. WordPress App + Database)
+function StackCard({ stack, onDeploy, onDelete, setActiveSvc, setActiveTab }) {
+  const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
+  const getStatusColor = (status) => {
+    return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
+  };
+
+  const app = stack.app;
+  const db = stack.db;
+
+  return (
+    <div className="card hover-glow" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', position: 'relative', border: '1px solid var(--border)', background: 'var(--card-bg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(79, 110, 247, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ServiceLogo type="app" name={app.name} image={app.image} builder={app.git_builder} size={20} />
+        </div>
+        <div>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{app.name.toUpperCase()} Stack</span>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>WordPress Service Stack</div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+        {app.description || `WordPress application with linked ${db ? db.image || 'database' : 'database'}.`}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* App Item */}
+        <div 
+          onClick={(e) => {
+            e.stopPropagation();
+            setActiveSvc(app.id);
+            setActiveTab('deployments');
+          }}
+          style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            padding: '8px 12px', 
+            background: 'var(--bg-elevated)', 
+            borderRadius: 6, 
+            cursor: 'pointer',
+            border: '1px solid var(--border)',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--accent)';
+            e.currentTarget.style.background = 'rgba(79, 110, 247, 0.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border)';
+            e.currentTarget.style.background = 'var(--bg-elevated)';
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ServiceLogo type={app.type} name={app.name} image={app.image} builder={app.git_builder} size={16} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)' }}>{app.name} (App)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: getStatusColor(app.status), boxShadow: `0 0 6px ${getStatusColor(app.status)}` }} />
+            <span style={{ fontSize: '0.75rem', color: getStatusColor(app.status), textTransform: 'capitalize' }}>{app.status}</span>
+          </div>
+        </div>
+
+        {/* Database Item */}
+        {db && (
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveSvc(db.id);
+              setActiveTab('connection');
+            }}
+            style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              padding: '8px 12px', 
+              background: 'var(--bg-elevated)', 
+              borderRadius: 6, 
+              cursor: 'pointer',
+              border: '1px solid var(--border)',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--accent)';
+              e.currentTarget.style.background = 'rgba(79, 110, 247, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'var(--border)';
+              e.currentTarget.style.background = 'var(--bg-elevated)';
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ServiceLogo type={db.type} name={db.name} image={db.image} size={16} />
+              <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-primary)' }}>{db.name} (DB)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: getStatusColor(db.status), boxShadow: `0 0 6px ${getStatusColor(db.status)}` }} />
+              <span style={{ fontSize: '0.75rem', color: getStatusColor(db.status), textTransform: 'capitalize' }}>{db.status}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Container Logs Panel
 function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   const [logs, setLogs] = useState('Fetching container logs...');
@@ -3095,6 +3202,27 @@ export default function ProjectDetail() {
 
   const apps = services.filter(s => s.type === 'app');
   const dbs = services.filter(s => s.type === 'database');
+
+  const stacks = [];
+  const groupedIds = new Set();
+  services.forEach(svc => {
+    if (svc.type === 'app' && svc.image && svc.image.toLowerCase().includes('wordpress')) {
+      const linkedDb = services.find(d => d.type === 'database' && d.name === `wp-db-${svc.name}`);
+      if (linkedDb) {
+        stacks.push({
+          id: svc.id,
+          name: svc.name,
+          app: svc,
+          db: linkedDb
+        });
+        groupedIds.add(svc.id);
+        groupedIds.add(linkedDb.id);
+      }
+    }
+  });
+
+  const standaloneApps = services.filter(s => s.type === 'app' && !groupedIds.has(s.id));
+  const standaloneDbs = services.filter(s => s.type === 'database' && !groupedIds.has(s.id));
   const selectedSvc = services.find(s => s.id === activeSvc);
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', stopped: 'var(--text-muted)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
   const getSvcStatusColor = (status) => {
@@ -3568,11 +3696,29 @@ export default function ProjectDetail() {
           <div style={{ display: 'grid', gridTemplateColumns: activeSvc ? '1fr 380px' : '1fr', gap: '1rem' }}>
             {/* Left: service list */}
             <div>
-              {apps.length > 0 && (
+              {stacks.length > 0 && (
+                <>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Service Stacks</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                    {stacks.map(st => (
+                      <StackCard 
+                        key={st.id} 
+                        stack={st} 
+                        onDeploy={handleDeploy} 
+                        onDelete={handleDelete} 
+                        setActiveSvc={setActiveSvc}
+                        setActiveTab={setActiveTab}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {standaloneApps.length > 0 && (
                 <>
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Applications</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-                    {apps.map(s => (
+                    {standaloneApps.map(s => (
                       <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                         <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
                       </div>
@@ -3581,11 +3727,11 @@ export default function ProjectDetail() {
                 </>
               )}
 
-              {dbs.length > 0 && (
+              {standaloneDbs.length > 0 && (
                 <>
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Databases</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-                    {dbs.map(s => (
+                    {standaloneDbs.map(s => (
                       <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('connection'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                         <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
                       </div>

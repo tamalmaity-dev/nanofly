@@ -351,6 +351,9 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	}
 
 	containerName := "nf-db-" + cfg.Name
+	if len(cfg.ServiceID) >= 8 {
+		containerName = fmt.Sprintf("%s-%s", containerName, cfg.ServiceID[:8])
+	}
 	m.RemoveContainer(ctx, containerName) //nolint:errcheck
 	tierName := cfg.TierName
 	if tierName == "micro" || tierName == "nano" || tierName == "" {
@@ -579,6 +582,9 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 	}
 
 	oldName := "nf-app-" + name
+	if len(serviceID) >= 8 {
+		oldName = fmt.Sprintf("%s-%s", oldName, serviceID[:8])
+	}
 	m.RemoveContainer(ctx, oldName) //nolint:errcheck
 
 	// Inspect image config to detect exposed ports
@@ -595,6 +601,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		}
 	}
 
+	// Use HostPort only if specified, otherwise rely on Traefik
 	portBinding := nat.PortMap{}
 	if hostPort > 0 && exposedPort > 0 {
 		portBinding[nat.Port(fmt.Sprintf("%d/tcp", exposedPort))] = []nat.PortBinding{
