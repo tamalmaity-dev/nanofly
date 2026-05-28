@@ -354,7 +354,6 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	if len(cfg.ServiceID) >= 8 {
 		containerName = fmt.Sprintf("%s-%s", containerName, cfg.ServiceID[:8])
 	}
-	m.RemoveContainer(ctx, containerName) //nolint:errcheck
 
 	// Always default databases to the unlimited tier to prevent OOM kills on startup/operation,
 	// unless the user has explicitly configured custom limits.
@@ -364,6 +363,27 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 	// Ensure the shared network exists so app containers can reach this DB by name
 	m.EnsureNetwork(ctx)
 
+	// Check if the container already exists (may be stopped).
+	// If it does, simply (re)start it instead of removing and recreating — this prevents the
+	// MySQL --initialize conflict: if we remove the container but the data directory (host bind
+	// mount) still has MySQL files, a brand-new container's entrypoint calls --initialize and
+	// fails with "data directory has files in it".
+	if existing, inspectErr := m.cli.ContainerInspect(ctx, containerName); inspectErr == nil {
+		if logFn != nil {
+			logFn(fmt.Sprintf("Container %s exists (state: %s); restarting instead of recreating.", containerName, existing.State.Status))
+		}
+		// Make sure it's connected to the shared network
+		_ = m.cli.NetworkConnect(ctx, nanoflyNetwork, existing.ID, nil)
+		if err := m.cli.ContainerStart(ctx, existing.ID, container.StartOptions{}); err != nil {
+			return 0, "", fmt.Errorf("starting existing container: %w", err)
+		}
+		if logFn != nil {
+			logFn(fmt.Sprintf("Container %s Started", containerName))
+		}
+		return hostPort, connStr, nil
+	}
+
+	// Container does not exist — create it fresh.
 	if logFn != nil {
 		logFn("Creating Docker network: " + nanoflyNetwork)
 		logFn("Starting service.")
@@ -429,11 +449,33 @@ func (m *Manager) RestartContainer(ctx context.Context, nameOrID string) error {
 	return m.cli.ContainerRestart(ctx, nameOrID, container.StopOptions{Timeout: &timeout})
 }
 
-// RemoveContainer stops and removes a container.
+// RemoveContainer stops and removes a container, then waits up to 10 s for
+// Docker to confirm it is gone. This prevents the race where ContainerCreate
+// immediately follows ContainerRemove but Docker hasn't finished the cleanup,
+// causing a "container name already in use" error.
 func (m *Manager) RemoveContainer(ctx context.Context, nameOrID string) error {
 	m.StopContainer(ctx, nameOrID) //nolint:errcheck
-	return m.cli.ContainerRemove(ctx, nameOrID, container.RemoveOptions{Force: true, RemoveVolumes: true})
+	if err := m.cli.ContainerRemove(ctx, nameOrID, container.RemoveOptions{Force: true, RemoveVolumes: false}); err != nil {
+		// If the container doesn't exist at all, that's fine.
+		if strings.Contains(err.Error(), "No such container") {
+			return nil
+		}
+		return err
+	}
+	// Wait until Docker confirms the container is gone (up to 10 s).
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		_, inspectErr := m.cli.ContainerInspect(ctx, nameOrID)
+		if inspectErr != nil {
+			// Container gone — success.
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	// Timed out but proceed anyway; ContainerCreate will catch any real conflict.
+	return nil
 }
+
 
 // Logs returns the last N lines of container logs, demultiplexed and formatted.
 func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (string, error) {

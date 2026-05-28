@@ -923,9 +923,8 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 			domains := m.getServiceDomains(bgCtx, svc.Name)
 			if strings.Contains(strings.ToLower(svc.Image), "wordpress") {
-				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
-
-				// Auto-deploy/start linked database first and stream its logs to the app's deployment log
+				// Auto-deploy/start linked database FIRST, before enriching WordPress env,
+				// so enrichWordPressEnv can see the running container and correct credentials.
 				var dbID, dbName, dbImage, dbUser, dbPassword, dbSchemaName string
 				var dbPort int
 				err := m.db.QueryRowContext(bgCtx, `
@@ -948,11 +947,9 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 					if len(dbID) >= 8 {
 						dbContainerName = fmt.Sprintf("%s-%s", dbContainerName, dbID[:8])
 					}
-					// Only skip deployment if the container is running AND we have a valid non-empty password
-					if dbPassword != "" {
-						if inspect, inspectErr := m.docker.InspectContainer(bgCtx, dbContainerName); inspectErr == nil && inspect.State != nil {
-							dbRunning = inspect.State.Running
-						}
+					// Always check container state regardless of whether password was pre-existing.
+					if inspect, inspectErr := m.docker.InspectContainer(bgCtx, dbContainerName); inspectErr == nil && inspect.State != nil {
+						dbRunning = inspect.State.Running
 					}
 
 					if dbRunning {
@@ -966,7 +963,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 							dbHostPort = docker.ResolveHostPort(dbHostPort)
 						}
 
-						hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
+						newDbHostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 							ServiceID:    dbID,
 							DBType:       dbImage,
 							Name:         dbName,
@@ -982,17 +979,50 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 						if err != nil {
 							log("[ERROR] Linked database deployment failed: " + err.Error())
 						} else {
-							log("[OK] Database is ready.")
+							log("[OK] Database container started. Waiting for it to be ready...")
 							// Update port & connection string for the database service
-							m.db.ExecContext(bgCtx, `UPDATE services SET port=?, status='running' WHERE id=?`, hostPort, dbID) //nolint:errcheck
+							m.db.ExecContext(bgCtx, `UPDATE services SET port=?, status='running' WHERE id=?`, newDbHostPort, dbID) //nolint:errcheck
 							m.db.ExecContext(bgCtx, `
 								INSERT INTO env_vars (service_id, key, value) VALUES (?, 'CONNECTION_STRING', ?)
 								ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
 							`, dbID, connStr) //nolint:errcheck
+							// Wait for MySQL/MariaDB to finish initialization (up to 60 s)
+							// before deploying WordPress, so WordPress doesn't get a "database
+							// connection error" on first start while the DB is still initializing.
+							if strings.Contains(strings.ToLower(dbImage), "mysql") || strings.Contains(strings.ToLower(dbImage), "mariadb") {
+								log("[INFO] Waiting for database to initialize (up to 60s)...")
+								for i := 0; i < 30; i++ {
+									time.Sleep(2 * time.Second)
+									// Check container logs for readiness signal
+									logs, _ := m.docker.Logs(bgCtx, dbContainerName, "20")
+									if strings.Contains(logs, "ready for connections") || strings.Contains(logs, "mysqld: ready") {
+										log("[OK] Database is ready for connections.")
+										break
+									}
+									if i > 0 && i%5 == 0 {
+										log(fmt.Sprintf("[INFO] Still waiting for database... (%ds)", (i+1)*2))
+									}
+								}
+							}
 						}
 					}
 				}
+
+				// Re-read env vars from DB now that the database is running and credentials are saved,
+				// then enrich WordPress environment with the correct DB host/credentials.
+				envSlice = nil
+				rows2, _ := m.db.QueryContext(bgCtx, `SELECT key, value FROM env_vars WHERE service_id=?`, serviceID)
+				if rows2 != nil {
+					for rows2.Next() {
+						var k, v string
+						rows2.Scan(&k, &v) //nolint:errcheck
+						envSlice = append(envSlice, k+"="+v)
+					}
+					rows2.Close()
+				}
+				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
 			}
+
 
 			if len(domains) > 0 {
 				log(fmt.Sprintf("Domains: %s", strings.Join(domains, ", ")))
@@ -2310,7 +2340,7 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 				LIMIT 1
 			`, projectID).Scan(&dbID, &dbPort, &dbType, &dbUser, &dbPassword, &dbSchemaName, &dbServiceName)
 
-			if err == nil && dbPort > 0 {
+			if err == nil {
 				// Use the Docker container name for DNS on the shared nanofly network.
 				// Container names are "nf-db-<serviceName>-<serviceID[:8]>", and Docker DNS resolves them.
 				containerName := "nf-db-" + dbServiceName
