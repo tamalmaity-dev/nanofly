@@ -2803,16 +2803,26 @@ function ConnectionDetailsPanel({ service }) {
   );
 }
 
-//  Resource Limits Panel 
 function ResourceLimitsPanel({ service, onUpdate }) {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
-  const [resourceTier, setResourceTier] = useState(service.resource_tier || 'micro');
+
+  const getInitialTier = (svc) => {
+    let tier = svc.resource_tier;
+    if (svc.type === 'database') {
+      if (!tier || tier === 'micro' || tier === 'nano') {
+        return 'unlimited';
+      }
+    }
+    return tier || 'micro';
+  };
+
+  const [resourceTier, setResourceTier] = useState(getInitialTier(service));
   const [customMemory, setCustomMemory] = useState(service.custom_memory || 0);
   const [customCPU, setCustomCPU] = useState(service.custom_cpu || 0);
 
   useEffect(() => {
-    setResourceTier(service.resource_tier || 'micro');
+    setResourceTier(getInitialTier(service));
     setCustomMemory(service.custom_memory || 0);
     setCustomCPU(service.custom_cpu || 0);
   }, [service]);
@@ -2988,6 +2998,27 @@ function ResourceLimitsPanel({ service, onUpdate }) {
           <strong style={{ color: 'var(--text-primary)' }}>Note:</strong> Changes to resource limits will take effect the next time you redeploy this service. The current running container will continue using the old limits until you redeploy.
         </div>
       </div>
+
+      {/* Database Warning Banner */}
+      {service.type === 'database' && (
+        <div style={{
+          marginTop: '1.25rem',
+          padding: '1rem 1.25rem',
+          background: 'rgba(239, 68, 68, 0.08)',
+          border: '1px solid rgba(239, 68, 68, 0.18)',
+          borderRadius: 'var(--radius)',
+          fontSize: '0.8rem',
+          color: 'var(--text-secondary)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10
+        }}>
+          <AlertCircle size={18} color="var(--red)" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <strong style={{ color: 'var(--text-primary)' }}>Important Database Resource Advice:</strong> Databases (especially MySQL, PostgreSQL, and MongoDB) require significant RAM to initialize and operate stably. Setting resource limits below 512MB (such as Micro or Nano plans) is highly likely to trigger kernel Out-Of-Memory (OOM) crashes (Exit Code 137). It is strongly recommended to use <strong>Unlimited</strong> or custom tiers with at least 512MB RAM for all databases.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
