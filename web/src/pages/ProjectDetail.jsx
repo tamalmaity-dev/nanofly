@@ -1721,7 +1721,7 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   };
 
   const projectDbs = selectedSvc?.type === 'app'
-    ? services.filter(s => s.type === 'database')
+    ? services.filter(s => s.type === 'database' && s.name === `wp-db-${selectedSvc.name}`)
     : [];
 
   return (

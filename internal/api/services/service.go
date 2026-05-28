@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nanofly/nanofly/internal/api/docker"
@@ -729,19 +730,33 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 		bgCtx := context.Background()
 		var logBuf strings.Builder
 		var finalStatus string
+		var logMu sync.Mutex
+		lastWrite := time.Now()
 
 		log := func(line string) {
 			slog.Info("[deploy]", "svc", svc.Name, "line", line)
+			logMu.Lock()
 			logBuf.WriteString(line + "\n")
-			// Update log in DB periodically
-			m.db.ExecContext(bgCtx, `UPDATE deployments SET log=? WHERE id=?`, logBuf.String(), deployID) //nolint:errcheck
+			now := time.Now()
+			if now.Sub(lastWrite) > 1*time.Second {
+				lastWrite = now
+				logContent := logBuf.String()
+				logMu.Unlock()
+				m.db.ExecContext(bgCtx, `UPDATE deployments SET log=? WHERE id=?`, logContent, deployID) //nolint:errcheck
+			} else {
+				logMu.Unlock()
+			}
 		}
 
 		defer func() {
+			logMu.Lock()
+			finalLog := logBuf.String()
+			logMu.Unlock()
+
 			now := time.Now().Format("2006-01-02 15:04:05")
 			m.db.ExecContext(bgCtx, `
 				UPDATE deployments SET status=?, log=?, finished_at=? WHERE id=?
-			`, finalStatus, logBuf.String(), now, deployID) //nolint:errcheck
+			`, finalStatus, finalLog, now, deployID) //nolint:errcheck
 
 			if finalStatus == "running" {
 				m.db.ExecContext(bgCtx, `
@@ -901,6 +916,51 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			domains := m.getServiceDomains(bgCtx, svc.Name)
 			if strings.Contains(strings.ToLower(svc.Image), "wordpress") {
 				envSlice = enrichWordPressEnv(bgCtx, m.db, serviceID, envSlice, domains, hostPort)
+
+				// Auto-deploy/start linked database first and stream its logs to the app's deployment log
+				var dbID, dbName, dbImage, dbUser, dbPassword, dbSchemaName string
+				var dbPort int
+				err := m.db.QueryRowContext(bgCtx, `
+					SELECT id, name, image, db_user, db_password, db_name, port
+					FROM services
+					WHERE project_id = ? AND type = 'database' AND name = ?
+				`, svc.ProjectID, "wp-db-"+svc.Name).Scan(&dbID, &dbName, &dbImage, &dbUser, &dbPassword, &dbSchemaName, &dbPort)
+
+				if err == nil {
+					log(fmt.Sprintf("[INFO] Linked database detected: %s (%s)", dbName, dbImage))
+					log("[INFO] Ensuring database service is running...")
+
+					// Deploy/start database service and stream progress to our log
+					dbHostPort := dbPort
+					if dbHostPort <= 0 || docker.IsPortInUse(dbHostPort) {
+						dbHostPort = docker.ResolveHostPort(dbHostPort)
+					}
+
+					hostPort, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
+						ServiceID:    dbID,
+						DBType:       dbImage,
+						Name:         dbName,
+						Username:     dbUser,
+						Password:     dbPassword,
+						DBName:       dbSchemaName,
+						HostPort:     dbHostPort,
+						TierName:     "micro", // default tier
+					}, func(msg string) {
+						log("[Database] " + msg)
+					})
+
+					if err != nil {
+						log("[ERROR] Linked database deployment failed: " + err.Error())
+					} else {
+						log("[OK] Database is ready.")
+						// Update port & connection string for the database service
+						m.db.ExecContext(bgCtx, `UPDATE services SET port=?, status='running' WHERE id=?`, hostPort, dbID) //nolint:errcheck
+						m.db.ExecContext(bgCtx, `
+							INSERT INTO env_vars (service_id, key, value) VALUES (?, 'CONNECTION_STRING', ?)
+							ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
+						`, dbID, connStr) //nolint:errcheck
+					}
+				}
 			}
 
 			if len(domains) > 0 {
