@@ -352,7 +352,11 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 
 	containerName := "nf-db-" + cfg.Name
 	m.RemoveContainer(ctx, containerName) //nolint:errcheck
-	tier := GetTierWithCustom(cfg.TierName, cfg.CustomMemory, cfg.CustomCPU)
+	tierName := cfg.TierName
+	if tierName == "micro" || tierName == "nano" || tierName == "" {
+		tierName = "unlimited" // Databases need sufficient RAM to initialize/run stably without OOM kills
+	}
+	tier := GetTierWithCustom(tierName, cfg.CustomMemory, cfg.CustomCPU)
 
 	// Ensure the shared network exists so app containers can reach this DB by name
 	m.EnsureNetwork(ctx)

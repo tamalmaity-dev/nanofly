@@ -2401,9 +2401,10 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 
 	siteURL := ""
 	if len(domains) > 0 {
-		siteURL = "http://" + strings.TrimPrefix(domains[0], "http://")
-		siteURL = strings.TrimPrefix(siteURL, "https://")
-		siteURL = "http://" + siteURL
+		cleaned := domains[0]
+		cleaned = strings.TrimPrefix(cleaned, "http://")
+		cleaned = strings.TrimPrefix(cleaned, "https://")
+		siteURL = "http://" + cleaned
 	} else if hostPort > 0 {
 		siteURL = fmt.Sprintf("http://host.docker.internal:%d", hostPort)
 	}
