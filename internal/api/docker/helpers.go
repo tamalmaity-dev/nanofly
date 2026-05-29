@@ -43,3 +43,39 @@ func ResolveHostPort(preferred int) int {
 	}
 	return 20000 + rand.Intn(40000)
 }
+
+// PruneResult holds cleanup stats.
+type PruneResult struct {
+	ContainersDeleted int    `json:"containers_deleted"`
+	ImagesDeleted     int    `json:"images_deleted"`
+	VolumesDeleted    int    `json:"volumes_deleted"`
+	NetworksDeleted   int    `json:"networks_deleted"`
+	SpaceReclaimed    uint64 `json:"space_reclaimed"`
+	ReclaimedHuman    string `json:"reclaimed_human"`
+}
+
+func FormatBytes(b uint64) string {
+	const unit = 1000
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	suffix := ""
+	switch exp {
+	case 0:
+		suffix = "KB"
+	case 1:
+		suffix = "MB"
+	case 2:
+		suffix = "GB"
+	case 3:
+		suffix = "TB"
+	default:
+		suffix = "PB"
+	}
+	return fmt.Sprintf("%.2f %s", float64(b)/float64(div), suffix)
+}

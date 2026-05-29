@@ -142,7 +142,14 @@ function SystemTab() {
     setPruning(true);
     try {
       const res = await settingsApi.prune();
-      toast.success(res.message || "Docker storage cleanup completed successfully!");
+      const details = [
+        res.containers_deleted ? `${res.containers_deleted} container(s)` : '',
+        res.images_deleted ? `${res.images_deleted} image(s)` : '',
+        res.volumes_deleted ? `${res.volumes_deleted} volume(s)` : '',
+        res.networks_deleted ? `${res.networks_deleted} network(s)` : '',
+      ].filter(Boolean).join(', ');
+      const detailsStr = details ? ` (${details})` : '';
+      toast.success(`Storage cleanup complete! Reclaimed ${res.reclaimed_human || '0 B'}${detailsStr}.`);
     } catch (err) {
       toast.error(err.message || "Failed to prune Docker resources");
     } finally {

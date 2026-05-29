@@ -954,12 +954,22 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.dockerMgr.PruneSystem(r.Context()); err != nil {
+	res, err := s.dockerMgr.PruneSystem(r.Context())
+	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	response.Success(w, map[string]string{"status": "success", "message": "Docker storage cleanup completed successfully!"})
+	response.Success(w, map[string]any{
+		"status":             "success",
+		"message":            fmt.Sprintf("Docker storage cleanup completed! Reclaimed %s.", res.ReclaimedHuman),
+		"containers_deleted": res.ContainersDeleted,
+		"images_deleted":     res.ImagesDeleted,
+		"volumes_deleted":    res.VolumesDeleted,
+		"networks_deleted":   res.NetworksDeleted,
+		"space_reclaimed":    res.SpaceReclaimed,
+		"reclaimed_human":    res.ReclaimedHuman,
+	})
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
