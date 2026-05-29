@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -1039,9 +1038,10 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 						}
 					}
 
+					// Check if the MySQL/MariaDB server inside the container is actually ready to accept connections
 					if isMySQLFamilyImage(dbImage) {
 						log("[INFO] Waiting for linked database initialization to finish...")
-						if err := m.waitForMySQLFamilyReady(bgCtx, dbContainerName, log); err != nil {
+						if err := m.waitForMySQLFamilyReady(bgCtx, dbContainerName, password, log); err != nil {
 							log("[ERROR] Linked database is not ready: " + err.Error())
 							finalStatus = "error"
 							return
@@ -1145,7 +1145,7 @@ func mysqlFamilyLogsFailed(logs string) bool {
 // constrain it by passing a shorter-deadline parent context.
 //
 // Returns nil when the server is ready, an error otherwise.
-func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName string, log func(string)) error {
+func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName, rootPassword string, log func(string)) error {
 	// Cap total wait to 10 minutes — MySQL on resource-constrained ARM hardware can
 	// legitimately take 4-5 minutes for InnoDB initialization on first run.
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -1197,23 +1197,23 @@ func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName str
 			}
 		}
 
-		// 3. Fast TCP dial check — if port is bound and active, MySQL/MariaDB is ready.
-		if inspectErr == nil && inspect != nil && inspect.NetworkSettings != nil && inspect.NetworkSettings.Ports != nil {
-			for containerPort, bindings := range inspect.NetworkSettings.Ports {
-				if strings.HasPrefix(string(containerPort), "3306") && len(bindings) > 0 {
-					hostPortStr := bindings[0].HostPort
-					if hostPort, err := strconv.Atoi(hostPortStr); err == nil && hostPort > 0 {
-						// Attempt a TCP connection to the host port
-						dialer := &net.Dialer{Timeout: 1 * time.Second}
-						conn, err := dialer.DialContext(waitCtx, "tcp", fmt.Sprintf("127.0.0.1:%d", hostPort))
-						if err == nil {
-							conn.Close()
-							log(fmt.Sprintf("[OK] Database is listening on port %d and ready to accept connections.", hostPort))
-							return nil
-						}
-					}
-				}
+		// 3. Primary check: Exec "mysqladmin ping" inside the container.
+		// Connecting to 127.0.0.1 via TCP inside the container is only possible when
+		// the production server is fully listening.
+		execCtx, execCancel := context.WithTimeout(waitCtx, 5*time.Second)
+		pingCmd := []string{"mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p" + rootPassword}
+		rc, err := m.docker.Exec(execCtx, containerName, pingCmd, nil)
+		if err == nil {
+			outputBytes, _ := io.ReadAll(rc)
+			rc.Close()
+			execCancel()
+			output := string(outputBytes)
+			if strings.Contains(strings.ToLower(output), "mysqld is alive") {
+				log("[OK] Database is ready and accepting connections inside the container.")
+				return nil
 			}
+		} else {
+			execCancel()
 		}
 
 		// 4. Fallback: check for readiness or fatal failure against the full log text.
