@@ -948,13 +948,29 @@ func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, map[string]string{"status": "rebooting"})
 }
 
+// handlePrune cleans up unused Docker resources.
+
 func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 	if s.dockerMgr == nil {
 		response.Error(w, http.StatusInternalServerError, "docker manager not initialized")
 		return
 	}
 
-	res, err := s.dockerMgr.PruneSystem(r.Context())
+	var req struct {
+		Containers bool `json:"containers"`
+		Images     bool `json:"images"`
+		Volumes    bool `json:"volumes"`
+		Networks   bool `json:"networks"`
+	}
+	// Decode JSON request. If error (like empty body), default to pruning all for backward compatibility.
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Containers = true
+		req.Images = true
+		req.Volumes = true
+		req.Networks = true
+	}
+
+	res, err := s.dockerMgr.PruneSystem(r.Context(), req.Containers, req.Images, req.Volumes, req.Networks)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return

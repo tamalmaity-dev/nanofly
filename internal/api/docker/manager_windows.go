@@ -95,7 +95,7 @@ func (m *Manager) Exec(ctx context.Context, containerID string, cmd []string, st
 	return nil, fmt.Errorf("docker not available on Windows")
 }
 
-func (m *Manager) PruneSystem(ctx context.Context) (PruneResult, error) {
+func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages, pruneVolumes, pruneNetworks bool) (PruneResult, error) {
 	return PruneResult{}, fmt.Errorf("docker not available on Windows")
 }
 

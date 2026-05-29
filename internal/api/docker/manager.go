@@ -889,35 +889,43 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 
 
 // PruneSystem cleans up dangling images, stopped containers, unused volumes, and unused networks.
-func (m *Manager) PruneSystem(ctx context.Context) (PruneResult, error) {
-	slog.Info("Running Docker system prune")
+func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages, pruneVolumes, pruneNetworks bool) (PruneResult, error) {
+	slog.Info("Running Docker system prune", "containers", pruneContainers, "images", pruneImages, "volumes", pruneVolumes, "networks", pruneNetworks)
 	var res PruneResult
 
-	if cReport, err := m.cli.ContainersPrune(ctx, filters.Args{}); err == nil {
-		res.ContainersDeleted = len(cReport.ContainersDeleted)
-		res.SpaceReclaimed += cReport.SpaceReclaimed
-	} else {
-		slog.Error("Failed to prune containers", "error", err)
+	if pruneContainers {
+		if cReport, err := m.cli.ContainersPrune(ctx, filters.Args{}); err == nil {
+			res.ContainersDeleted = len(cReport.ContainersDeleted)
+			res.SpaceReclaimed += cReport.SpaceReclaimed
+		} else {
+			slog.Error("Failed to prune containers", "error", err)
+		}
 	}
 
-	if iReport, err := m.cli.ImagesPrune(ctx, filters.Args{}); err == nil {
-		res.ImagesDeleted = len(iReport.ImagesDeleted)
-		res.SpaceReclaimed += iReport.SpaceReclaimed
-	} else {
-		slog.Error("Failed to prune images", "error", err)
+	if pruneImages {
+		if iReport, err := m.cli.ImagesPrune(ctx, filters.Args{}); err == nil {
+			res.ImagesDeleted = len(iReport.ImagesDeleted)
+			res.SpaceReclaimed += iReport.SpaceReclaimed
+		} else {
+			slog.Error("Failed to prune images", "error", err)
+		}
 	}
 
-	if vReport, err := m.cli.VolumesPrune(ctx, filters.Args{}); err == nil {
-		res.VolumesDeleted = len(vReport.VolumesDeleted)
-		res.SpaceReclaimed += vReport.SpaceReclaimed
-	} else {
-		slog.Error("Failed to prune volumes", "error", err)
+	if pruneVolumes {
+		if vReport, err := m.cli.VolumesPrune(ctx, filters.Args{}); err == nil {
+			res.VolumesDeleted = len(vReport.VolumesDeleted)
+			res.SpaceReclaimed += vReport.SpaceReclaimed
+		} else {
+			slog.Error("Failed to prune volumes", "error", err)
+		}
 	}
 
-	if nReport, err := m.cli.NetworksPrune(ctx, filters.Args{}); err == nil {
-		res.NetworksDeleted = len(nReport.NetworksDeleted)
-	} else {
-		slog.Error("Failed to prune networks", "error", err)
+	if pruneNetworks {
+		if nReport, err := m.cli.NetworksPrune(ctx, filters.Args{}); err == nil {
+			res.NetworksDeleted = len(nReport.NetworksDeleted)
+		} else {
+			slog.Error("Failed to prune networks", "error", err)
+		}
 	}
 
 	res.ReclaimedHuman = FormatBytes(res.SpaceReclaimed)

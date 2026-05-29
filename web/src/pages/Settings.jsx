@@ -134,14 +134,26 @@ function SystemTab() {
   const toast = useToast();
   const [rebooting, setRebooting] = useState(false);
   const [pruning, setPruning] = useState(false);
+  const [pruneOptions, setPruneOptions] = useState({
+    containers: true,
+    images: true,
+    volumes: true,
+    networks: true,
+  });
 
   const handlePrune = async () => {
-    if (!confirm("Are you sure you want to prune unused Docker resources? This will clean up stopped containers, unused networks, dangling images, and build caches to free up disk space.")) {
+    const selectedKeys = Object.keys(pruneOptions).filter(k => pruneOptions[k]);
+    if (selectedKeys.length === 0) {
+      toast.error("Please select at least one resource category to prune.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to prune the selected Docker resources (${selectedKeys.join(', ')})? This will free up disk space by cleaning up selected unused items.`)) {
       return;
     }
     setPruning(true);
     try {
-      const res = await settingsApi.prune();
+      const res = await settingsApi.prune(pruneOptions);
       const details = [
         res.containers_deleted ? `${res.containers_deleted} container(s)` : '',
         res.images_deleted ? `${res.images_deleted} image(s)` : '',
@@ -216,7 +228,61 @@ function SystemTab() {
 
       <div className="settings-section" style={{ marginTop: '2rem' }}>
         <div className="settings-section-title">Docker Cleanup</div>
-        <Field label="Clean Storage Cache" desc="Prune all dangling and unused Docker resources, including stopped containers, unused networks, unused volumes, and dangling build cache to reclaim disk space.">
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+          Select the unused Docker resources to clean up. Pruning unreferenced items safely reclaims disk space.
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          {[
+            { id: 'containers', label: 'Stopped Containers', desc: 'Remove stopped app and database containers.' },
+            { id: 'images', label: 'Unused Images', desc: 'Remove dangling and unreferenced Docker images.' },
+            { id: 'volumes', label: 'Unused Volumes', desc: 'Remove volumes not attached to any container.' },
+            { id: 'networks', label: 'Unused Networks', desc: 'Remove Docker networks not in use.' },
+          ].map(opt => {
+            const checked = pruneOptions[opt.id];
+            return (
+              <div
+                key={opt.id}
+                onClick={() => setPruneOptions(prev => ({ ...prev, [opt.id]: !prev[opt.id] }))}
+                style={{
+                  display: 'flex',
+                  gap: '0.875rem',
+                  padding: '1.125rem',
+                  background: checked ? 'rgba(79, 110, 247, 0.05)' : 'var(--bg-elevated)',
+                  border: checked ? '1px solid var(--accent)' : '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition)',
+                }}
+                className="prune-option-card"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', height: 'fit-content', marginTop: '2px' }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {}} // parent click toggles it
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      accentColor: 'var(--accent)',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.15rem' }}>
+                    {opt.label}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    {opt.desc}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <Field label="Clean Storage Cache" desc="Prune selected Docker resource categories to reclaim host system storage space.">
           <Button
             variant="outline"
             onClick={handlePrune}
