@@ -192,6 +192,7 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Post("/settings/update/apply", s.handleUpdateApply)
 		r.Get("/settings/update/log", s.handleUpdateLog)
 		r.Post("/settings/reboot", s.handleReboot)
+		r.Post("/settings/prune", s.handlePrune)
 		r.Get("/settings/backups", s.handleBackupsList)
 		r.Post("/settings/backups", s.handleBackupCreate)
 		r.Get("/settings/backups/{name}/download", s.handleBackupDownload)
@@ -945,6 +946,20 @@ func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	response.Success(w, map[string]string{"status": "rebooting"})
+}
+
+func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
+	if s.dockerMgr == nil {
+		response.Error(w, http.StatusInternalServerError, "docker manager not initialized")
+		return
+	}
+
+	if err := s.dockerMgr.PruneSystem(r.Context()); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response.Success(w, map[string]string{"status": "success", "message": "Docker storage cleanup completed successfully!"})
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {

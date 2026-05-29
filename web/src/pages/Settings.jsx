@@ -133,6 +133,22 @@ function NotificationsTab({ settings, setSetting, onSave, saving, saved }) {
 function SystemTab() {
   const toast = useToast();
   const [rebooting, setRebooting] = useState(false);
+  const [pruning, setPruning] = useState(false);
+
+  const handlePrune = async () => {
+    if (!confirm("Are you sure you want to prune unused Docker resources? This will clean up stopped containers, unused networks, dangling images, and build caches to free up disk space.")) {
+      return;
+    }
+    setPruning(true);
+    try {
+      const res = await settingsApi.prune();
+      toast.success(res.message || "Docker storage cleanup completed successfully!");
+    } catch (err) {
+      toast.error(err.message || "Failed to prune Docker resources");
+    } finally {
+      setPruning(false);
+    }
+  };
 
   const handleReboot = async () => {
     if (!confirm("Are you sure you want to reboot the NanoFlY Server? This will temporarily interrupt all running services and proxy routing.")) {
@@ -188,6 +204,20 @@ function SystemTab() {
           <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} /> Traefik (Running)
           </div>
+        </Field>
+      </div>
+
+      <div className="settings-section" style={{ marginTop: '2rem' }}>
+        <div className="settings-section-title">Docker Cleanup</div>
+        <Field label="Clean Storage Cache" desc="Prune all dangling and unused Docker resources, including stopped containers, unused networks, unused volumes, and dangling build cache to reclaim disk space.">
+          <Button
+            variant="outline"
+            onClick={handlePrune}
+            loading={pruning}
+            icon={Trash2}
+          >
+            Clean Storage Cache
+          </Button>
         </Field>
       </div>
 
