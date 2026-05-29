@@ -4,7 +4,7 @@ import { ArrowLeft, Info, RefreshCw } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
-import { buildWordPressEnvTemplate, generateSecurePassword } from '../utils/password';
+import { buildWordPressEnvTemplate, generateSecurePassword, generateRandomIdent } from '../utils/password';
 import { githubApi, servicesApi } from '../api/client';
 
 const RUNTIME_VERSIONS = {
@@ -165,17 +165,19 @@ export function getResourceFormDefaults(resource) {
         dockerComposeContent: DEFAULT_COMPOSE,
       };
     case 'wordpress': {
-      const initPass = generateSecurePassword(16);
+      const initPass = generateSecurePassword(24);
+      const initUser = generateRandomIdent('wpuser_', 6);
+      const initDbName = generateRandomIdent('wpdb_', 6);
       return {
         ...shared,
         port: '0',
-        dbUser: 'wordpress',
-        dbName: 'wordpress',
+        dbUser: initUser,
+        dbName: initDbName,
         dbPassword: initPass,
         envText: `WORDPRESS_DB_HOST=host.docker.internal:3306
-WORDPRESS_DB_USER=wordpress
+WORDPRESS_DB_USER=${initUser}
 WORDPRESS_DB_PASSWORD=${initPass}
-WORDPRESS_DB_NAME=wordpress
+WORDPRESS_DB_NAME=${initDbName}
 WORDPRESS_TABLE_PREFIX=wp_`,
       };
     }

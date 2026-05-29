@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -1153,9 +1154,9 @@ func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName str
 	const pollInterval = 3 * time.Second
 	const logTail = "2000" // generous tail so we never miss lines on first fetch
 
-	// seenLines tracks how many log lines we have already forwarded, so each poll
-	// we only emit the lines that appeared since the last check.
-	seenLines := 0
+	// lastSeenLine tracks the last log line we forwarded to only emit new lines
+	// each poll, avoiding duplication even if the logs roll over or are truncated.
+	var lastSeenLine string
 
 	for {
 		// Respect context cancellation / deadline (both caller's and our 10-min cap).
@@ -1177,16 +1178,45 @@ func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName str
 		logsCancel()
 
 		allLines := strings.Split(rawLogs, "\n")
-		// Emit only lines we haven't seen yet.
-		for i := seenLines; i < len(allLines); i++ {
-			line := strings.TrimRight(allLines[i], "\r")
-			if line != "" {
-				log("[Database] " + line)
+		if len(allLines) > 0 {
+			startIndex := 0
+			if lastSeenLine != "" {
+				for j := len(allLines) - 1; j >= 0; j-- {
+					if strings.TrimRight(allLines[j], "\r") == lastSeenLine {
+						startIndex = j + 1
+						break
+					}
+				}
+			}
+			for i := startIndex; i < len(allLines); i++ {
+				line := strings.TrimRight(allLines[i], "\r")
+				if line != "" {
+					log("[Database] " + line)
+					lastSeenLine = line
+				}
 			}
 		}
-		seenLines = len(allLines)
 
-		// 3. Check for readiness or fatal failure against the full log text.
+		// 3. Fast TCP dial check — if port is bound and active, MySQL/MariaDB is ready.
+		if inspectErr == nil && inspect != nil && inspect.NetworkSettings != nil && inspect.NetworkSettings.Ports != nil {
+			for containerPort, bindings := range inspect.NetworkSettings.Ports {
+				if strings.HasPrefix(string(containerPort), "3306") && len(bindings) > 0 {
+					hostPortStr := bindings[0].HostPort
+					if hostPort, err := strconv.Atoi(hostPortStr); err == nil && hostPort > 0 {
+						// Attempt a TCP connection to the host port
+						dialer := &net.Dialer{Timeout: 1 * time.Second}
+						conn, err := dialer.DialContext(waitCtx, "tcp", fmt.Sprintf("127.0.0.1:%d", hostPort))
+						if err == nil {
+							conn.Close()
+							log(fmt.Sprintf("[OK] Database is listening on port %d and ready to accept connections.", hostPort))
+							return nil
+						}
+					}
+				}
+			}
+		}
+
+		// 4. Fallback: check for readiness or fatal failure against the full log text.
 		if mysqlFamilyLogsReady(rawLogs) {
 			// The server is listening on port 3306 — fully ready.
 			return nil

@@ -7,6 +7,7 @@ import CodeEditor from '../components/CodeEditor';
 import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
 import { AddServiceConfigFields, ConfigStepBackBar, getResourceFormDefaults, WORDPRESS_VERSIONS } from '../components/AddServiceConfigFields';
 import { markPendingRedeploy, clearPendingRedeploy, hasPendingRedeploy } from '../utils/servicePending';
+import { generateSecurePassword, generateRandomIdent } from '../utils/password';
 
 // Lazy-loaded terminal (xterm); monitoring imported eagerly for faster tab open
 import MonitoringPanel from '../components/panels/MonitoringPanel';
@@ -718,9 +719,9 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
         if (form.dbSetupType === 'create-mysql' || form.dbSetupType === 'create-mariadb') {
           const isMariaDB = form.dbSetupType === 'create-mariadb';
           const dbContainerName = `${form.name.trim()}-${isMariaDB ? 'mariadb' : 'mysql'}`;
-          const dbUser = form.dbUser ? form.dbUser.trim() : 'wordpress';
-          const dbPass = form.dbPassword ? form.dbPassword.trim() : generatePassword();
-          const dbName = form.dbName ? form.dbName.trim() : 'wordpress';
+          const dbUser = form.dbUser ? form.dbUser.trim() : generateRandomIdent('wpuser_', 6);
+          const dbPass = form.dbPassword ? form.dbPassword.trim() : generateSecurePassword(24);
+          const dbName = form.dbName ? form.dbName.trim() : generateRandomIdent('wpdb_', 6);
 
           // Prevent duplicate DB services by checking if it already exists and deleting it first
           const existingDb = services.find(s => s.type === 'database' && s.name === dbContainerName);
