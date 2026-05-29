@@ -73,21 +73,37 @@ const getDatabaseEngine = (svc) => {
 const getLinkedDatabaseCandidates = (app, services = []) => {
   if (!app) return [];
   const appName = normalizeResourceText(app.name);
-  const directNames = new Set([
-    `wp-db-${appName}`,
-    `${appName}-mysql`,
-    `${appName}-mariadb`,
-    `${appName}-maria`,
+  const directNameScore = new Map([
+    [`${appName}-mysql`, 0],
+    [`${appName}-mariadb`, 0],
+    [`${appName}-maria`, 0],
+    [`wp-db-${appName}`, 1],
   ]);
 
-  return services.filter((svc) => {
+  const candidates = services.map((svc, index) => {
     if (svc.type !== 'database') return false;
     const name = normalizeResourceText(svc.name);
     const image = normalizeResourceText(svc.image);
     const isMysqlFamily = image.includes('mysql') || image.includes('mariadb') || name.includes('mysql') || name.includes('mariadb') || name.includes('maria');
     if (!isMysqlFamily) return false;
-    return directNames.has(name) || (name.includes(appName) && (name.includes('wp') || name.includes('wordpress') || name.includes('mysql') || name.includes('maria')));
+    if (directNameScore.has(name)) {
+      return { svc, score: directNameScore.get(name), index };
+    }
+    if (name.includes(appName) && (name.includes('wp') || name.includes('wordpress') || name.includes('mysql') || name.includes('maria'))) {
+      return { svc, score: 2, index };
+    }
+    return false;
+  }).filter(Boolean);
+
+  candidates.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score;
+    const aRunning = a.svc.status === 'running' ? 0 : 1;
+    const bRunning = b.svc.status === 'running' ? 0 : 1;
+    if (aRunning !== bRunning) return aRunning - bRunning;
+    return a.index - b.index;
   });
+
+  return candidates.length > 0 ? [candidates[0].svc] : [];
 };
 
 const buildServiceStacks = (services = []) => {

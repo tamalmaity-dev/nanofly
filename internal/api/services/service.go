@@ -997,6 +997,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 						}
 					}
 
+					linkedDatabaseReady := false
 					if dbRunning {
 						log("[INFO] Linked database container is already running and active.")
 					} else {
@@ -1023,44 +1024,31 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 						if err != nil {
 							log("[ERROR] Linked database deployment failed: " + err.Error())
+							finalStatus = "error"
+							return
 						} else {
-							log("[OK] Database container started. Waiting for it to be ready...")
+							log("[OK] Database container started.")
 							// Update port & connection string for the database service
 							m.db.ExecContext(bgCtx, `UPDATE services SET port=?, status='running' WHERE id=?`, newDbHostPort, dbID) //nolint:errcheck
 							m.db.ExecContext(bgCtx, `
 								INSERT INTO env_vars (service_id, key, value) VALUES (?, 'CONNECTION_STRING', ?)
 								ON CONFLICT(service_id, key) DO UPDATE SET value=excluded.value
 							`, dbID, connStr) //nolint:errcheck
-							// Wait for MySQL/MariaDB to finish initialization (up to 60 s)
-							// before deploying WordPress, so WordPress doesn't get a "database
-							// connection error" on first start while the DB is still initializing.
-							if strings.Contains(strings.ToLower(dbImage), "mysql") || strings.Contains(strings.ToLower(dbImage), "mariadb") {
-								log("[INFO] Waiting for database to initialize (up to 60s)...")
-								for i := 0; i < 30; i++ {
-									time.Sleep(2 * time.Second)
+							linkedDatabaseReady = true
+						}
+					}
 
-									// Check if container is still running to fail-fast on crash/exit
-									inspectCtx, inspectCancel := context.WithTimeout(bgCtx, 5*time.Second)
-									inspect, inspectErr := m.docker.InspectContainer(inspectCtx, dbContainerName)
-									inspectCancel()
-									if inspectErr == nil && inspect.State != nil && !inspect.State.Running {
-										log("[ERROR] Database container stopped running/exited during initialization.")
-										break
-									}
-
-									// Check container logs for readiness signal
-									logsCtx, logsCancel := context.WithTimeout(bgCtx, 5*time.Second)
-									logs, _ := m.docker.Logs(logsCtx, dbContainerName, "100")
-									logsCancel()
-									if strings.Contains(logs, "ready for connections") || strings.Contains(logs, "mysqld: ready") {
-										log("[OK] Database is ready for connections.")
-										break
-									}
-									if i > 0 && i%5 == 0 {
-										log(fmt.Sprintf("[INFO] Still waiting for database... (%ds)", (i+1)*2))
-									}
-								}
-							}
+					if isMySQLFamilyImage(dbImage) {
+						log("[INFO] Waiting for linked database initialization to finish...")
+						if err := m.waitForMySQLFamilyReady(bgCtx, dbContainerName, log); err != nil {
+							log("[ERROR] Linked database is not ready: " + err.Error())
+							finalStatus = "error"
+							return
+						}
+						if linkedDatabaseReady {
+							log("[OK] Database initialized and ready for WordPress.")
+						} else {
+							log("[OK] Linked database is ready for WordPress.")
 						}
 					}
 				}
@@ -1103,6 +1091,125 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 	}()
 
 	return m.GetDeployment(ctx, deployID)
+}
+
+// isMySQLFamilyImage returns true if the image is a MySQL or MariaDB variant.
+func isMySQLFamilyImage(image string) bool {
+	image = strings.ToLower(image)
+	return strings.Contains(image, "mysql") || strings.Contains(image, "mariadb")
+}
+
+// mysqlFamilyLogsReady returns true when MySQL/MariaDB has finished the two-phase
+// initialization and is actually listening on the production port 3306.
+// We require BOTH signals together to avoid false positives from the temporary
+// server which also logs "ready for connections" (but on port: 0).
+func mysqlFamilyLogsReady(logs string) bool {
+	logs = strings.ToLower(logs)
+	return strings.Contains(logs, "ready for connections") && strings.Contains(logs, "port: 3306")
+}
+
+// mysqlFamilyLogsFailed returns true only for genuine, unrecoverable fatal errors.
+// It intentionally does NOT match MySQL's normal "[ERROR]" log-level prefix which
+// appears in many routine informational lines (e.g. plugin registry entries, cert
+// warnings, deprecated option notices). Only match explicit failure signals from the
+// Docker entrypoint itself or the OS, not from mysqld's structured log output.
+func mysqlFamilyLogsFailed(logs string) bool {
+	lower := strings.ToLower(logs)
+	// Genuine entrypoint / OS fatal signals
+	fatalSignals := []string{
+		"[note] [entrypoint]: init process failed",
+		"mysqld failed",
+		"no space left on device",
+		"cannot allocate memory",
+		"oom-killer",
+		"killed process",
+	}
+	for _, s := range fatalSignals {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// mysqlFamilyLogPhase returns a human-readable phase description based on current logs.
+func mysqlFamilyLogPhase(logs string) string {
+	lower := strings.ToLower(logs)
+	switch {
+	case strings.Contains(lower, "mysql init process done"):
+		return "starting production server"
+	case strings.Contains(lower, "innodb initialization has ended"):
+		return "completing initialization"
+	case strings.Contains(lower, "innodb initialization has started"):
+		return "initializing InnoDB"
+	case strings.Contains(lower, "initializing database files"):
+		return "creating database files"
+	default:
+		return "starting up"
+	}
+}
+
+// waitForMySQLFamilyReady polls the container until MySQL/MariaDB is fully initialized
+// and listening on port 3306. It handles the two-phase MySQL startup (temp server on
+// port 0, then the production server on port 3306) correctly.
+//
+// A maximum of 10 minutes is enforced via a derived context; callers may further
+// constrain it by passing a shorter-deadline parent context.
+//
+// Returns nil when the server is ready, an error otherwise.
+func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName string, log func(string)) error {
+	// Cap total wait to 10 minutes — MySQL on resource-constrained ARM hardware can
+	// legitimately take 4-5 minutes for InnoDB initialization on first run.
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer waitCancel()
+
+	const pollInterval = 3 * time.Second
+	const logTail = "300" // enough lines to always catch the final "port: 3306" line
+
+	lastProgress := time.Now()
+	lastPhase := ""
+
+	for {
+		// Respect context cancellation / deadline (both caller's and our 10-min cap).
+		if err := waitCtx.Err(); err != nil {
+			return fmt.Errorf("database readiness wait timed out or canceled: %w", err)
+		}
+
+		// 1. Check if the container is still running.
+		inspectCtx, inspectCancel := context.WithTimeout(waitCtx, 5*time.Second)
+		inspect, inspectErr := m.docker.InspectContainer(inspectCtx, containerName)
+		inspectCancel()
+		if inspectErr == nil && inspect.State != nil && !inspect.State.Running {
+			return fmt.Errorf("database container exited during initialization (exit code %d)", inspect.State.ExitCode)
+		}
+
+		// 2. Check container logs for readiness or fatal failure.
+		logsCtx, logsCancel := context.WithTimeout(waitCtx, 5*time.Second)
+		logs, _ := m.docker.Logs(logsCtx, containerName, logTail)
+		logsCancel()
+
+		if mysqlFamilyLogsReady(logs) {
+			// The server is listening on port 3306 — fully ready.
+			return nil
+		}
+		if mysqlFamilyLogsFailed(logs) {
+			return fmt.Errorf("database initialization failed — check the database container logs for details")
+		}
+
+		// 3. Emit a progress heartbeat every 30 s, showing the current phase.
+		if time.Since(lastProgress) >= 30*time.Second {
+			phase := mysqlFamilyLogPhase(logs)
+			if phase != lastPhase {
+				log(fmt.Sprintf("[INFO] Database is %s — WordPress will start automatically when it is ready.", phase))
+				lastPhase = phase
+			} else {
+				log(fmt.Sprintf("[INFO] Database is still %s (this can take a few minutes on first run).", phase))
+			}
+			lastProgress = time.Now()
+		}
+
+		time.Sleep(pollInterval)
+	}
 }
 
 func (m *Manager) logServiceDomains(ctx context.Context, svc *Service, log func(string)) {
