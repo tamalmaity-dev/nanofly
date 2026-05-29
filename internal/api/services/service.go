@@ -1132,26 +1132,13 @@ func mysqlFamilyLogsFailed(logs string) bool {
 	return false
 }
 
-// mysqlFamilyLogPhase returns a human-readable phase description based on current logs.
-func mysqlFamilyLogPhase(logs string) string {
-	lower := strings.ToLower(logs)
-	switch {
-	case strings.Contains(lower, "mysql init process done"):
-		return "starting production server"
-	case strings.Contains(lower, "innodb initialization has ended"):
-		return "completing initialization"
-	case strings.Contains(lower, "innodb initialization has started"):
-		return "initializing InnoDB"
-	case strings.Contains(lower, "initializing database files"):
-		return "creating database files"
-	default:
-		return "starting up"
-	}
-}
 
 // waitForMySQLFamilyReady polls the container until MySQL/MariaDB is fully initialized
 // and listening on port 3306. It handles the two-phase MySQL startup (temp server on
 // port 0, then the production server on port 3306) correctly.
+//
+// Every poll cycle, new container log lines since the last check are streamed directly
+// into the deployment log so the operator sees real progress, not just a heartbeat.
 //
 // A maximum of 10 minutes is enforced via a derived context; callers may further
 // constrain it by passing a shorter-deadline parent context.
@@ -1164,10 +1151,11 @@ func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName str
 	defer waitCancel()
 
 	const pollInterval = 3 * time.Second
-	const logTail = "300" // enough lines to always catch the final "port: 3306" line
+	const logTail = "2000" // generous tail so we never miss lines on first fetch
 
-	lastProgress := time.Now()
-	lastPhase := ""
+	// seenLines tracks how many log lines we have already forwarded, so each poll
+	// we only emit the lines that appeared since the last check.
+	seenLines := 0
 
 	for {
 		// Respect context cancellation / deadline (both caller's and our 10-min cap).
@@ -1183,29 +1171,28 @@ func (m *Manager) waitForMySQLFamilyReady(ctx context.Context, containerName str
 			return fmt.Errorf("database container exited during initialization (exit code %d)", inspect.State.ExitCode)
 		}
 
-		// 2. Check container logs for readiness or fatal failure.
+		// 2. Fetch container logs and forward any new lines to the deployment log.
 		logsCtx, logsCancel := context.WithTimeout(waitCtx, 5*time.Second)
-		logs, _ := m.docker.Logs(logsCtx, containerName, logTail)
+		rawLogs, _ := m.docker.Logs(logsCtx, containerName, logTail)
 		logsCancel()
 
-		if mysqlFamilyLogsReady(logs) {
+		allLines := strings.Split(rawLogs, "\n")
+		// Emit only lines we haven't seen yet.
+		for i := seenLines; i < len(allLines); i++ {
+			line := strings.TrimRight(allLines[i], "\r")
+			if line != "" {
+				log("[Database] " + line)
+			}
+		}
+		seenLines = len(allLines)
+
+		// 3. Check for readiness or fatal failure against the full log text.
+		if mysqlFamilyLogsReady(rawLogs) {
 			// The server is listening on port 3306 — fully ready.
 			return nil
 		}
-		if mysqlFamilyLogsFailed(logs) {
+		if mysqlFamilyLogsFailed(rawLogs) {
 			return fmt.Errorf("database initialization failed — check the database container logs for details")
-		}
-
-		// 3. Emit a progress heartbeat every 30 s, showing the current phase.
-		if time.Since(lastProgress) >= 30*time.Second {
-			phase := mysqlFamilyLogPhase(logs)
-			if phase != lastPhase {
-				log(fmt.Sprintf("[INFO] Database is %s — WordPress will start automatically when it is ready.", phase))
-				lastPhase = phase
-			} else {
-				log(fmt.Sprintf("[INFO] Database is still %s (this can take a few minutes on first run).", phase))
-			}
-			lastProgress = time.Now()
 		}
 
 		time.Sleep(pollInterval)
