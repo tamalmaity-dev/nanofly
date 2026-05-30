@@ -65,6 +65,7 @@ func NewHandler() *Handler {
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/list", h.List)
 	r.Get("/view", h.View)
+	r.Get("/raw", h.Raw)
 	r.Post("/save", h.Save)
 	r.Post("/create", h.Create)
 	r.Post("/upload", h.Upload)
@@ -315,4 +316,22 @@ type DriveInfo struct {
 func (h *Handler) Drives(w http.ResponseWriter, r *http.Request) {
 	drives := GetDrives()
 	response.Success(w, drives)
+}
+
+// GET /api/v1/files/raw?path=...
+func (h *Handler) Raw(w http.ResponseWriter, r *http.Request) {
+	pathQuery := r.URL.Query().Get("path")
+	resolved := h.resolvePath(pathQuery)
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "cannot serve a directory", http.StatusBadRequest)
+		return
+	}
+
+	http.ServeFile(w, r, resolved)
 }

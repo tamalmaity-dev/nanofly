@@ -9,6 +9,214 @@ import { filesApi } from '../api/client';
 import { Modal, Button, useToast } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 
+function ImageViewer({ file }) {
+  const [scale, setScale] = useState(1);
+  const [rotate, setRotate] = useState(0);
+
+  const handleZoomIn = () => setScale(prev => Math.min(prev + 0.25, 3));
+  const handleZoomOut = () => setScale(prev => Math.max(prev - 0.25, 0.25));
+  const handleRotate = () => setRotate(prev => (prev + 90) % 360);
+  const handleReset = () => {
+    setScale(1);
+    setRotate(0);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: '1rem', height: '100%' }}>
+      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+        <Button variant="ghost" size="sm" onClick={handleZoomIn}>Zoom In (+)</Button>
+        <Button variant="ghost" size="sm" onClick={handleZoomOut}>Zoom Out (-)</Button>
+        <Button variant="ghost" size="sm" onClick={handleRotate}>Rotate (90°)</Button>
+        <Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button>
+      </div>
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'radial-gradient(circle, rgba(20,20,30,1) 0%, rgba(10,10,15,1) 100%)',
+        borderRadius: '8px',
+        border: '1px solid var(--border)',
+        overflow: 'hidden',
+        position: 'relative',
+        padding: '2rem',
+        minHeight: 0
+      }}>
+        <img
+          src={file.rawUrl}
+          alt={file.name}
+          style={{
+            maxHeight: '100%',
+            maxWidth: '100%',
+            objectFit: 'contain',
+            transform: `scale(${scale}) rotate(${rotate}deg)`,
+            transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AudioPlayer({ file }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef(null);
+
+  return (
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, rgba(30,30,45,1) 0%, rgba(15,15,25,1) 100%)',
+      borderRadius: '12px',
+      border: '1px solid var(--border)',
+      padding: '3rem 2rem',
+      gap: '2rem',
+      height: '100%'
+    }}>
+      <div style={{
+        width: '150px',
+        height: '150px',
+        borderRadius: '50%',
+        background: 'radial-gradient(circle, #222 20%, #000 70%)',
+        boxShadow: '0 15px 40px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.05)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        animation: isPlaying ? 'spin 6s linear infinite' : 'none',
+        border: '8px solid #1a1a24'
+      }}>
+        <div style={{
+          width: '50px',
+          height: '50px',
+          borderRadius: '50%',
+          background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          fontSize: '0.6rem',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+        }}>
+          NanoFly
+        </div>
+        <div style={{ position: 'absolute', width: '120px', height: '120px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.03)' }} />
+        <div style={{ position: 'absolute', width: '80px', height: '80px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.03)' }} />
+      </div>
+
+      <div style={{ textAlign: 'center' }}>
+        <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>{file.name}</h4>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{file.size} · Audio Stream</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: '4px', height: '24px', alignItems: 'center', margin: '4px 0' }}>
+        {[...Array(12)].map((_, i) => (
+          <div
+            key={i}
+            style={{
+              width: '4px',
+              height: isPlaying ? '100%' : '20%',
+              backgroundColor: 'var(--accent)',
+              borderRadius: '2px',
+              animation: isPlaying ? 'pulse-bar 1s ease-in-out infinite alternate' : 'none',
+              animationDelay: `${i * 0.08}s`
+            }}
+          />
+        ))}
+      </div>
+
+      <audio
+        ref={audioRef}
+        src={file.rawUrl}
+        controls
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => setIsPlaying(false)}
+        style={{
+          width: '100%',
+          maxWidth: '400px',
+          outline: 'none',
+          borderRadius: '30px',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
+        }}
+      />
+
+      <style>{`
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes pulse-bar { 0% { height: 20%; } 100% { height: 100%; } }
+      `}</style>
+    </div>
+  );
+}
+
+function VideoPlayer({ file }) {
+  return (
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'radial-gradient(circle, rgba(20,20,30,1) 0%, rgba(10,10,15,1) 100%)',
+      borderRadius: '12px',
+      border: '1px solid var(--border)',
+      padding: '1.5rem',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '1rem',
+      minHeight: 0,
+      height: '100%'
+    }}>
+      <video
+        src={file.rawUrl}
+        controls
+        style={{
+          maxWidth: '100%',
+          maxHeight: '85%',
+          borderRadius: '8px',
+          boxShadow: '0 15px 35px rgba(0,0,0,0.6)',
+          outline: 'none',
+          backgroundColor: '#000'
+        }}
+      />
+      <div style={{ textAlign: 'center' }}>
+        <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '2px' }}>{file.name}</h4>
+        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{file.size} · Video Stream</p>
+      </div>
+    </div>
+  );
+}
+
+function PdfReader({ file }) {
+  return (
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      borderRadius: '12px',
+      border: '1px solid var(--border)',
+      background: 'var(--bg-elevated)',
+      overflow: 'hidden',
+      height: '100%'
+    }}>
+      <iframe
+        src={file.rawUrl}
+        title={file.name}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          background: '#fff'
+        }}
+      />
+    </div>
+  );
+}
+
 export default function FileManager() {
   const toast = useToast();
   const [currentPath, setCurrentPath] = useState('/');
@@ -61,7 +269,31 @@ export default function FileManager() {
     }
   };
 
+  const getMediaType = (filename) => {
+    const ext = (filename || '').split('.').pop().toLowerCase();
+    if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) return 'audio';
+    if (['mp4', 'webm', 'mov', 'mkv', 'avi'].includes(ext)) return 'video';
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext)) return 'image';
+    if (ext === 'pdf') return 'pdf';
+    return null;
+  };
+
   const handleOpenFile = async (item) => {
+    const mediaType = getMediaType(item.name);
+    if (mediaType) {
+      const token = localStorage.getItem('nanofly_token');
+      const rawUrl = `/api/v1/files/raw?path=${encodeURIComponent(item.path)}&token=${token}`;
+      setSelectedFile({
+        path: item.path,
+        name: item.name,
+        size: item.size_human,
+        isMedia: true,
+        mediaType,
+        rawUrl
+      });
+      return;
+    }
+
     setEditorError('');
     setEditorLoading(true);
     try {
@@ -646,16 +878,18 @@ export default function FileManager() {
                   >
                     Close
                   </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={!isModified}
-                    loading={saveLoading}
-                    onClick={handleSaveFile}
-                    icon={Save}
-                  >
-                    Save File
-                  </Button>
+                  {!selectedFile.isMedia && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={!isModified}
+                      loading={saveLoading}
+                      onClick={handleSaveFile}
+                      icon={Save}
+                    >
+                      Save File
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -663,12 +897,24 @@ export default function FileManager() {
                 <div className="auth-error" style={{ marginBottom: '1rem', flexShrink: 0 }}>{editorError}</div>
               )}
 
-              {/* Text Area Code Editor */}
-            <CodeEditor
-              value={selectedFile.content}
-              onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
-              language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
-            />
+              {/* Text Area Code Editor or Media Previews */}
+              {selectedFile.isMedia ? (
+                selectedFile.mediaType === 'image' ? (
+                  <ImageViewer file={selectedFile} />
+                ) : selectedFile.mediaType === 'audio' ? (
+                  <AudioPlayer file={selectedFile} />
+                ) : selectedFile.mediaType === 'video' ? (
+                  <VideoPlayer file={selectedFile} />
+                ) : selectedFile.mediaType === 'pdf' ? (
+                  <PdfReader file={selectedFile} />
+                ) : null
+              ) : (
+                <CodeEditor
+                  value={selectedFile.content}
+                  onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+                  language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
+                />
+              )}
             </div>
           ) : editorLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
