@@ -5,7 +5,7 @@ import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Databa
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
-import { AddServiceConfigFields, ConfigStepBackBar, getResourceFormDefaults, WORDPRESS_VERSIONS } from '../components/AddServiceConfigFields';
+import { AddServiceConfigFields, ConfigStepBackBar, getResourceFormDefaults, WORDPRESS_VERSIONS, DOCKERFILE_TEMPLATES } from '../components/AddServiceConfigFields';
 import { markPendingRedeploy, clearPendingRedeploy, hasPendingRedeploy } from '../utils/servicePending';
 import { generateSecurePassword, generateRandomIdent } from '../utils/password';
 
@@ -2059,6 +2059,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const [image, setImage] = useState(service.image || '');
   const [port, setPort] = useState(service.port || '');
   const [gitUrl, setGitUrl] = useState(service.git_repo_url || '');
+  const [localPath, setLocalPath] = useState('');
   const [branch, setBranch] = useState(service.git_branch || 'main');
   const [gitBuilder, setGitBuilder] = useState(service.git_builder || 'auto');
   const [appDirectory, setAppDirectory] = useState(service.app_directory || '');
@@ -2092,7 +2093,13 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setDescription(service.description || '');
     setImage(service.image || '');
     setPort(service.port || '');
-    setGitUrl(service.git_repo_url || '');
+    if (service.git_repo_url?.startsWith('file://')) {
+      setLocalPath(service.git_repo_url.replace('file://', ''));
+      setGitUrl('');
+    } else {
+      setLocalPath('');
+      setGitUrl(service.git_repo_url || '');
+    }
     setBranch(service.git_branch || 'main');
     setGitBuilder(service.git_builder || 'auto');
     setAppDirectory(service.app_directory || '');
@@ -2122,7 +2129,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
     const host = window.location.hostname;
     const cleanHost = host.split(':')[0];
-    setDomainVal(`http://${randomStr}.${cleanHost}.sslip.io`);
+    setDomainVal(`${randomStr}.${cleanHost}.sslip.io`);
   };
 
   const handleSetDirection = async () => {
@@ -2169,13 +2176,28 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setSaving(true);
     setError('');
     setSuccess(false);
+
+    let finalGitUrl = gitUrl.trim();
+    if (service.type === 'app') {
+      const isLocalPathApp = service.git_repo_url?.startsWith('file://') || localPath.trim() !== '';
+      if (isLocalPathApp) {
+        if (!localPath.trim()) {
+          setError('Server folder path is required');
+          toast.error('Server folder path is required');
+          setSaving(false);
+          return;
+        }
+        finalGitUrl = 'file://' + localPath.trim();
+      }
+    }
+
     try {
       await servicesApi.update(service.id, {
         name: name.trim(),
         description: description.trim(),
         image: image.trim(),
         port: Number(port) || 0,
-        git_repo_url: gitUrl.trim(),
+        git_repo_url: finalGitUrl,
         git_branch: branch.trim(),
         git_builder: gitBuilder,
         app_directory: appDirectory.trim(),
@@ -2236,105 +2258,218 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setSaving(false);
   };
 
-  const isBuiltApp = !!(service.git_repo_url || service.local_path);
+  const isBuiltApp = !!(service.git_repo_url || service.local_path || localPath);
   const isWordPress = (image || '').toLowerCase().includes('wordpress');
 
-  const Section = ({ title, desc, children }) => (
-    <div className="card" style={{ padding: '1.25rem', marginBottom: '1rem', border: '1px solid var(--border)' }}>
-      <h4 style={{ margin: '0 0 4px', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>{title}</h4>
-      {desc && <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{desc}</p>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
+  const getResourceMeta = () => {
+    if (service.type === 'database') {
+      const dbKey = getDbKey(service.image || '');
+      const dbTitles = {
+        postgres: 'PostgreSQL',
+        mysql: 'MySQL',
+        mariadb: 'MariaDB',
+        redis: 'Redis',
+        mongo: 'MongoDB',
+        keydb: 'KeyDB',
+        dragonfly: 'Dragonfly',
+        clickhouse: 'ClickHouse'
+      };
+      const title = dbTitles[dbKey] || (dbKey.toUpperCase());
+      return {
+        id: dbKey,
+        title: `${title} Database`,
+        desc: `Managed database instance running ${service.image || 'latest'}.`
+      };
+    }
+
+    if (isWordPress) {
+      return {
+        id: 'wordpress',
+        title: 'WordPress Site',
+        desc: 'Official WordPress image with PHP and Apache.'
+      };
+    }
+
+    const isLocal = service.git_repo_url?.startsWith('file://') || localPath;
+
+    if (isBuiltApp && !isLocal) {
+      if (service.github_app_id) {
+        return {
+          id: 'git-private-app',
+          title: 'Private Repository (GitHub App)',
+          desc: 'Deploy public & private repositories through GitHub Apps integrations.'
+        };
+      }
+      if (sshKey) {
+        return {
+          id: 'git-private-key',
+          title: 'Private Repository (Deploy Key)',
+          desc: 'Deploy private repositories securely using a standalone SSH deploy key.'
+        };
+      }
+      return {
+        id: 'git-public',
+        title: 'Public Repository',
+        desc: 'Deploy any kind of public repositories from the supported git providers.'
+      };
+    }
+
+    if (isLocal) {
+      const currentBuilder = parseBuilderValue(gitBuilder).type;
+      if (currentBuilder === 'dockerfile') {
+        return {
+          id: 'dockerfile',
+          title: 'Dockerfile Local Project',
+          desc: 'Build and deploy using a local Dockerfile.'
+        };
+      }
+      if (currentBuilder === 'docker-compose') {
+        return {
+          id: 'docker-compose',
+          title: 'Docker Compose Local Project',
+          desc: 'Deploy multi-container stacks using local docker-compose.yml.'
+        };
+      }
+      return {
+        id: 'local-folder',
+        title: 'Local Folder Project',
+        desc: 'Build from a local folder path on the server.'
+      };
+    }
+
+    return {
+      id: 'docker-image',
+      title: 'Docker Image App',
+      desc: 'Deploy an existing compiled Docker image from Docker Hub or a custom registry.'
+    };
+  };
+
+  const resourceMeta = getResourceMeta();
+
+  const ConfigSection = ({ title, desc, children }) => (
+    <div
+      style={{
+        background: 'var(--bg-base)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius)',
+        padding: '1.25rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14,
+        marginBottom: '1rem',
+      }}
+    >
+      <div>
+        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>{title}</h4>
+        {desc && <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{desc}</p>}
+      </div>
+      {children}
     </div>
   );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8, maxWidth: 900 }}>
-      <Section title="General" desc="Name, description, and resource tier for this service.">
-      <div className="form-group">
-        <label className="form-label">Resource Name</label>
-        <input className="form-input" value={name} onChange={e => setName(e.target.value)} />
-      </div>
-
-      <div className="form-group">
-        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          Resource Tier
-          <Tooltip content="Choose a predefined resource plan or select Custom to set your own limits">
-            <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-          </Tooltip>
-        </label>
-        <select className="form-input" value={resourceTier} onChange={e => setResourceTier(e.target.value)}>
-          <option value="nano">Nano (128MB / 0.25 CPU)</option>
-          <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
-          <option value="standard">Standard (512MB / 1.0 CPU)</option>
-          <option value="large">Large (1GB / 2.0 CPU)</option>
-          <option value="unlimited">Unlimited (No Limits)</option>
-          <option value="custom">Custom (Set Your Own Limits)</option>
-        </select>
-      </div>
-
-      {resourceTier === 'custom' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 8 }}>
-          <div className="form-group">
-            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              Memory Limit (MB)
-              <Tooltip content="Maximum memory the container can use. 512 MB = 0.5 GB">
-                <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-              </Tooltip>
-            </label>
-            <input
-              type="number"
-              className="form-input form-input-sm"
-              value={customMemory ? customMemory / (1024 * 1024) : ''}
-              onChange={e => setCustomMemory(Number(e.target.value) * 1024 * 1024)}
-              placeholder="e.g., 512"
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
-              CPU Limit (Cores)
-              <Tooltip content="Maximum CPU cores the container can use. 1.0 = 1 full core, 0.5 = half a core">
-                <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-              </Tooltip>
-            </label>
-            <input
-              type="number"
-              step="0.25"
-              className="form-input form-input-sm"
-              value={customCPU || ''}
-              onChange={e => setCustomCPU(Number(e.target.value))}
-              placeholder="e.g., 1.5"
-            />
+      {/* Template Header Card */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          padding: '1rem 1.25rem',
+          background: 'linear-gradient(135deg, rgba(79,110,247,0.12) 0%, rgba(79,110,247,0.04) 100%)',
+          border: '1px solid rgba(79,110,247,0.2)',
+          borderRadius: 'var(--radius)',
+          marginBottom: '1.25rem',
+        }}
+      >
+        <ResourceIcon type={resourceMeta.id} size={40} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{resourceMeta.title}</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
+            {resourceMeta.desc}
           </div>
         </div>
-      )}
-
-      <div className="form-group">
-        <label className="form-label">Description</label>
-        <input className="form-input" value={description} onChange={e => setDescription(e.target.value)} placeholder="A short description of this service" />
+        <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>production</span>
       </div>
-      </Section>
+
+      <ConfigSection title="Basics" desc="Name, description, and resource tier limits for this service.">
+        <div className="form-group">
+          <label className="form-label">Service name *</label>
+          <input className="form-input" placeholder="e.g. api, wordpress, worker" value={name} onChange={e => setName(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Description</label>
+          <input className="form-input" placeholder="A short description of this service" value={description} onChange={e => setDescription(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Resource tier</label>
+          <select className="form-input" value={resourceTier} onChange={e => setResourceTier(e.target.value)}>
+            <option value="nano">Nano (128MB / 0.25 CPU)</option>
+            <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
+            <option value="standard">Standard (512MB / 1.0 CPU)</option>
+            <option value="large">Large (1GB / 2.0 CPU)</option>
+            <option value="unlimited">Unlimited (No Limits)</option>
+            <option value="custom">Custom (Set Your Own Limits)</option>
+          </select>
+        </div>
+        {resourceTier === 'custom' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Memory Limit (MB)
+                <Tooltip content="Maximum memory the container can use. 512 MB = 0.5 GB">
+                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                </Tooltip>
+              </label>
+              <input
+                type="number"
+                className="form-input form-input-sm"
+                value={customMemory ? customMemory / (1024 * 1024) : ''}
+                onChange={e => setCustomMemory(Number(e.target.value) * 1024 * 1024)}
+                placeholder="e.g., 512"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                CPU Limit (Cores)
+                <Tooltip content="Maximum CPU cores the container can use. 1.0 = 1 full core, 0.5 = half a core">
+                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                </Tooltip>
+              </label>
+              <input
+                type="number"
+                step="0.25"
+                className="form-input form-input-sm"
+                value={customCPU || ''}
+                onChange={e => setCustomCPU(Number(e.target.value))}
+                placeholder="e.g., 1.5"
+              />
+            </div>
+          </div>
+        )}
+      </ConfigSection>
 
       {service.type === 'database' ? (
-        <Section title="Database Credentials" desc="Keep these in sync with your running database container.">
+        <ConfigSection title="Database Credentials" desc="Keep these in sync with your running database container.">
           <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
             If you change the values here, please sync it here, otherwise automations (like backups) won't work.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '0.75rem' }}>Username</label>
-              <input className="form-input form-input-sm" value={dbUser} onChange={e => setDbUser(e.target.value)} />
+              <input className="form-input" value={dbUser} onChange={e => setDbUser(e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '0.75rem' }}>Password</label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input
-                  className="form-input form-input-sm"
+                  className="form-input"
                   type={showPassword ? "text" : "password"}
                   value={dbPassword}
                   onChange={e => setDbPassword(e.target.value)}
                   style={{ flex: 1 }}
                 />
-                <Button variant="ghost" size="sm" type="button" onClick={() => setShowPassword(!showPassword)} style={{ height: 32, width: 32, padding: 0 }}>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setShowPassword(!showPassword)} style={{ height: 38, width: 38, padding: 0 }}>
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </Button>
               </div>
@@ -2342,191 +2477,259 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           </div>
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem' }}>Initial Database</label>
-            <input className="form-input form-input-sm" value={dbName} onChange={e => setDbName(e.target.value)} />
+            <input className="form-input" value={dbName} onChange={e => setDbName(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Database Engine</label>
             <input className="form-input" value={image} onChange={e => setImage(e.target.value)} placeholder="e.g. postgres, redis, mysql" />
           </div>
-        </Section>
+        </ConfigSection>
       ) : (
         <>
           {isWordPress && (
-            <Section title="WordPress Image" desc="PHP runtime and web server variant for this WordPress container.">
+            <ConfigSection title="WordPress runtime" desc="Official WordPress image with PHP and Apache.">
               <div className="form-group">
-                <label className="form-label">WordPress / PHP Version</label>
-                <SelectRoot value={image || WORDPRESS_VERSIONS[1].value} onValueChange={val => setImage(val)}>
-                  <SelectTrigger style={{ width: '100%' }} />
-                  <SelectContent>
-                    {WORDPRESS_VERSIONS.map(v => (
-                      <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </SelectRoot>
+                <label className="form-label">WordPress / PHP version *</label>
+                <select className="form-input" value={image} onChange={e => setImage(e.target.value)}>
+                  {WORDPRESS_VERSIONS.map(v => (
+                    <option key={v.value} value={v.value}>{v.label}</option>
+                  ))}
+                </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Host Port</label>
+                <label className="form-label">Host port</label>
                 <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="8080" />
               </div>
-            </Section>
+            </ConfigSection>
           )}
-          {isBuiltApp ? (
-            <Section title="Source & Build" desc="Git repository, branch, and build configuration.">
-              {service.git_repo_url ? (
-                <>
+
+          {!isWordPress && !isBuiltApp && (
+            <ConfigSection title="Docker image" desc="Pull and run a ready-made image from Docker Hub or your registry.">
+              <div className="form-group">
+                <label className="form-label">Image name *</label>
+                <input className="form-input" placeholder="nginx:alpine" value={image} onChange={e => setImage(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Host port</label>
+                <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="80" />
+              </div>
+            </ConfigSection>
+          )}
+
+          {isBuiltApp && (
+            <>
+              {(!service.git_repo_url || !service.git_repo_url.startsWith('file://')) && !localPath ? (
+                <ConfigSection title="Git repository" desc="Clone and build from your remote repository.">
                   <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Source URL</label>
-                    <input className="form-input form-input-sm" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
+                    <label className="form-label">Repository URL *</label>
+                    <input className="form-input" placeholder="https://github.com/user/repo" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Branch</label>
-                    <input className="form-input form-input-sm" value={branch} onChange={e => setBranch(e.target.value)} />
+                    <label className="form-label">Branch</label>
+                    <input className="form-input" value={branch} onChange={e => setBranch(e.target.value)} placeholder="main" />
                   </div>
                   <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.75rem' }}>GitHub Access Token (PAT)</label>
-                    <input className="form-input form-input-sm" type="password" value={gitToken} onChange={e => setGitToken(e.target.value)} placeholder="Leave blank to keep unchanged" />
+                    <label className="form-label">GitHub token / Access Token (optional)</label>
+                    <input className="form-input" type="password" value={gitToken} onChange={e => setGitToken(e.target.value)} placeholder="Leave blank to keep unchanged" />
                   </div>
                   <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.75rem' }}>SSH Private Key (Deploy Key)</label>
+                    <label className="form-label">SSH private key *</label>
                     <textarea
-                      className="form-input form-input-sm"
-                      style={{ fontFamily: 'monospace', height: '80px', fontSize: '0.82rem' }}
+                      className="form-input"
+                      style={{ fontFamily: 'monospace', height: 100, fontSize: '0.8rem' }}
                       value={sshKey}
                       onChange={e => setSshKey(e.target.value)}
                       placeholder="Leave blank to keep unchanged"
                     />
                   </div>
-                </>
+                  <div className="form-group">
+                    <label className="form-label">Container port</label>
+                    <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="3000" />
+                  </div>
+                </ConfigSection>
               ) : (
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Server Folder Path</label>
-                  <input className="form-input form-input-sm" value={service.local_path || ''} readOnly disabled style={{ opacity: 0.7 }} />
-                </div>
+                <ConfigSection title="Local folder" desc="Point to any folder; pick how NanoFly should build and run it.">
+                  <div className="form-group">
+                    <label className="form-label">Server folder path *</label>
+                    <input
+                      className="form-input"
+                      placeholder="/opt/nanofly/apps/my-app"
+                      value={localPath}
+                      onChange={e => setLocalPath(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Container port</label>
+                    <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="3000" />
+                  </div>
+                </ConfigSection>
               )}
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Build Type / Runtime</label>
-                <select
-                  className="form-input form-input-sm"
-                  value={parseBuilderValue(gitBuilder).type}
-                  onChange={e => {
-                    const val = e.target.value;
-                    let finalVal = val;
-                    if (val === 'node') finalVal = 'node:20-alpine';
-                    else if (val === 'python') finalVal = 'python:3.11-slim';
-                    else if (val === 'go') finalVal = 'golang:1.22-alpine';
-                    else if (val === 'php') finalVal = 'php:8.2-apache';
-                    setGitBuilder(finalVal);
-                    if (val === 'dockerfile' || val === 'docker-compose') {
-                      setUseVenv(false);
-                    }
-                  }}
-                >
-                  <option value="auto">{"Auto-detect (Recommended)"}</option>
-                  <option value="node">{"Node.js"}</option>
-                  <option value="go">{"Go (Golang)"}</option>
-                  <option value="python">{"Python"}</option>
-                  <option value="php">{"PHP"}</option>
-                  <option value="static">{"HTML / Static Website"}</option>
-                  <option value="dockerfile">{"Dockerfile"}</option>
-                  <option value="docker-compose">{"Docker Compose"}</option>
-                  <option value="nixpacks">{"Nixpacks"}</option>
-                </select>
-              </div>
+
+              <ConfigSection title="Build Method" desc="Select the builder and compilation configurations.">
+                <div className="form-group">
+                  <label className="form-label">Build Method</label>
+                  <select
+                    className="form-input"
+                    value={parseBuilderValue(gitBuilder).type}
+                    onChange={e => {
+                      const val = e.target.value;
+                      let finalVal = val;
+                      if (val === 'node') finalVal = 'node:22-alpine';
+                      else if (val === 'python') finalVal = 'python:3.11-slim';
+                      else if (val === 'go') finalVal = 'golang:1.22-alpine';
+                      else if (val === 'php') finalVal = 'php:8.2-apache';
+                      setGitBuilder(finalVal);
+                      if (val === 'dockerfile' || val === 'docker-compose') {
+                        setUseVenv(false);
+                      }
+                    }}
+                  >
+                    <option value="auto">Auto-detect (Recommended)</option>
+                    <option value="node">Node.js</option>
+                    <option value="python">Python</option>
+                    <option value="go">Go</option>
+                    <option value="php">PHP</option>
+                    <option value="static">Static HTML</option>
+                    <option value="dockerfile">Dockerfile</option>
+                    <option value="docker-compose">Docker Compose</option>
+                    <option value="nixpacks">Nixpacks (Auto-build)</option>
+                  </select>
+                </div>
+
+                {['node', 'python', 'go', 'php'].includes(parseBuilderValue(gitBuilder).type) && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Runtime Version</label>
+                      <select
+                        className="form-input"
+                        value={gitBuilder}
+                        onChange={e => setGitBuilder(e.target.value)}
+                      >
+                        {getSvcRuntimeVersions(parseBuilderValue(gitBuilder).type).map(v => (
+                          <option key={v.value} value={v.value}>{v.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">App Directory</label>
+                        <input className="form-input" placeholder="Leave blank for project root" value={appDirectory} onChange={e => setAppDirectory(e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">{parseBuilderValue(gitBuilder).type === 'node' ? 'Entry file' : 'Run file'}</label>
+                        <input
+                          className="form-input"
+                          placeholder={parseBuilderValue(gitBuilder).type === 'node' ? 'index.js or server.js' : parseBuilderValue(gitBuilder).type === 'python' ? 'app.py' : 'main.go'}
+                          value={runFile}
+                          onChange={e => setRunFile(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {parseBuilderValue(gitBuilder).type === 'python' && (
+                      <div className="form-group">
+                        <label className="form-label">Requirements file</label>
+                        <input className="form-input" value={requirementsFile} onChange={e => setRequirementsFile(e.target.value)} placeholder="requirements.txt" />
+                      </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">Install command</label>
+                        <input className="form-input" value={installCommand} onChange={e => setInstallCommand(e.target.value)} placeholder="Auto if blank" />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Start command</label>
+                        <input className="form-input" value={startCommand} onChange={e => setStartCommand(e.target.value)} placeholder="Auto if blank" />
+                      </div>
+                    </div>
+                    {parseBuilderValue(gitBuilder).type === 'python' && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
+                        Use Python virtual environment in container
+                      </label>
+                    )}
+                  </>
+                )}
+
+                {parseBuilderValue(gitBuilder).type === 'nixpacks' && (
+                  <div style={{ padding: '0.85rem', background: 'rgba(34,197,94,0.08)', borderRadius: 8, fontSize: '0.85rem' }}>
+                    <strong>Nixpacks</strong> builds from the directory automatically.
+                  </div>
+                )}
+
+                {parseBuilderValue(gitBuilder).type === 'auto' && (
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                    Auto-detect scans for package.json, requirements.txt, go.mod, Dockerfile, or docker-compose.yml.
+                  </p>
+                )}
+              </ConfigSection>
 
               {parseBuilderValue(gitBuilder).type === 'dockerfile' && (
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Dockerfile Content</label>
+                <ConfigSection title="Dockerfile" desc="Edit the Dockerfile NanoFly will use to build this app. Saved to your project folder on deploy.">
+                  <div className="form-group">
+                    <label className="form-label">Load starter template</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {['node', 'python', 'go', 'php', 'generic'].map(lang => (
+                        <button
+                          key={lang}
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ border: '1px solid var(--border)', textTransform: 'capitalize' }}
+                          onClick={() => {
+                            let content = '';
+                            switch (lang) {
+                              case 'node': content = DOCKERFILE_TEMPLATES.node; break;
+                              case 'python': content = DOCKERFILE_TEMPLATES.python; break;
+                              case 'go': content = DOCKERFILE_TEMPLATES.go; break;
+                              case 'php': content = DOCKERFILE_TEMPLATES.php; break;
+                              default: content = DOCKERFILE_TEMPLATES.generic;
+                            }
+                            setDockerfileContent(content);
+                          }}
+                        >
+                          {lang}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <CodeEditor
                     value={dockerfileContent}
                     onChange={val => setDockerfileContent(val)}
                     language="docker"
-                    placeholder={`FROM python:3.11-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD ["python", "app.py"]`}
-                    style={{ height: '180px' }}
+                    style={{ height: 260 }}
                   />
-                </div>
+                </ConfigSection>
               )}
 
               {parseBuilderValue(gitBuilder).type === 'docker-compose' && (
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Docker Compose Definition (docker-compose.yml)</label>
+                <ConfigSection title="Docker Compose" desc="Define services in docker-compose.yml. NanoFly runs compose up for this project.">
                   <CodeEditor
                     value={dockerComposeContent}
                     onChange={val => setDockerComposeContent(val)}
                     language="yaml"
-                    placeholder={`version: '3.8'\nservices:\n  web:\n    build: .\n    ports:\n      - "80:80"`}
-                    style={{ height: '180px' }}
+                    style={{ height: 280 }}
                   />
-                </div>
+                </ConfigSection>
               )}
 
-              {['node', 'python', 'go', 'php'].includes(parseBuilderValue(gitBuilder).type) && (
+              <ConfigSection title="Advanced" desc="Extra Docker flags for hardware or networking.">
                 <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Runtime Version</label>
-                  <select
-                    className="form-input form-input-sm"
-                    value={gitBuilder}
-                    onChange={e => setGitBuilder(e.target.value)}
-                  >
-                    {getSvcRuntimeVersions(parseBuilderValue(gitBuilder).type).map(v => (
-                      <option key={v.value} value={v.value}>
-                        {v.label}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="form-label">Docker run arguments</label>
+                  <input
+                    className="form-input"
+                    value={dockerArgs}
+                    onChange={e => setDockerArgs(e.target.value)}
+                    placeholder="--network host"
+                    style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
+                  />
                 </div>
-              )}
-              <div style={{ background: 'rgba(79,110,247,0.06)', border: '1px solid rgba(79,110,247,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                Changing runtime fields affects the next deploy. Use App Directory when the app lives inside a subfolder, and Run File for Python files like main.py.
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>App Directory</label>
-                  <input className="form-input form-input-sm" value={appDirectory} onChange={e => setAppDirectory(e.target.value)} placeholder="Blank for source root" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Run File</label>
-                  <input className="form-input form-input-sm" value={runFile} onChange={e => setRunFile(e.target.value)} placeholder="ecopulse.py" />
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                {parseBuilderValue(gitBuilder).type === 'python' && (
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.75rem' }}>Requirements File</label>
-                    <input className="form-input form-input-sm" value={requirementsFile} onChange={e => setRequirementsFile(e.target.value)} placeholder="requirements.txt" />
-                  </div>
-                )}
-                <div className="form-group">
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Start Command Override</label>
-                  <input className="form-input form-input-sm" value={startCommand} onChange={e => setStartCommand(e.target.value)} placeholder="python ecopulse.py" />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Install Command Override</label>
-                <input className="form-input form-input-sm" value={installCommand} onChange={e => setInstallCommand(e.target.value)} placeholder="pip install --no-cache-dir -r requirements.txt" />
-              </div>
-              {parseBuilderValue(gitBuilder).type === 'python' && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                  <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
-                  Generate Python virtual environment during build
-                </label>
-              )}
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Docker Run Arguments</label>
-                <input
-                  className="form-input form-input-sm"
-                  value={dockerArgs}
-                  onChange={e => setDockerArgs(e.target.value)}
-                  placeholder="e.g. --privileged --device /dev/i2c-1 --network host"
-                  style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.78rem' }}
-                />
-                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Extra flags appended to <code>docker run</code> on each deploy. Useful for device access, network modes, etc.</p>
-              </div>
-              {service.git_repo_url?.startsWith('file://') && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              </ConfigSection>
+
+              {((service.git_repo_url && service.git_repo_url.startsWith('file://')) || localPath) && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8, padding: '0 8px' }}>
                   <Button
                     variant="outline" color="amber" size="sm"
                     onClick={async () => {
-                      const localPath = service.git_repo_url.replace('file://', '');
+                      const localPathVal = localPath.trim() || (service.git_repo_url ? service.git_repo_url.replace('file://', '') : '');
                       const builderType = parseBuilderValue(gitBuilder).type;
                       const baseImage = gitBuilder.includes(':') ? gitBuilder : (
                         builderType === 'python' ? 'python:3.11-slim' :
@@ -2545,7 +2748,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                           builderType === 'node' ? 'npm install --production' :
                             builderType === 'go' ? 'go mod download' : ''
                       );
-                      const portLine = service.port > 0 ? `EXPOSE ${service.port}\nENV PORT=${service.port}` : '';
+                      const portLine = port > 0 ? `EXPOSE ${port}\nENV PORT=${port}` : '';
                       const installLine = installCmd ? `RUN ${installCmd}` : '';
                       const content = [
                         `FROM ${baseImage}`,
@@ -2556,87 +2759,80 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                         `CMD ["sh", "-c", "${runCmd}"]`,
                       ].filter(Boolean).join('\n');
                       try {
-                        await filesApi.save(localPath + '/Dockerfile', content);
+                        await filesApi.save(localPathVal + '/Dockerfile', content);
                         toast.success('Dockerfile created successfully');
                       } catch (e) { toast.error('Failed to create Dockerfile: ' + e.message); }
                     }}
                   >
-                    ðŸ“„ Initialize Dockerfile Template
+                    📄 Initialize Dockerfile Template
                   </Button>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Creates a starter Dockerfile in the project folder</span>
                 </div>
               )}
-            </Section>
-          ) : !isWordPress ? (
-            <Section title="Docker Image" desc="Container image and exposed port.">
-              <div className="form-group">
-                <label className="form-label">Docker Image</label>
-                <input className="form-input" value={image} onChange={e => setImage(e.target.value)} placeholder="nginx:alpine" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Host Port</label>
-                <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="80" />
-              </div>
-            </Section>
-          ) : null}
+            </>
+          )}
 
-          <Section title="Domain & Routing" desc="Public URL and www redirect behavior. Redeploy after domain changes.">
-          <div className="form-group">
-            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              Domains
-              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Add custom domains. Point your DNS A record to your server IP.">â„¹ï¸</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input
-                className="form-input form-input-sm"
-                value={domainVal}
-                onChange={e => setDomainVal(e.target.value)}
-                placeholder="e.g. app.yourdomain.com"
-                style={{ flex: 1 }}
-              />
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={handleGenerateDomain}
-                style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-              >
-                Generate Domain
-              </button>
+          <ConfigSection title="Domain & Routing" desc="Public URL and redirect behavior. Point your DNS A record to your server IP.">
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Domains
+                <Tooltip content="Add custom domains. Point your DNS A record to your server IP.">
+                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                </Tooltip>
+              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  className="form-input"
+                  value={domainVal}
+                  onChange={e => setDomainVal(e.target.value)}
+                  placeholder="e.g. app.yourdomain.com"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={handleGenerateDomain}
+                  style={{ border: '1px solid var(--border)', height: 38, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                >
+                  Generate Domain
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="form-group">
-            <label className="form-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Direction *
-              <span style={{ cursor: 'help', color: 'var(--text-muted)' }} title="Select how requests to www and non-www subdomains are handled.">â„¹ï¸</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <select
-                className="form-input form-input-sm"
-                value={direction}
-                onChange={e => setDirection(e.target.value)}
-                style={{ flex: 1 }}
-              >
-                <option value="both">Allow www & non-www.</option>
-                <option value="www">Redirect to www</option>
-                <option value="non-www">Redirect to non-www</option>
-              </select>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={handleSetDirection}
-                style={{ border: '1px solid var(--border)', height: 32, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-              >
-                Set Direction
-              </button>
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Direction
+                <Tooltip content="Select how requests to www and non-www subdomains are handled.">
+                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                </Tooltip>
+              </label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  className="form-input"
+                  value={direction}
+                  onChange={e => setDirection(e.target.value)}
+                  style={{ flex: 1 }}
+                >
+                  <option value="both">Allow www & non-www.</option>
+                  <option value="www">Redirect to www</option>
+                  <option value="non-www">Redirect to non-www</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={handleSetDirection}
+                  style={{ border: '1px solid var(--border)', height: 38, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                >
+                  Set Direction
+                </button>
+              </div>
             </div>
-          </div>
-          </Section>
+          </ConfigSection>
         </>
       )}
 
-      {error && <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginBottom: 8 }}>{error}</div>}
-      {success && <div style={{ color: 'var(--green)', fontSize: '0.85rem', marginBottom: 8 }}>Configuration saved. Redeploy to apply.</div>}
+      {error && <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginBottom: 8, padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius)' }}>⚠️ {error}</div>}
+      {success && <div style={{ color: 'var(--green)', fontSize: '0.85rem', marginBottom: 8, padding: '8px 12px', background: 'rgba(34, 197, 94, 0.1)', borderRadius: 'var(--radius)' }}>✅ Configuration saved. Redeploy to apply.</div>}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
         <Button variant="primary" icon={Save} onClick={handleSave} disabled={saving} loading={saving}>

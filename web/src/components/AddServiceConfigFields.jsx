@@ -45,7 +45,7 @@ export const WORDPRESS_VERSIONS = [
 
 export const WORDPRESS_ENV_TEMPLATE = buildWordPressEnvTemplate();
 
-const DOCKERFILE_TEMPLATES = {
+export const DOCKERFILE_TEMPLATES = {
   node: `FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
