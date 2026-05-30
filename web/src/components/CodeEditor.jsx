@@ -59,14 +59,26 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
       overflow-wrap: normal !important;
       word-break: normal !important;
     }
+    
+    /* Dark Theme Syntax Highlighting Tokens (Default) */
     .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955 !important; font-style: italic; }
-    .token.punctuation { color: #d4d4d4 !important; }
-    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol, .token.deleted { color: #b5cea8 !important; }
-    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #ce9178 !important; }
-    .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #d4d4d4 !important; }
-    .token.atrule, .token.attr-value, .token.keyword { color: #569cd6 !important; font-weight: bold; }
-    .token.function, .token.class-name { color: #dcdcaa !important; }
-    .token.regex, .token.important, .token.variable { color: #9cdcfe !important; }
+    .token.punctuation { color: #cbd5e1 !important; }
+    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol, .token.deleted { color: #4ade80 !important; }
+    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #f472b6 !important; }
+    .token.operator, .token.entity, .token.url { color: #cbd5e1 !important; }
+    .token.atrule, .token.attr-value, .token.keyword { color: #60a5fa !important; font-weight: bold; }
+    .token.function, .token.class-name { color: #facc15 !important; }
+    .token.regex, .token.important, .token.variable { color: #38bdf8 !important; }
+
+    /* Light Theme Syntax Highlighting Tokens */
+    [data-theme="light"] .token.comment { color: #008000 !important; }
+    [data-theme="light"] .token.punctuation { color: #334155 !important; }
+    [data-theme="light"] .token.property, [data-theme="light"] .token.number, [data-theme="light"] .token.boolean { color: #098658 !important; }
+    [data-theme="light"] .token.string, [data-theme="light"] .token.char { color: #a31515 !important; }
+    [data-theme="light"] .token.keyword, [data-theme="light"] .token.atrule { color: #0000ff !important; font-weight: bold; }
+    [data-theme="light"] .token.function { color: #795e26 !important; }
+    [data-theme="light"] .token.variable, [data-theme="light"] .token.class-name { color: #267f99 !important; }
+    [data-theme="light"] .token.operator { color: #000000 !important; }
   `;
 
   return (
@@ -74,13 +86,12 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
       display: 'flex',
       fontFamily: 'Consolas, Fira Code, Monaco, "Andale Mono", monospace',
       fontSize: '13px',
-      background: '#1e1e1e',
-      border: '1px solid rgba(255, 255, 255, 0.08)',
-      borderRadius: '8px',
+      background: 'var(--bg-base)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-sm)',
       overflow: 'hidden',
       height: '100%',
       width: '100%',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
       ...style
     }}>
       <style>{customStyles}</style>
@@ -90,9 +101,9 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
         style={{
           width: '48px',
           padding: '10px 0',
-          background: '#1e1e1e',
-          borderRight: '1px solid rgba(255, 255, 255, 0.06)',
-          color: '#858585',
+          background: 'var(--bg-elevated)',
+          borderRight: '1px solid var(--border)',
+          color: 'var(--text-muted)',
           textAlign: 'right',
           paddingRight: '12px',
           userSelect: 'none',
@@ -128,7 +139,9 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
             fontSize: 'inherit',
             lineHeight: '20px',
             minHeight: '100%',
-            color: '#d4d4d4',
+            minWidth: '100%',
+            width: 'max-content',
+            color: 'var(--text-primary)',
             outline: 'none'
           }}
         />

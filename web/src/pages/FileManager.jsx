@@ -15,6 +15,7 @@ function ImageViewer({ file }) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [mediaLoading, setMediaLoading] = useState(true);
 
   // CSS Image Filters
   const [brightness, setBrightness] = useState(100);
@@ -26,6 +27,19 @@ function ImageViewer({ file }) {
 
   const containerRef = useRef(null);
 
+  useEffect(() => {
+    setMediaLoading(true);
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    setBrightness(100);
+    setContrast(100);
+    setGrayscale(0);
+    setSepia(0);
+    setInvert(false);
+    setRotate(0);
+  }, [file.path]);
+
+  // Handle Mouse wheel 
   const handleWheel = (e) => {
     e.preventDefault();
     const zoomFactor = 0.12;
@@ -72,82 +86,154 @@ function ImageViewer({ file }) {
       {/* Editor Controls Bar */}
       <div style={{
         display: 'flex',
-        flexWrap: 'wrap',
-        gap: '12px',
-        alignItems: 'center',
+        flexDirection: 'column',
+        gap: '10px',
         background: 'var(--bg-elevated)',
-        padding: '8px 12px',
+        padding: '12px 16px',
         borderRadius: 'var(--radius-sm)',
         fontSize: '0.78rem',
-        color: 'var(--text-secondary)'
+        color: 'var(--text-secondary)',
+        border: '1px solid var(--border)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>Brightness:</span>
-          <input
-            type="range"
-            min="0"
-            max="200"
-            value={brightness}
-            onChange={e => setBrightness(Number(e.target.value))}
-            style={{ width: '70px', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-          />
-          <span style={{ width: '28px', fontSize: '0.7rem', textAlign: 'right' }}>{brightness}%</span>
+        {/* Sliders Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '10px 16px'
+        }}>
+          {/* Brightness */}
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 40px', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 500 }}>Brightness</span>
+            <input
+              type="range"
+              min="0"
+              max="200"
+              value={brightness}
+              onChange={e => setBrightness(Number(e.target.value))}
+              style={{ width: '100%', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: '0.72rem', textAlign: 'right', fontFamily: 'monospace' }}>{brightness}%</span>
+          </div>
+
+          {/* Contrast */}
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 40px', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 500 }}>Contrast</span>
+            <input
+              type="range"
+              min="0"
+              max="200"
+              value={contrast}
+              onChange={e => setContrast(Number(e.target.value))}
+              style={{ width: '100%', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: '0.72rem', textAlign: 'right', fontFamily: 'monospace' }}>{contrast}%</span>
+          </div>
+
+          {/* Grayscale */}
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 40px', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 500 }}>Grayscale</span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={grayscale}
+              onChange={e => setGrayscale(Number(e.target.value))}
+              style={{ width: '100%', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: '0.72rem', textAlign: 'right', fontFamily: 'monospace' }}>{grayscale}%</span>
+          </div>
+
+          {/* Sepia */}
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 40px', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 500 }}>Sepia</span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={sepia}
+              onChange={e => setSepia(Number(e.target.value))}
+              style={{ width: '100%', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: '0.72rem', textAlign: 'right', fontFamily: 'monospace' }}>{sepia}%</span>
+          </div>
         </div>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>Contrast:</span>
-          <input
-            type="range"
-            min="0"
-            max="200"
-            value={contrast}
-            onChange={e => setContrast(Number(e.target.value))}
-            style={{ width: '70px', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-          />
-          <span style={{ width: '28px', fontSize: '0.7rem', textAlign: 'right' }}>{contrast}%</span>
+
+        {/* Separator / Divider */}
+        <div style={{ height: '1px', background: 'var(--border)', margin: '4px 0' }} />
+
+        {/* Actions Row */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', fontWeight: 500 }}>
+              <input
+                type="checkbox"
+                checked={invert}
+                onChange={e => setInvert(e.target.checked)}
+                style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+              />
+              <span>Invert Colors</span>
+            </label>
+          </div>
+
+          {/* Zoom & Reset Toolbar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: '4px' }}>Zoom</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ height: '20px', width: '20px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onClick={() => setScale(s => Math.max(0.2, s - 0.25))}
+                title="Zoom Out"
+              >
+                -
+              </Button>
+              <input
+                type="range"
+                min="20"
+                max="600"
+                value={Math.round(scale * 100)}
+                onChange={e => setScale(Number(e.target.value) / 100)}
+                style={{ width: '80px', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ height: '20px', width: '20px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onClick={() => setScale(s => Math.min(6, s + 0.25))}
+                title="Zoom In"
+              >
+                +
+              </Button>
+              <span style={{ minWidth: '36px', fontSize: '0.72rem', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                {Math.round(scale * 100)}%
+              </span>
+            </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              style={{ height: '28px', fontSize: '0.75rem', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+              onClick={() => setRotate(r => (r + 90) % 360)}
+            >
+              Rotate 90°
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              style={{ height: '28px', fontSize: '0.75rem', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+              onClick={handleReset}
+            >
+              Reset
+            </Button>
+          </div>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>Grayscale:</span>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={grayscale}
-            onChange={e => setGrayscale(Number(e.target.value))}
-            style={{ width: '50px', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>Sepia:</span>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={sepia}
-            onChange={e => setSepia(Number(e.target.value))}
-            style={{ width: '50px', height: '4px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-          />
-        </div>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}>
-          <input
-            type="checkbox"
-            checked={invert}
-            onChange={e => setInvert(e.target.checked)}
-            style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
-          />
-          <span>Invert</span>
-        </label>
-
-        <Button variant="ghost" size="sm" style={{ border: '1px solid var(--border)', background: 'var(--bg-surface)', height: '22px', padding: '0 6px', fontSize: '0.7rem' }} onClick={() => setRotate(r => (r + 90) % 360)}>
-          Rotate
-        </Button>
-
-        <Button variant="ghost" size="sm" style={{ border: '1px solid var(--border)', background: 'var(--bg-surface)', height: '22px', padding: '0 6px', fontSize: '0.7rem', marginLeft: 'auto' }} onClick={handleReset}>
-          Reset
-        </Button>
       </div>
 
       {/* Editor Canvas Area */}
@@ -169,13 +255,32 @@ function ImageViewer({ file }) {
           position: 'relative',
           padding: '1rem',
           minHeight: 0,
-          cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default'
+          cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+          border: '1px solid var(--border)'
         }}
       >
+        {mediaLoading && (
+          <div style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0, bottom: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            background: 'var(--bg-base)',
+            zIndex: 10
+          }}>
+            <Loader2 className="spin" size={24} style={{ color: 'var(--accent)' }} />
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Fetching image...</span>
+          </div>
+        )}
         <img
           src={file.rawUrl}
           alt={file.name}
           draggable="false"
+          onLoad={() => setMediaLoading(false)}
+          onError={() => setMediaLoading(false)}
           style={{
             maxHeight: '98%',
             maxWidth: '98%',
@@ -184,7 +289,8 @@ function ImageViewer({ file }) {
             filter: filterStyle,
             transition: isDragging ? 'none' : 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
             userSelect: 'none',
-            pointerEvents: 'none'
+            pointerEvents: 'none',
+            display: mediaLoading ? 'none' : 'block'
           }}
         />
         <div style={{
@@ -197,9 +303,10 @@ function ImageViewer({ file }) {
           borderRadius: '3px',
           fontSize: '0.62rem',
           pointerEvents: 'none',
-          fontFamily: 'sans-serif'
+          fontFamily: 'sans-serif',
+          zIndex: 11
         }}>
-          Scroll wheel to zoom · Click-drag to pan
+          Scroll wheel / Pinch to zoom · Drag to pan
         </div>
       </div>
     </div>
@@ -208,7 +315,13 @@ function ImageViewer({ file }) {
 
 function AudioPlayer({ file }) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [mediaLoading, setMediaLoading] = useState(true);
   const audioRef = useRef(null);
+
+  useEffect(() => {
+    setMediaLoading(true);
+    setIsPlaying(false);
+  }, [file.path]);
 
   return (
     <div style={{
@@ -221,8 +334,28 @@ function AudioPlayer({ file }) {
       borderRadius: 'var(--radius-sm)',
       padding: '2.5rem 1.5rem',
       gap: '1.5rem',
-      height: '100%'
+      height: '100%',
+      position: 'relative',
+      border: '1px solid var(--border)'
     }}>
+      {mediaLoading && (
+        <div style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          background: 'var(--bg-base)',
+          borderRadius: 'var(--radius-sm)',
+          zIndex: 10
+        }}>
+          <Loader2 className="spin" size={24} style={{ color: 'var(--accent)' }} />
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Loading audio...</span>
+        </div>
+      )}
+
       <div style={{
         width: '120px',
         height: '120px',
@@ -279,6 +412,8 @@ function AudioPlayer({ file }) {
         ref={audioRef}
         src={file.rawUrl}
         controls
+        onCanPlay={() => setMediaLoading(false)}
+        onError={() => setMediaLoading(false)}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => setIsPlaying(false)}
@@ -299,6 +434,12 @@ function AudioPlayer({ file }) {
 }
 
 function VideoPlayer({ file }) {
+  const [mediaLoading, setMediaLoading] = useState(true);
+
+  useEffect(() => {
+    setMediaLoading(true);
+  }, [file.path]);
+
   return (
     <div style={{
       flex: 1,
@@ -311,17 +452,39 @@ function VideoPlayer({ file }) {
       justifyContent: 'center',
       gap: '0.875rem',
       minHeight: 0,
-      height: '100%'
+      height: '100%',
+      position: 'relative',
+      border: '1px solid var(--border)'
     }}>
+      {mediaLoading && (
+        <div style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          background: 'var(--bg-base)',
+          borderRadius: 'var(--radius-sm)',
+          zIndex: 10
+        }}>
+          <Loader2 className="spin" size={24} style={{ color: 'var(--accent)' }} />
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Loading video...</span>
+        </div>
+      )}
       <video
         src={file.rawUrl}
         controls
+        onCanPlay={() => setMediaLoading(false)}
+        onError={() => setMediaLoading(false)}
         style={{
           maxWidth: '100%',
           maxHeight: '90%',
           borderRadius: '4px',
           outline: 'none',
-          backgroundColor: '#000'
+          backgroundColor: '#000',
+          display: mediaLoading ? 'none' : 'block'
         }}
       />
       <div style={{ textAlign: 'center' }}>
@@ -1001,13 +1164,15 @@ export default function FileManager() {
         minHeight: 0,
         background: 'var(--bg-surface)',
         border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-sm)'
+        borderRadius: 'var(--radius-sm)',
+        overflowX: 'auto'
       }}>
 
         {/* Column 1: Drives Sidebar */}
         {drives.length > 0 && (
           <div style={{
             width: '180px',
+            minWidth: '180px',
             display: 'flex',
             flexDirection: 'column',
             padding: '0.75rem',
@@ -1087,7 +1252,8 @@ export default function FileManager() {
             display: 'flex',
             flexDirection: 'column',
             padding: '0.75rem',
-            minWidth: 0,
+            minWidth: '300px',
+            flexShrink: 0,
             background: 'var(--bg-surface)',
             borderRight: '1px solid var(--border)',
             position: 'relative'
@@ -1375,7 +1541,8 @@ export default function FileManager() {
           display: 'flex',
           flexDirection: 'column',
           padding: '0.875rem',
-          minWidth: 0,
+          minWidth: '450px',
+          flexShrink: 0,
           background: 'var(--bg-surface)',
           position: 'relative'
         }}>
