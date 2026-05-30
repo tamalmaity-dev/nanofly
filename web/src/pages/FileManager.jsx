@@ -1079,23 +1079,23 @@ export default function FileManager() {
       {/* Top Header */}
       <div className="page-header" style={{ marginBottom: '0.75rem', flexShrink: 0, paddingBottom: '0.5rem' }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 2, fontSize: '1.25rem', color: 'var(--text-primary)' }}>File Manager</h1>
-          <p className="page-subtitle" style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Inspect, edit, and manage files on your NanoFly server</p>
+          <h1 className="page-title" style={{ marginBottom: 2, fontSize: '1.35rem', color: 'var(--text-primary)' }}>File Manager</h1>
+          <p className="page-subtitle" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Inspect, edit, and manage files on your NanoFly server</p>
         </div>
 
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
           <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
-          <Button variant="secondary" size="sm" loading={uploadLoading} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => fileInputRef.current?.click()} icon={Upload}>
+          <Button variant="secondary" size="sm" loading={uploadLoading} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)', height: '30px', fontSize: '0.82rem' }} onClick={() => fileInputRef.current?.click()} icon={Upload}>
             Upload Files
           </Button>
-          <Button variant="secondary" size="sm" loading={uploadLoading} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => folderInputRef.current?.click()} icon={Upload}>
+          <Button variant="secondary" size="sm" loading={uploadLoading} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)', height: '30px', fontSize: '0.82rem' }} onClick={() => folderInputRef.current?.click()} icon={Upload}>
             Upload Folder
           </Button>
-          <Button variant="secondary" size="sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setShowCreateModal('folder')} icon={FolderPlus}>
+          <Button variant="secondary" size="sm" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)', height: '30px', fontSize: '0.82rem' }} onClick={() => setShowCreateModal('folder')} icon={FolderPlus}>
             New Folder
           </Button>
-          <Button variant="primary" size="sm" onClick={() => setShowCreateModal('file')} icon={FilePlus}>
+          <Button variant="primary" size="sm" style={{ height: '30px', fontSize: '0.82rem' }} onClick={() => setShowCreateModal('file')} icon={FilePlus}>
             New File
           </Button>
         </div>
@@ -1106,18 +1106,18 @@ export default function FileManager() {
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        padding: '0.5rem 0.75rem',
+        padding: '0.6rem 0.85rem',
         background: 'var(--bg-surface)',
         border: '1px solid var(--border)',
         borderRadius: 'var(--radius-sm)',
         marginBottom: '0.5rem',
         flexWrap: 'wrap',
-        fontSize: '0.82rem',
+        fontSize: '0.88rem',
         flexShrink: 0
       }}>
         {getBreadcrumbs().map((crumb, idx) => (
           <div key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {idx > 0 && <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />}
+            {idx > 0 && <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />}
             <span
               onClick={() => setCurrentPath(crumb.path)}
               style={{
@@ -1133,7 +1133,7 @@ export default function FileManager() {
             </span>
           </div>
         ))}
-        <Button variant="ghost" size="sm" style={{ marginLeft: 'auto', padding: '2px 6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }} onClick={(e) => copyPath(currentPath || rootPath, e)} icon={Copy}>
+        <Button variant="ghost" size="sm" style={{ marginLeft: 'auto', padding: '3px 8px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', fontSize: '0.78rem' }} onClick={(e) => copyPath(currentPath || rootPath, e)} icon={Copy}>
           Copy Path
         </Button>
       </div>
@@ -1144,15 +1144,15 @@ export default function FileManager() {
         alignItems: 'center',
         gap: 8,
         marginBottom: '0.5rem',
-        padding: '0.4rem 0.75rem',
+        padding: '0.5rem 0.85rem',
         border: protectedPath ? '1px solid var(--red)' : '1px solid var(--border)',
         borderRadius: 'var(--radius-sm)',
         background: protectedPath ? 'var(--red-dim)' : 'var(--bg-surface)',
         color: protectedPath ? 'var(--red)' : 'var(--text-secondary)',
-        fontSize: '0.76rem',
+        fontSize: '0.82rem',
         flexShrink: 0
       }}>
-        <AlertTriangle size={14} style={{ color: protectedPath ? 'var(--red)' : 'var(--accent)' }} />
+        <AlertTriangle size={15} style={{ color: protectedPath ? 'var(--red)' : 'var(--accent)' }} />
         <span>{protectedPath ? 'System files alert: Editing or deleting here can break NanoFly or the server.' : 'Safe workspace: Use directory storage to edit configuration and project files.'}</span>
         {uploadStatus && <span style={{ marginLeft: 'auto', color: uploadStatus.includes('failed') ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{uploadStatus}</span>}
       </div>
@@ -1182,7 +1182,7 @@ export default function FileManager() {
             flexShrink: 0,
             overflowY: 'auto'
           }}>
-            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>
               Drives & Mounts
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1219,20 +1219,20 @@ export default function FileManager() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      height: '22px',
-                      width: '22px',
+                      height: '24px',
+                      width: '24px',
                       borderRadius: '3px',
                       background: isDriveActive ? 'var(--accent)' : 'var(--bg-elevated)',
                       color: isDriveActive ? '#fff' : 'var(--accent)',
                       flexShrink: 0
                     }}>
-                      <HardDrive size={12} />
+                      <HardDrive size={13} />
                     </div>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={drive.name}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={drive.name}>
                         {drive.name}
                       </div>
-                      <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                         {drive.free_human} free
                       </div>
                     </div>
@@ -1262,10 +1262,10 @@ export default function FileManager() {
           {/* Search bar, sorting & view toggle */}
           <div style={{ marginBottom: '0.6rem', flexShrink: 0, display: 'flex', gap: 6 }}>
             <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 className="form-input"
-                style={{ paddingLeft: 30, height: '30px', fontSize: '0.8rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}
+                style={{ paddingLeft: 30, height: '34px', fontSize: '0.88rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}
                 placeholder="Filter files..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -1281,7 +1281,7 @@ export default function FileManager() {
                   background: 'transparent',
                   color: 'var(--text-secondary)',
                   border: 'none',
-                  fontSize: '0.72rem',
+                  fontSize: '0.8rem',
                   outline: 'none',
                   cursor: 'pointer',
                   padding: '0 4px',
@@ -1295,7 +1295,7 @@ export default function FileManager() {
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
-                style={{ padding: '0 6px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', height: '100%', color: 'var(--text-muted)' }}
+                style={{ padding: '0 6px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', height: '100%', color: 'var(--text-muted)' }}
                 title="Toggle order"
               >
                 {sortOrder === 'asc' ? '↑' : '↓'}
@@ -1303,11 +1303,11 @@ export default function FileManager() {
             </div>
 
             <div style={{ display: 'flex', gap: 2, background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: '4px', padding: 2 }}>
-              <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 4, height: 24, width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                <LayoutList size={13} />
+              <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 4, height: 26, width: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                <LayoutList size={14} />
               </button>
-              <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 4, height: 24, width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                <LayoutGrid size={13} />
+              <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 4, height: 26, width: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                <LayoutGrid size={14} />
               </button>
             </div>
           </div>
@@ -1321,7 +1321,7 @@ export default function FileManager() {
             {sortedItems.length === 0 && !loading && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: 6 }}>
                 <Folder size={28} style={{ opacity: 0.3 }} />
-                <span style={{ fontSize: '0.78rem' }}>No matches found</span>
+                <span style={{ fontSize: '0.88rem' }}>No matches found</span>
               </div>
             )}
 
@@ -1375,11 +1375,11 @@ export default function FileManager() {
                       flexDirection: viewMode === 'grid' ? 'column' : 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: viewMode === 'grid' ? '8px' : '4px 8px',
+                      padding: viewMode === 'grid' ? '10px' : '6px 10px',
                       borderRadius: 'var(--radius-sm)',
                       cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      minHeight: viewMode === 'grid' ? 96 : undefined,
+                      fontSize: '0.88rem',
+                      minHeight: viewMode === 'grid' ? 104 : undefined,
                       transition: 'background 0.1s, border-color 0.1s',
                       background: isItemActive ? 'var(--bg-elevated)' : 'transparent',
                       border: '1px solid',
@@ -1400,7 +1400,7 @@ export default function FileManager() {
                       display: 'flex',
                       alignItems: 'center',
                       flexDirection: viewMode === 'grid' ? 'column' : 'row',
-                      gap: viewMode === 'grid' ? 6 : 8,
+                      gap: viewMode === 'grid' ? 8 : 10,
                       minWidth: 0,
                       width: viewMode === 'grid' ? '100%' : undefined,
                       textAlign: viewMode === 'grid' ? 'center' : 'left'
@@ -1422,13 +1422,13 @@ export default function FileManager() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: viewMode === 'grid' ? 'center' : 'flex-end',
-                      gap: viewMode === 'grid' ? 4 : 8,
+                      gap: viewMode === 'grid' ? 6 : 10,
                       flexShrink: 0,
                       width: viewMode === 'grid' ? '100%' : undefined,
                       marginTop: viewMode === 'grid' ? 6 : 0
                     }}>
                       {!item.is_dir && (
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                           {item.size_human}
                         </span>
                       )}
@@ -1560,19 +1560,19 @@ export default function FileManager() {
                 flexShrink: 0
               }}>
                 <div>
-                  <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
+                  <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
                     {selectedFile.name}
                   </h3>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                     Size: {selectedFile.size} · {selectedFile.isOverview ? 'Archive/Big file' : isModified ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Modified</span> : 'Saved'}
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', gap: 4 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <Button
                     variant="ghost"
                     size="sm"
-                    style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '2px 8px', height: 26 }}
+                    style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
                     onClick={() => setSelectedFile(null)}
                     icon={X}
                   >
@@ -1582,7 +1582,7 @@ export default function FileManager() {
                     <Button
                       variant="primary"
                       size="sm"
-                      style={{ padding: '2px 8px', height: 26 }}
+                      style={{ padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
                       disabled={!isModified}
                       loading={saveLoading}
                       onClick={handleSaveFile}

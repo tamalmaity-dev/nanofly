@@ -58,6 +58,7 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
       white-space: pre !important;
       overflow-wrap: normal !important;
       word-break: normal !important;
+      background: transparent !important;
     }
     
     /* Dark Theme Syntax Highlighting Tokens (Default) */
@@ -79,14 +80,17 @@ export default function CodeEditor({ value, onChange, placeholder, style, readOn
     [data-theme="light"] .token.function { color: #795e26 !important; }
     [data-theme="light"] .token.variable, [data-theme="light"] .token.class-name { color: #267f99 !important; }
     [data-theme="light"] .token.operator { color: #000000 !important; }
+    pre[class*="language-"], code[class*="language-"] {
+      background: transparent !important;
+    }
   `;
 
   return (
     <div style={{
       display: 'flex',
       fontFamily: 'Consolas, Fira Code, Monaco, "Andale Mono", monospace',
-      fontSize: '13px',
-      background: 'var(--bg-base)',
+      fontSize: '14px',
+      background: 'var(--bg-surface)',
       border: '1px solid var(--border)',
       borderRadius: 'var(--radius-sm)',
       overflow: 'hidden',

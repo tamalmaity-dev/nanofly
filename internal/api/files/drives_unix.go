@@ -44,8 +44,44 @@ func GetDrives() []DriveInfo {
 		})
 	}
 
-	// Try using lsblk -J first to detect physical partitions and auto-mount if needed
 	devices, err := queryLsblk()
+	
+	// Helper to extract disk name from partition name
+	getDiskName := func(base string) string {
+		if idx := strings.Index(base, "p"); idx > 0 {
+			if idx+1 < len(base) && base[idx+1] >= '0' && base[idx+1] <= '9' {
+				return base[:idx]
+			}
+		}
+		return strings.TrimFunc(base, func(r rune) bool {
+			return r >= '0' && r <= '9'
+		})
+	}
+
+	// Helper to find root partition name
+	var findRootPartitionName func([]LsblkDevice) string
+	findRootPartitionName = func(devs []LsblkDevice) string {
+		for _, d := range devs {
+			if d.Mountpoint == "/" {
+				return d.Name
+			}
+			if len(d.Children) > 0 {
+				if name := findRootPartitionName(d.Children); name != "" {
+					return name
+				}
+			}
+		}
+		return ""
+	}
+
+	systemDisk := ""
+	if err == nil && len(devices) > 0 {
+		if rootPart := findRootPartitionName(devices); rootPart != "" {
+			systemDisk = getDiskName(rootPart)
+		}
+	}
+
+	// Try using lsblk -J first to detect physical partitions and auto-mount if needed
 	if err == nil && len(devices) > 0 {
 		var collected []LsblkDevice
 		collectDevices(devices, &collected)
@@ -66,6 +102,11 @@ func GetDrives() []DriveInfo {
 				strings.HasPrefix(name, "mmcblk") ||
 				strings.HasPrefix(name, "vd")
 			if !isPhysical {
+				continue
+			}
+
+			// Skip partitions belonging to the system disk
+			if systemDisk != "" && getDiskName(name) == systemDisk {
 				continue
 			}
 
@@ -138,6 +179,11 @@ func GetDrives() []DriveInfo {
 			strings.HasPrefix(device, "/dev/mapper")
 
 		if !isPhysical {
+			continue
+		}
+
+		deviceName := filepath.Base(device)
+		if systemDisk != "" && getDiskName(deviceName) == systemDisk {
 			continue
 		}
 
