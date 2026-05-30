@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-func getDrives() []DriveInfo {
+func GetDrives() []DriveInfo {
 	drives := []DriveInfo{}
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	getLogicalDrives := kernel32.NewProc("GetLogicalDrives")
@@ -38,6 +38,8 @@ func getDrives() []DriveInfo {
 					Type:      driveType,
 					SizeHuman: humanBytes(totalBytes),
 					FreeHuman: humanBytes(freeBytes),
+					SizeBytes: totalBytes,
+					FreeBytes: freeBytes,
 				})
 			}
 		}

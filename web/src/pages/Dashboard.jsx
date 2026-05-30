@@ -463,6 +463,93 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Drives & Storage */}
+      {m?.drives && m.drives.length > 0 && (
+        <div className="card" style={{ marginTop: '1rem' }}>
+          <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: '1.25rem' }}>
+            <HardDrive size={14} />
+            Drives & Storage
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+            {m.drives.map((d, index) => {
+              const total = d.size_bytes || 0;
+              const free = d.free_bytes || 0;
+              const used = total - free;
+              const pct = total > 0 ? (used / total) * 100 : 0;
+              const isSystem = d.type === 'system';
+
+              return (
+                <div key={index} style={{
+                  padding: '1.25rem',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}>
+                  {/* Status Indicator Bar */}
+                  <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 4,
+                    background: isSystem ? 'var(--accent)' : 'var(--green)',
+                  }} />
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{d.name}</strong>
+                      <code style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.path}</code>
+                    </div>
+                    <span style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: isSystem ? 'rgba(79, 110, 247, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                      color: isSystem ? 'var(--accent)' : 'var(--green)',
+                    }}>
+                      {d.type}
+                    </span>
+                  </div>
+
+                  {/* Storage Details */}
+                  <div style={{ paddingLeft: 6, display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      Used: <strong style={{ color: 'var(--text-primary)' }}>{(used / 1e9).toFixed(1)} GB</strong>
+                    </span>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      Total: <strong style={{ color: 'var(--text-primary)' }}>{d.size_human}</strong>
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div style={{ marginLeft: 6, height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+                    <div style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      background: pct >= 90 ? 'var(--red)' : pct >= 75 ? 'var(--yellow)' : isSystem ? 'var(--accent)' : 'var(--green)',
+                      borderRadius: 3,
+                      transition: 'width 0.4s ease-out'
+                    }} />
+                  </div>
+
+                  <div style={{ marginLeft: 6, display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    <span>{pct.toFixed(0)}% Used</span>
+                    <span>{d.free_human} Free</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Network Interfaces */}
       {m?.network?.interfaces && m.network.interfaces.length > 0 && (
         <div className="card" style={{ marginTop: '1rem' }}>

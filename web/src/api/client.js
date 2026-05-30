@@ -156,6 +156,7 @@ export const settingsApi = {
   save: (body) => put('/settings', body),
   reboot: ()   => post('/settings/reboot'),
   prune:  (body) => post('/settings/prune', body),
+  activatePanelDomain: (body) => post('/settings/panel-domain', body),
 };
 
 // Backups Management

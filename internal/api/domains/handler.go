@@ -98,7 +98,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Domain = strings.TrimSpace(strings.ToLower(req.Domain))
+	req.Domain = cleanDomain(req.Domain)
 	if req.Domain == "" {
 		response.Error(w, http.StatusBadRequest, "domain is required")
 		return
@@ -148,7 +148,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Domain = strings.TrimSpace(strings.ToLower(req.Domain))
+	req.Domain = cleanDomain(req.Domain)
 	if req.Domain == "" {
 		response.Error(w, http.StatusBadRequest, "domain is required")
 		return
@@ -255,3 +255,15 @@ func getServerIPs() []string {
 
 // suppress unused import
 var _ = time.Now
+
+// cleanDomain strips http://, https://, trailing slashes/paths, and ports.
+func cleanDomain(d string) string {
+	d = strings.ToLower(strings.TrimSpace(d))
+	d = strings.TrimPrefix(d, "https://")
+	d = strings.TrimPrefix(d, "http://")
+	// Strip everything after first / or :
+	if idx := strings.IndexAny(d, "/:"); idx >= 0 {
+		d = d[:idx]
+	}
+	return d
+}

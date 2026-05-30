@@ -2,7 +2,7 @@ import React, { useEffect, useState, Fragment } from 'react';
 import { useAuth } from '../store/auth';
 import {
   AlertCircle, Archive, Bell, CheckCircle2, Download, Key, RefreshCw,
-  Save, Shield, Trash2, User, Check, HardDrive, GitBranch
+  Save, Shield, Trash2, User, Check, HardDrive, GitBranch, Globe, Lock
 } from 'lucide-react';
 import { backupsApi, settingsApi, updateApi } from '../api/client';
 
@@ -27,18 +27,125 @@ function Toggle({ checked, onChange }) {
   );
 }
 
-function GeneralTab({ settings, setSetting, onSave, saving, saved, user }) {
+function GeneralTab({
+  settings,
+  setSetting,
+  onSave,
+  saving,
+  saved,
+  user,
+  activatingDomain,
+  deactivatingDomain,
+  onActivateDomain,
+  onDeactivateDomain
+}) {
+  const [domainInput, setDomainInput] = useState(() => {
+    const url = settings['panel.url'] || '';
+    try {
+      if (url.startsWith('http')) {
+        const parsed = new URL(url);
+        return parsed.hostname;
+      }
+    } catch (_) {}
+    return url;
+  });
+
+  const isUrlActive = settings['panel.url'] && settings['panel.url'].startsWith('https://');
+
   return (
     <div>
       <div className="settings-section">
         <div className="settings-section-title">Panel Information</div>
         <Field label="Panel Name" desc="Shown in the browser tab and notifications">
-          <input className="form-input" style={{ maxWidth: 280 }} value={settings['panel.name'] || ''} onChange={e => setSetting('panel.name', e.target.value)} />
+          <input
+            className="form-input"
+            style={{ maxWidth: 280 }}
+            value={settings['panel.name'] || ''}
+            onChange={e => setSetting('panel.name', e.target.value)}
+          />
         </Field>
-        <Field label="Panel URL" desc="The public URL of this NanoFly panel">
-          <input className="form-input" style={{ maxWidth: 280 }} placeholder="https://panel.yourdomain.com" value={settings['panel.url'] || ''} onChange={e => setSetting('panel.url', e.target.value)} />
+
+        <Field
+          label="Panel Custom Domain & SSL"
+          desc="Expose the NanoFly panel securely via a custom domain using Traefik and free Let's Encrypt SSL"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '480px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                className="form-input"
+                style={{ flex: 1 }}
+                placeholder="e.g. panel.yourdomain.com"
+                disabled={isUrlActive || activatingDomain || deactivatingDomain}
+                value={domainInput}
+                onChange={e => setDomainInput(e.target.value)}
+              />
+              
+              {isUrlActive ? (
+                <Button
+                  variant="outline"
+                  color="red"
+                  loading={deactivatingDomain}
+                  onClick={onDeactivateDomain}
+                  icon={Trash2}
+                >
+                  Deactivate
+                </Button>
+              ) : (
+                <Button
+                  variant="solid"
+                  color="indigo"
+                  loading={activatingDomain}
+                  onClick={() => onActivateDomain(domainInput)}
+                  icon={Globe}
+                >
+                  Activate SSL
+                </Button>
+              )}
+            </div>
+
+            {isUrlActive ? (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  padding: '12px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.2)',
+                  borderRadius: '8px',
+                  color: 'var(--green)',
+                  fontSize: '0.85rem'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                  <Shield size={16} /> SSL Routing is Active
+                </div>
+                <div style={{ color: 'var(--text-muted)' }}>
+                  Your panel is accessible via: <a href={settings['panel.url']} target="_blank" rel="noreferrer" style={{ color: 'var(--green)', textDecoration: 'underline', fontWeight: '500' }}>{settings['panel.url']}</a>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Traefik will dynamically provision and auto-renew the SSL certificate.
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '12px',
+                  backgroundColor: 'rgba(235, 166, 90, 0.08)',
+                  border: '1px solid rgba(235, 166, 90, 0.2)',
+                  borderRadius: '8px',
+                  color: '#e5a556',
+                  fontSize: '0.85rem',
+                  lineHeight: '1.4'
+                }}
+              >
+                <strong>Prerequisite:</strong> Point your domain's <strong>A record</strong> to this server's public IP before clicking Activate. SSL setup will fail if your DNS records are not updated.
+              </div>
+            )}
+          </div>
         </Field>
       </div>
+
       <div className="settings-section">
         <div className="settings-section-title">Current Admin</div>
         <Field label="Display Name">
@@ -48,6 +155,7 @@ function GeneralTab({ settings, setSetting, onSave, saving, saved, user }) {
           <input className="form-input" style={{ maxWidth: 280 }} value={user?.email || ''} disabled />
         </Field>
       </div>
+
       <SaveBar saving={saving} saved={saved} onSave={onSave} />
     </div>
   );
@@ -736,6 +844,38 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const { user } = useAuth();
+  const [activatingDomain, setActivatingDomain] = useState(false);
+  const [deactivatingDomain, setDeactivatingDomain] = useState(false);
+
+  const activateDomain = async (domainToActivate) => {
+    if (!domainToActivate || !domainToActivate.trim()) {
+      toast.error('Please enter a domain name.');
+      return;
+    }
+    setActivatingDomain(true);
+    try {
+      const res = await settingsApi.activatePanelDomain({ domain: domainToActivate, activate: true });
+      setSetting('panel.url', res.panel_url);
+      toast.success(res.message || 'Domain & SSL activated successfully!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to activate domain.');
+    } finally {
+      setActivatingDomain(false);
+    }
+  };
+
+  const deactivateDomain = async () => {
+    setDeactivatingDomain(true);
+    try {
+      const res = await settingsApi.activatePanelDomain({ activate: false });
+      setSetting('panel.url', '');
+      toast.success(res.message || 'Domain routing deactivated.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to deactivate domain.');
+    } finally {
+      setDeactivatingDomain(false);
+    }
+  };
 
   useEffect(() => {
     settingsApi.get().then(setSettings).finally(() => setLoading(false));
@@ -784,7 +924,18 @@ export default function Settings() {
 
       <Tabs value={tab} onValueChange={setTab} items={TABS}>
         <TabsContent value="general">
-          <GeneralTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} user={user} />
+          <GeneralTab
+            settings={settings}
+            setSetting={setSetting}
+            onSave={save}
+            saving={saving}
+            saved={saved}
+            user={user}
+            activatingDomain={activatingDomain}
+            deactivatingDomain={deactivatingDomain}
+            onActivateDomain={activateDomain}
+            onDeactivateDomain={deactivateDomain}
+          />
         </TabsContent>
         <TabsContent value="security">
           <SecurityTab settings={settings} setSetting={setSetting} onSave={save} saving={saving} saved={saved} />

@@ -17,6 +17,8 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	psnet "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
+
+	"github.com/nanofly/nanofly/internal/api/files"
 )
 
 // Snapshot holds one reading of all system metrics.
@@ -28,6 +30,7 @@ type Snapshot struct {
 	Temperature []TempSensor `json:"temperature"`
 	Network     NetStats     `json:"network"`
 	System      SystemInfo   `json:"system"`
+	Drives      []files.DriveInfo `json:"drives"`
 }
 
 type CPUStats struct {
@@ -268,6 +271,8 @@ func Collect() (*Snapshot, error) {
 	runtime.ReadMemStats(&m)
 	snap.System.NanoflyMem = m.Alloc
 	snap.System.NanoflyMemH = humanBytes(m.Alloc)
+
+	snap.Drives = files.GetDrives()
 
 	return snap, nil
 }

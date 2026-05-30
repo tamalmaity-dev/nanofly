@@ -40,26 +40,11 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 	// Ensure the shared network exists first
 	ensureNanoflyNetwork(ctx)
 
-	// Check if already running
-	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", containerName)
-	out, err := checkCmd.CombinedOutput()
-	if err == nil && strings.TrimSpace(string(out)) == "true" {
-		slog.Info("Traefik is already running")
-		// Ensure it's on the nanofly network (idempotent — docker returns error if already connected)
-		connectCmd := exec.CommandContext(ctx, "docker", "network", "connect", nanoflyNet, containerName)
-		connectCmd.Run() //nolint:errcheck — may already be connected
-		return nil
-	}
-
-	slog.Info("Starting Traefik reverse proxy...")
-
-	// Stop and remove if it exists but is stopped/crashed
-	_ = exec.CommandContext(ctx, "docker", "rm", "-f", containerName).Run()
-
-	// Ensure acme.json exists with 0600 permissions
+	// Ensure dynamic config and acme.json directories exist
 	traefikDir := filepath.Join(dataDir, "traefik")
-	if err := os.MkdirAll(traefikDir, 0755); err != nil {
-		return fmt.Errorf("failed to create traefik config dir: %w", err)
+	dynamicDir := filepath.Join(traefikDir, "dynamic")
+	if err := os.MkdirAll(dynamicDir, 0755); err != nil {
+		return fmt.Errorf("failed to create traefik dynamic config dir: %w", err)
 	}
 
 	acmePath := filepath.Join(traefikDir, "acme.json")
@@ -68,9 +53,27 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 			return fmt.Errorf("failed to create acme.json: %w", err)
 		}
 	} else {
-		// Enforce 0600 just in case
 		os.Chmod(acmePath, 0600)
 	}
+
+	// Check if already running and has the dynamic mount
+	checkCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}} {{range .Mounts}}{{.Destination}} {{end}}", containerName)
+	out, err := checkCmd.CombinedOutput()
+	inspectStr := string(out)
+	isRunning := err == nil && strings.HasPrefix(inspectStr, "true")
+	hasMount := err == nil && strings.Contains(inspectStr, "/etc/traefik/dynamic")
+
+	if isRunning && hasMount {
+		slog.Info("Traefik is already running with dynamic mount")
+		connectCmd := exec.CommandContext(ctx, "docker", "network", "connect", nanoflyNet, containerName)
+		connectCmd.Run() //nolint:errcheck
+		return nil
+	}
+
+	slog.Info("Starting/Recreating Traefik reverse proxy...")
+
+	// Stop and remove if it exists
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", containerName).Run()
 
 	// Use named pipe on Windows or unix socket on Unix-like OSes
 	dockerSocket := "/var/run/docker.sock:/var/run/docker.sock:ro"
@@ -84,16 +87,19 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		"--name", containerName,
 		"--restart", "always",
 		"--network", nanoflyNet,
+		"--add-host", "host.docker.internal:host-gateway",
 		"-p", "80:80",
 		"-p", "443:443",
 		"-v", dockerSocket,
 		"-v", acmePath + ":/acme.json",
+		"-v", dynamicDir + ":/etc/traefik/dynamic",
 		"--memory=64m",
 		"--cpus=0.5",
 		"traefik:v3.0",
 		"--api.insecure=false",
 		"--providers.docker=true",
 		"--providers.docker.exposedbydefault=false",
+		"--providers.file.directory=/etc/traefik/dynamic",
 		"--entrypoints.web.address=:80",
 		"--entrypoints.websecure.address=:443",
 		"--entrypoints.web.http.redirections.entrypoint.to=websecure",

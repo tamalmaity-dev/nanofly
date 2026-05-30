@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -188,6 +189,7 @@ func (s *Server) buildRouter() *chi.Mux {
 		// Panel updates
 		r.Get("/settings", s.handleSettingsGet)
 		r.Put("/settings", s.handleSettingsSave)
+		r.Post("/settings/panel-domain", s.handlePanelDomainSetup)
 		r.Get("/settings/update/check", s.handleUpdateCheck)
 		r.Post("/settings/update/apply", s.handleUpdateApply)
 		r.Get("/settings/update/log", s.handleUpdateLog)
@@ -1017,6 +1019,139 @@ func (s *Server) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	response.Success(w, map[string]string{"status": "saved"})
 }
+
+func (s *Server) handlePanelDomainSetup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain   string `json:"domain"`
+		Activate bool   `json:"activate"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request payload")
+		return
+	}
+
+	traefikDir := filepath.Join(s.cfg.DataDir, "traefik")
+	dynamicDir := filepath.Join(traefikDir, "dynamic")
+	panelConfigPath := filepath.Join(dynamicDir, "panel.yml")
+
+	if !req.Activate {
+		// Deactivate custom domain routing
+		_ = os.Remove(panelConfigPath)
+
+		// Clear panel.url setting in DB
+		if err := s.saveSettings(r.Context(), map[string]string{"panel.url": ""}); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to clear panel URL setting")
+			return
+		}
+		response.Success(w, map[string]any{"status": "success", "message": "Panel custom domain deactivated successfully"})
+		return
+	}
+
+	// Clean and validate domain
+	cleaned := cleanDomain(req.Domain)
+	if cleaned == "" {
+		response.Error(w, http.StatusBadRequest, "invalid domain name")
+		return
+	}
+	if !strings.Contains(cleaned, ".") {
+		response.Error(w, http.StatusBadRequest, "invalid domain format (missing dot)")
+		return
+	}
+
+	// Verify DNS A record
+	ips, err := net.LookupHost(cleaned)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, fmt.Sprintf("DNS lookup failed: lookup %s: no such host. Make sure your domain points to this server's public IP.", cleaned))
+		return
+	}
+
+	// Compare with server IPs
+	serverIPs := getServerIPs()
+	dnsMatches := false
+	for _, ip := range ips {
+		for _, sip := range serverIPs {
+			if ip == sip {
+				dnsMatches = true
+				break
+			}
+		}
+	}
+
+	// Build dynamic Traefik yaml
+	yamlContent := fmt.Sprintf(`http:
+  routers:
+    nanofly-panel:
+      rule: "Host(%s)"
+      service: nanofly-panel-service
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    nanofly-panel-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:%d"
+`, "`"+cleaned+"`", s.cfg.Port)
+
+	if err := os.MkdirAll(dynamicDir, 0755); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to create dynamic config dir")
+		return
+	}
+
+	if err := os.WriteFile(panelConfigPath, []byte(yamlContent), 0644); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to write traefik panel configuration")
+		return
+	}
+
+	// Save setting panel.url in DB
+	panelURL := fmt.Sprintf("https://%s", cleaned)
+	if err := s.saveSettings(r.Context(), map[string]string{"panel.url": panelURL}); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to save panel URL setting")
+		return
+	}
+
+	response.Success(w, map[string]any{
+		"status":      "success",
+		"message":     "Panel custom domain activated successfully with Traefik & SSL!",
+		"domain":      cleaned,
+		"panel_url":   panelURL,
+		"dns_matches": dnsMatches,
+		"server_ips":  serverIPs,
+		"domain_ips":  ips,
+	})
+}
+
+// cleanDomain strips http://, https://, trailing slashes/paths, and ports.
+func cleanDomain(d string) string {
+	d = strings.ToLower(strings.TrimSpace(d))
+	d = strings.TrimPrefix(d, "https://")
+	d = strings.TrimPrefix(d, "http://")
+	// Strip everything after first / or :
+	if idx := strings.IndexAny(d, "/:"); idx >= 0 {
+		d = d[:idx]
+	}
+	return d
+}
+
+// getServerIPs returns all non-loopback IPs of this machine.
+func getServerIPs() []string {
+	var ips []string
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				ips = append(ips, ipNet.IP.String())
+			}
+		}
+	}
+	return ips
+}
+
 
 func defaultSettings() map[string]string {
 	return map[string]string{

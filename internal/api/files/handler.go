@@ -307,10 +307,12 @@ type DriveInfo struct {
 	Type      string `json:"type"` // "system", "external"
 	SizeHuman string `json:"size_human"`
 	FreeHuman string `json:"free_human"`
+	SizeBytes int64  `json:"size_bytes"`
+	FreeBytes int64  `json:"free_bytes"`
 }
 
 // GET /api/v1/files/drives
 func (h *Handler) Drives(w http.ResponseWriter, r *http.Request) {
-	drives := getDrives()
+	drives := GetDrives()
 	response.Success(w, drives)
 }
