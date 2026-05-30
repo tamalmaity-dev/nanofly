@@ -49,7 +49,7 @@ const DOCKERFILE_TEMPLATES = {
   node: `FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 COPY . .
 EXPOSE 3000
 CMD ["npm", "start"]`,
@@ -133,7 +133,7 @@ export function getResourceFormDefaults(resource) {
         localPath: path,
         runFile: 'index.js',
         startCommand: 'npm start',
-        installCommand: 'npm ci --omit=dev',
+        installCommand: 'if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi',
       };
     case 'python-template':
       return {
@@ -469,10 +469,17 @@ export function AddServiceConfigFields({
         <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>production</span>
       </div>
 
-      <ConfigSection title="Basics" desc="Name and resource limits for this service.">
+      <ConfigSection title="Basics" desc="Name, domain, and resource limits for this service.">
         <div className="form-group">
           <label className="form-label">Service name *</label>
           <input className="form-input" placeholder="e.g. api, wordpress, worker" value={form.name} onChange={set('name')} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Domain</label>
+          <input className="form-input" placeholder="e.g. app.sslip.io" value={form.domain || ''} onChange={set('domain')} />
+          <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Specify the domain name for this service. If left blank, NanoFly will generate an auto-routing sslip.io domain.
+          </p>
         </div>
         <div className="form-group">
           <label className="form-label">Resource tier</label>

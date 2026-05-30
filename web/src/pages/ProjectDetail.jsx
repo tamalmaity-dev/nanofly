@@ -660,6 +660,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
     dbName: '',
     resourceTier: 'micro',
     dbSetupType: 'create-mysql',
+    domain: '',
   }));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -784,11 +785,16 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
         const host = window.location.hostname;
         const hasDomain = domains.some(d => d.service === svcName && d.project === (projectName || ''));
         if (!hasDomain) {
-          const randomStr = Math.random().toString(36).substring(2, 10);
-          const autoDomain = `${randomStr}.${host}.sslip.io`;
+          let targetDomain = form.domain.trim();
+          if (!targetDomain) {
+            const randomStr = Math.random().toString(36).substring(2, 10);
+            targetDomain = `${randomStr}.${host}.sslip.io`;
+          }
+          // Remove protocol if user included it
+          targetDomain = targetDomain.replace(/^https?:\/\//, '');
           try {
             await domainsApi.create({
-              domain: autoDomain,
+              domain: targetDomain,
               service: svcName,
               project: projectName || '',
               direction: 'both',
@@ -818,6 +824,11 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
       setSubType(sub);
       setIsPrivate(resource.isPrivate || false);
       const defaults = getResourceFormDefaults(resource);
+      const host = window.location.hostname;
+      const cleanHost = host.split(':')[0];
+      const randomStr = Math.random().toString(36).substring(2, 10);
+      const generatedDomain = `${randomStr}.${cleanHost}.sslip.io`;
+
       setForm(f => ({
         ...f,
         name: resource.defaultName || '',
@@ -825,6 +836,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
         port: resource.defaultPort || defaults.port || '',
         ...defaults,
         envText: defaults.envText !== undefined ? defaults.envText : f.envText,
+        domain: generatedDomain,
       }));
     } else {
       setType('database');
@@ -2213,11 +2225,11 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 
       setSuccess(true);
       markPendingRedeploy(service.id);
-      toast.info('Settings saved — Redeploy to apply changes');
+      toast.info('Configuration saved — Redeploy to apply changes');
       setTimeout(() => setSuccess(false), 3000);
       onUpdate();
     } catch (err) {
-      const errorMsg = err.message || 'Failed to save settings';
+      const errorMsg = err.message || 'Failed to save configuration';
       setError(errorMsg);
       toast.error(errorMsg);
     }
@@ -2624,11 +2636,11 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       )}
 
       {error && <div style={{ color: 'var(--red)', fontSize: '0.85rem', marginBottom: 8 }}>{error}</div>}
-      {success && <div style={{ color: 'var(--green)', fontSize: '0.85rem', marginBottom: 8 }}>Settings saved. Redeploy to apply.</div>}
+      {success && <div style={{ color: 'var(--green)', fontSize: '0.85rem', marginBottom: 8 }}>Configuration saved. Redeploy to apply.</div>}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
         <Button variant="primary" icon={Save} onClick={handleSave} disabled={saving} loading={saving}>
-          Save Settings
+          Save Configuration
         </Button>
       </div>
     </div>
@@ -3213,7 +3225,13 @@ export default function ProjectDetail() {
     loadingStates.stopping === svcId ||
     loadingStates.deleting === svcId;
 
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  useEffect(() => {
+    load();
+    if (activeTab !== 'settings' && activeTab !== 'resources' && activeTab !== 'envvars') {
+      const t = setInterval(load, 5000);
+      return () => clearInterval(t);
+    }
+  }, [load, activeTab]);
 
   const handleDeploy = async (svcId) => {
     const svc = services.find(s => s.id === svcId);
@@ -3566,7 +3584,7 @@ export default function ProjectDetail() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               <AlertCircle size={18} color="var(--amber)" />
-              <span>Settings were saved. <strong>Redeploy</strong> to apply changes to the running container.</span>
+              <span>Configuration was saved. <strong>Redeploy</strong> to apply changes to the running container.</span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <Button variant="solid" color="amber" size="sm" icon={Play} onClick={() => handleDeploy(selectedSvc.id)} loading={loadingStates.redeploying === selectedSvc.id}>
@@ -3595,7 +3613,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
               { id: 'backup', label: 'Backup & Restore', icon: Database },
-              { id: 'settings', label: 'Settings', icon: Settings },
+              { id: 'settings', label: 'Configuration', icon: Settings },
             ]}
           >
             <TabsContent value="connection">

@@ -4,7 +4,7 @@ import {
   Folder, File, FileText, FileCode, Trash2, Save,
   ArrowLeft, Search, X, FolderPlus, FilePlus, ChevronRight, Copy, Upload,
   LayoutGrid, LayoutList, AlertTriangle, HardDrive, Archive, FolderArchive,
-  Download, RefreshCw, Edit2, Loader2
+  Download, RefreshCw, Edit2, Loader2, Maximize2
 } from 'lucide-react';
 import { filesApi } from '../api/client';
 import { Modal, Button, useToast } from '../components/ui';
@@ -665,6 +665,7 @@ export default function FileManager() {
   const [renameLoading, setRenameLoading] = useState(false);
   const [createError, setCreateError] = useState('');
   const [renameError, setRenameError] = useState('');
+  const [showFullscreen, setShowFullscreen] = useState(false);
 
   // Sync currentPath to URL search params & localStorage
   useEffect(() => {
@@ -1075,6 +1076,34 @@ export default function FileManager() {
 
   return (
     <div className="page-content fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 4rem)', padding: '1rem', backgroundColor: 'var(--bg-base)' }}>
+      <style>{`
+        .view-grid .file-item-card {
+          position: relative;
+        }
+        .view-grid .file-item-actions {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          background: var(--bg-surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 4px;
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(-2px);
+          transition: opacity 0.2s ease, transform 0.2s ease;
+          box-shadow: var(--shadow);
+          display: flex !important;
+          flex-direction: row !important;
+          gap: 4px !important;
+          z-index: 5;
+        }
+        .view-grid .file-item-card:hover .file-item-actions {
+          opacity: 1;
+          pointer-events: auto;
+          transform: translateY(0);
+        }
+      `}</style>
 
       {/* Top Header */}
       <div className="page-header" style={{ marginBottom: '0.75rem', flexShrink: 0, paddingBottom: '0.5rem' }}>
@@ -1144,15 +1173,16 @@ export default function FileManager() {
         alignItems: 'center',
         gap: 8,
         marginBottom: '0.5rem',
-        padding: '0.5rem 0.85rem',
-        border: protectedPath ? '1px solid var(--red)' : '1px solid var(--border)',
+        padding: '0.6rem 1rem',
+        border: protectedPath ? '1px solid var(--red)' : '1px solid var(--yellow)',
         borderRadius: 'var(--radius-sm)',
-        background: protectedPath ? 'var(--red-dim)' : 'var(--bg-surface)',
-        color: protectedPath ? 'var(--red)' : 'var(--text-secondary)',
-        fontSize: '0.82rem',
+        background: protectedPath ? 'var(--red-dim)' : 'var(--yellow-dim)',
+        color: protectedPath ? 'var(--red)' : 'var(--yellow)',
+        fontSize: '0.85rem',
+        fontWeight: 500,
         flexShrink: 0
       }}>
-        <AlertTriangle size={15} style={{ color: protectedPath ? 'var(--red)' : 'var(--accent)' }} />
+        <AlertTriangle size={16} style={{ color: protectedPath ? 'var(--red)' : 'var(--yellow)', flexShrink: 0 }} />
         <span>{protectedPath ? 'System files alert: Editing or deleting here can break NanoFly or the server.' : 'Safe workspace: Use directory storage to edit configuration and project files.'}</span>
         {uploadStatus && <span style={{ marginLeft: 'auto', color: uploadStatus.includes('failed') ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{uploadStatus}</span>}
       </div>
@@ -1325,12 +1355,15 @@ export default function FileManager() {
               </div>
             )}
 
-            <div style={{
-              display: viewMode === 'grid' ? 'grid' : 'flex',
-              gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(118px, 1fr))' : undefined,
-              flexDirection: viewMode === 'grid' ? undefined : 'column',
-              gap: viewMode === 'grid' ? 6 : 2
-            }}>
+            <div 
+              className={`file-list-container view-${viewMode}`}
+              style={{
+                display: viewMode === 'grid' ? 'grid' : 'flex',
+                gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(118px, 1fr))' : undefined,
+                flexDirection: viewMode === 'grid' ? undefined : 'column',
+                gap: viewMode === 'grid' ? 6 : 2
+              }}
+            >
               {/* Back Link */}
               {getParentPath() && (
                 <div
@@ -1363,6 +1396,7 @@ export default function FileManager() {
                 return (
                   <div
                     key={item.path}
+                    className="file-item-card"
                     onClick={() => {
                       if (item.is_dir) {
                         setCurrentPath(item.path);
@@ -1400,7 +1434,7 @@ export default function FileManager() {
                       display: 'flex',
                       alignItems: 'center',
                       flexDirection: viewMode === 'grid' ? 'column' : 'row',
-                      gap: viewMode === 'grid' ? 8 : 10,
+                      gap: viewMode === 'grid' ? 4 : 10,
                       minWidth: 0,
                       width: viewMode === 'grid' ? '100%' : undefined,
                       textAlign: viewMode === 'grid' ? 'center' : 'left'
@@ -1416,19 +1450,27 @@ export default function FileManager() {
                       }}>
                         {item.name}
                       </span>
+                      {viewMode === 'grid' && !item.is_dir && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          {item.size_human}
+                        </span>
+                      )}
                     </div>
 
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: viewMode === 'grid' ? 'center' : 'flex-end',
-                      gap: viewMode === 'grid' ? 6 : 10,
-                      flexShrink: 0,
-                      width: viewMode === 'grid' ? '100%' : undefined,
-                      marginTop: viewMode === 'grid' ? 6 : 0
-                    }}>
-                      {!item.is_dir && (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    <div 
+                      className="file-item-actions"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: viewMode === 'grid' ? 'center' : 'flex-end',
+                        gap: viewMode === 'grid' ? 4 : 10,
+                        flexShrink: 0,
+                        width: viewMode === 'grid' ? '100%' : undefined,
+                        marginTop: viewMode === 'grid' ? 6 : 0
+                      }}
+                    >
+                      {viewMode === 'list' && !item.is_dir && (
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginRight: 6 }}>
                           {item.size_human}
                         </span>
                       )}
@@ -1578,11 +1620,20 @@ export default function FileManager() {
                   >
                     Close
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
+                    onClick={() => setShowFullscreen(true)}
+                    icon={Maximize2}
+                  >
+                    Maximize
+                  </Button>
                   {!selectedFile.isMedia && !selectedFile.isOverview && (
                     <Button
                       variant="primary"
                       size="sm"
-                      style={{ padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
+                      style={{ border: '1px solid transparent', padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
                       disabled={!isModified}
                       loading={saveLoading}
                       onClick={handleSaveFile}
@@ -1744,6 +1795,115 @@ export default function FileManager() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Fullscreen Editor/Viewer Modal */}
+      <Modal
+        open={showFullscreen && !!selectedFile}
+        onOpenChange={(open) => {
+          if (!open) setShowFullscreen(false);
+        }}
+        title={`Fullscreen View: ${selectedFile?.name || ''}`}
+        maxWidth="95vw"
+      >
+        <div style={{ height: '82vh', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {selectedFile && (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+              {/* Header inside fullscreen view */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderBottom: '1px solid var(--border)',
+                paddingBottom: '0.5rem',
+                marginBottom: '0.75rem',
+                flexShrink: 0
+              }}>
+                <div>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Size: {selectedFile.size} · {selectedFile.isOverview ? 'Archive/Big file' : isModified ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Modified</span> : 'Saved'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={{ border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
+                    onClick={() => setShowFullscreen(false)}
+                    icon={X}
+                  >
+                    Minimize
+                  </Button>
+                  {!selectedFile.isMedia && !selectedFile.isOverview && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      style={{ border: '1px solid transparent', padding: '3px 10px', height: 28, fontSize: '0.8rem' }}
+                      disabled={!isModified}
+                      loading={saveLoading}
+                      onClick={handleSaveFile}
+                      icon={Save}
+                    >
+                      Save
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Content workbench area */}
+              <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                {selectedFile.isOverview ? (
+                  <FileOverview
+                    file={selectedFile}
+                    onUnzip={() => handleUnzipItem(selectedFile)}
+                    onDownload={() => handleDownloadFile(selectedFile)}
+                    onLoadAnyway={() => handleLoadAnyway(selectedFile)}
+                    zipLoading={zipLoading}
+                  />
+                ) : selectedFile.isMedia ? (
+                  selectedFile.mediaType === 'image' ? (
+                    <ImageViewer file={selectedFile} />
+                  ) : selectedFile.mediaType === 'audio' ? (
+                    <AudioPlayer file={selectedFile} />
+                  ) : selectedFile.mediaType === 'video' ? (
+                    <VideoPlayer file={selectedFile} />
+                  ) : selectedFile.mediaType === 'pdf' ? (
+                    <PdfReader file={selectedFile} />
+                  ) : null
+                ) : selectedFile.isPlaintextFallback ? (
+                  <textarea
+                    value={selectedFile.content}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setSelectedFile(prev => ({ ...prev, content: val }));
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      backgroundColor: 'var(--bg-base)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '10px',
+                      outline: 'none',
+                      resize: 'none',
+                      lineHeight: '1.45'
+                    }}
+                  />
+                ) : (
+                  <CodeEditor
+                    value={selectedFile.content}
+                    onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+                    language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );
