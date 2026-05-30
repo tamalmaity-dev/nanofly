@@ -74,6 +74,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/drives", h.Drives)
 	r.Post("/zip", h.Zip)
 	r.Post("/unzip", h.Unzip)
+	r.Post("/rename", h.Rename)
 }
 
 func (h *Handler) resolvePath(target string) string {
@@ -538,3 +539,36 @@ func zipSource(source, destination string) error {
 	return err
 }
 
+type RenameReq struct {
+	OldPath string `json:"old_path"`
+	NewPath string `json:"new_path"`
+}
+
+// POST /api/v1/files/rename
+func (h *Handler) Rename(w http.ResponseWriter, r *http.Request) {
+	var req RenameReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	oldResolved := h.resolvePath(req.OldPath)
+	newResolved := h.resolvePath(req.NewPath)
+
+	if _, err := os.Stat(oldResolved); err != nil {
+		response.Error(w, http.StatusNotFound, "source path not found: "+err.Error())
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(newResolved), 0755); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to create destination parent folder: "+err.Error())
+		return
+	}
+
+	if err := os.Rename(oldResolved, newResolved); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to rename: "+err.Error())
+		return
+	}
+
+	response.Success(w, map[string]string{"status": "renamed"})
+}

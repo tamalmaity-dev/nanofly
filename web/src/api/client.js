@@ -150,6 +150,7 @@ export const filesApi = {
   drives: ()              => get('/files/drives'),
   zip:    (path, dest)    => post('/files/zip', { path, dest }),
   unzip:  (path, dest)    => post('/files/unzip', { path, dest }),
+  rename: (oldPath, newPath) => post('/files/rename', { old_path: oldPath, new_path: newPath }),
 };
 
 // Panel Update Management
