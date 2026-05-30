@@ -2,6 +2,7 @@
 package files
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -71,6 +72,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/upload", h.Upload)
 	r.Delete("/delete", h.Delete)
 	r.Get("/drives", h.Drives)
+	r.Post("/zip", h.Zip)
+	r.Post("/unzip", h.Unzip)
 }
 
 func (h *Handler) resolvePath(target string) string {
@@ -335,3 +338,203 @@ func (h *Handler) Raw(w http.ResponseWriter, r *http.Request) {
 
 	http.ServeFile(w, r, resolved)
 }
+
+type ZipReq struct {
+	Path string `json:"path"`
+	Dest string `json:"dest"`
+}
+
+type UnzipReq struct {
+	Path string `json:"path"`
+	Dest string `json:"dest"`
+}
+
+// POST /api/v1/files/zip
+func (h *Handler) Zip(w http.ResponseWriter, r *http.Request) {
+	var req ZipReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	srcResolved := h.resolvePath(req.Path)
+	destResolved := ""
+	if req.Dest != "" {
+		destResolved = h.resolvePath(req.Dest)
+	} else {
+		destResolved = srcResolved + ".zip"
+	}
+
+	if _, err := os.Stat(srcResolved); err != nil {
+		response.Error(w, http.StatusNotFound, "source path not found: "+err.Error())
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destResolved), 0755); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to create destination directory: "+err.Error())
+		return
+	}
+
+	if err := zipSource(srcResolved, destResolved); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to zip: "+err.Error())
+		return
+	}
+
+	response.Success(w, map[string]string{"status": "zipped", "dest": destResolved})
+}
+
+// POST /api/v1/files/unzip
+func (h *Handler) Unzip(w http.ResponseWriter, r *http.Request) {
+	var req UnzipReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	srcResolved := h.resolvePath(req.Path)
+	destResolved := ""
+	if req.Dest != "" {
+		destResolved = h.resolvePath(req.Dest)
+	} else {
+		base := filepath.Base(srcResolved)
+		ext := filepath.Ext(base)
+		folderName := strings.TrimSuffix(base, ext)
+		destResolved = filepath.Join(filepath.Dir(srcResolved), folderName)
+	}
+
+	if _, err := os.Stat(srcResolved); err != nil {
+		response.Error(w, http.StatusNotFound, "zip file not found: "+err.Error())
+		return
+	}
+
+	if err := unzipSource(srcResolved, destResolved); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to unzip: "+err.Error())
+		return
+	}
+
+	response.Success(w, map[string]string{"status": "unzipped", "dest": destResolved})
+}
+
+func unzipSource(source, destination string) error {
+	r, err := zip.OpenReader(source)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	if err := os.MkdirAll(destination, 0755); err != nil {
+		return err
+	}
+
+	for _, f := range r.File {
+		err := func() error {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			defer rc.Close()
+
+			path := filepath.Join(destination, f.Name)
+			// Guard against Zip Slip path traversal
+			if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(destination)) {
+				return fmt.Errorf("illegal file path in zip: %s", f.Name)
+			}
+
+			if f.FileInfo().IsDir() {
+				return os.MkdirAll(path, f.Mode())
+			}
+
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return err
+			}
+
+			fVar, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+			if err != nil {
+				return err
+			}
+			defer fVar.Close()
+
+			_, err = io.Copy(fVar, rc)
+			return err
+		}()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func zipSource(source, destination string) error {
+	archive, err := os.Create(destination)
+	if err != nil {
+		return err
+	}
+	defer archive.Close()
+
+	zipWriter := zip.NewWriter(archive)
+	defer zipWriter.Close()
+
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+
+	var baseDir string
+	if info.IsDir() {
+		baseDir = filepath.Base(source)
+	}
+
+	err = filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if path == destination {
+			return nil
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		if baseDir != "" {
+			relPath, err := filepath.Rel(source, path)
+			if err != nil {
+				return err
+			}
+			if relPath == "." {
+				return nil
+			}
+			header.Name = filepath.ToSlash(filepath.Join(baseDir, relPath))
+		} else {
+			header.Name = filepath.Base(path)
+		}
+
+		if info.IsDir() {
+			header.Name += "/"
+		} else {
+			header.Method = zip.Deflate
+		}
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.Copy(writer, file)
+		return err
+	})
+
+	return err
+}
+

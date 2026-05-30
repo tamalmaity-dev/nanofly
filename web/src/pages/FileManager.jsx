@@ -3,7 +3,8 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Folder, File, FileText, FileCode, Trash2, Save,
   ArrowLeft, Search, X, FolderPlus, FilePlus, ChevronRight, Copy, Upload,
-  LayoutGrid, LayoutList, AlertTriangle, HardDrive
+  LayoutGrid, LayoutList, AlertTriangle, HardDrive, Archive, FolderArchive,
+  Download, RefreshCw
 } from 'lucide-react';
 import { filesApi } from '../api/client';
 import { Modal, Button, useToast } from '../components/ui';
@@ -23,23 +24,23 @@ function ImageViewer({ file }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: '1rem', height: '100%' }}>
-      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-        <Button variant="ghost" size="sm" onClick={handleZoomIn}>Zoom In (+)</Button>
-        <Button variant="ghost" size="sm" onClick={handleZoomOut}>Zoom Out (-)</Button>
-        <Button variant="ghost" size="sm" onClick={handleRotate}>Rotate (90°)</Button>
-        <Button variant="ghost" size="sm" onClick={handleReset}>Reset</Button>
+      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', background: '#171924', padding: '6px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+        <Button variant="ghost" size="sm" style={{ border: '1px solid var(--border)', background: '#121420' }} onClick={handleZoomIn}>Zoom In (+)</Button>
+        <Button variant="ghost" size="sm" style={{ border: '1px solid var(--border)', background: '#121420' }} onClick={handleZoomOut}>Zoom Out (-)</Button>
+        <Button variant="ghost" size="sm" style={{ border: '1px solid var(--border)', background: '#121420' }} onClick={handleRotate}>Rotate (90°)</Button>
+        <Button variant="ghost" size="sm" style={{ border: '1px solid var(--border)', background: '#121420' }} onClick={handleReset}>Reset</Button>
       </div>
       <div style={{
         flex: 1,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'radial-gradient(circle, rgba(20,20,30,1) 0%, rgba(10,10,15,1) 100%)',
-        borderRadius: '8px',
+        background: '#090a0f',
+        borderRadius: '4px',
         border: '1px solid var(--border)',
         overflow: 'hidden',
         position: 'relative',
-        padding: '2rem',
+        padding: '1rem',
         minHeight: 0
       }}>
         <img
@@ -50,8 +51,7 @@ function ImageViewer({ file }) {
             maxWidth: '100%',
             objectFit: 'contain',
             transform: `scale(${scale}) rotate(${rotate}deg)`,
-            transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+            transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         />
       </div>
@@ -70,60 +70,58 @@ function AudioPlayer({ file }) {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, rgba(30,30,45,1) 0%, rgba(15,15,25,1) 100%)',
-      borderRadius: '12px',
+      background: '#121420',
+      borderRadius: '4px',
       border: '1px solid var(--border)',
-      padding: '3rem 2rem',
-      gap: '2rem',
+      padding: '2.5rem 1.5rem',
+      gap: '1.5rem',
       height: '100%'
     }}>
       <div style={{
-        width: '150px',
-        height: '150px',
+        width: '120px',
+        height: '120px',
         borderRadius: '50%',
-        background: 'radial-gradient(circle, #222 20%, #000 70%)',
-        boxShadow: '0 15px 40px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.05)',
+        background: 'radial-gradient(circle, #252836 20%, #0d0e15 70%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         position: 'relative',
         animation: isPlaying ? 'spin 6s linear infinite' : 'none',
-        border: '8px solid #1a1a24'
+        border: '6px solid #1c1d29'
       }}>
         <div style={{
-          width: '50px',
-          height: '50px',
+          width: '40px',
+          height: '40px',
           borderRadius: '50%',
           background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           color: '#fff',
-          fontSize: '0.6rem',
+          fontSize: '0.55rem',
           fontWeight: 'bold',
-          textAlign: 'center',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+          textAlign: 'center'
         }}>
           NanoFly
         </div>
-        <div style={{ position: 'absolute', width: '120px', height: '120px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.03)' }} />
-        <div style={{ position: 'absolute', width: '80px', height: '80px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.03)' }} />
+        <div style={{ position: 'absolute', width: '100px', height: '100px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.02)' }} />
+        <div style={{ position: 'absolute', width: '70px', height: '70px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.02)' }} />
       </div>
 
       <div style={{ textAlign: 'center' }}>
-        <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>{file.name}</h4>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{file.size} · Audio Stream</p>
+        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>{file.name}</h4>
+        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{file.size} · Audio Stream</p>
       </div>
 
-      <div style={{ display: 'flex', gap: '4px', height: '24px', alignItems: 'center', margin: '4px 0' }}>
+      <div style={{ display: 'flex', gap: '3px', height: '20px', alignItems: 'center', margin: '2px 0' }}>
         {[...Array(12)].map((_, i) => (
           <div
             key={i}
             style={{
-              width: '4px',
+              width: '3px',
               height: isPlaying ? '100%' : '20%',
               backgroundColor: 'var(--accent)',
-              borderRadius: '2px',
+              borderRadius: '1px',
               animation: isPlaying ? 'pulse-bar 1s ease-in-out infinite alternate' : 'none',
               animationDelay: `${i * 0.08}s`
             }}
@@ -140,10 +138,10 @@ function AudioPlayer({ file }) {
         onEnded={() => setIsPlaying(false)}
         style={{
           width: '100%',
-          maxWidth: '400px',
+          maxWidth: '360px',
           outline: 'none',
-          borderRadius: '30px',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.2)'
+          borderRadius: '4px',
+          background: '#171924'
         }}
       />
 
@@ -161,13 +159,13 @@ function VideoPlayer({ file }) {
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
-      background: 'radial-gradient(circle, rgba(20,20,30,1) 0%, rgba(10,10,15,1) 100%)',
-      borderRadius: '12px',
+      background: '#090a0f',
+      borderRadius: '4px',
       border: '1px solid var(--border)',
-      padding: '1.5rem',
+      padding: '1rem',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: '1rem',
+      gap: '0.875rem',
       minHeight: 0,
       height: '100%'
     }}>
@@ -177,15 +175,14 @@ function VideoPlayer({ file }) {
         style={{
           maxWidth: '100%',
           maxHeight: '85%',
-          borderRadius: '8px',
-          boxShadow: '0 15px 35px rgba(0,0,0,0.6)',
+          borderRadius: '4px',
           outline: 'none',
           backgroundColor: '#000'
         }}
       />
       <div style={{ textAlign: 'center' }}>
-        <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '2px' }}>{file.name}</h4>
-        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{file.size} · Video Stream</p>
+        <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '2px' }}>{file.name}</h4>
+        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{file.size} · Video Stream</p>
       </div>
     </div>
   );
@@ -197,9 +194,9 @@ function PdfReader({ file }) {
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
-      borderRadius: '12px',
+      borderRadius: '4px',
       border: '1px solid var(--border)',
-      background: 'var(--bg-elevated)',
+      background: '#121420',
       overflow: 'hidden',
       height: '100%'
     }}>
@@ -217,9 +214,117 @@ function PdfReader({ file }) {
   );
 }
 
+function FileOverview({ file, onUnzip, onDownload, onLoadAnyway, zipLoading }) {
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      padding: '2rem',
+      backgroundColor: '#121420',
+      border: '1px solid var(--border)',
+      borderRadius: '4px',
+      textAlign: 'center',
+      gap: '1.25rem',
+      color: 'var(--text-primary)'
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '56px',
+        height: '56px',
+        borderRadius: '4px',
+        backgroundColor: '#1a1d2e',
+        color: file.isZip ? '#eab308' : '#3b82f6',
+        border: '1px solid var(--border)'
+      }}>
+        <Archive size={28} />
+      </div>
+
+      <div style={{ maxWidth: '100%' }}>
+        <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px', wordBreak: 'break-all' }}>
+          {file.name}
+        </h3>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          {file.size} · {file.isZip ? 'ZIP Archive' : 'Large File'}
+        </p>
+        <code style={{
+          display: 'block',
+          marginTop: '8px',
+          padding: '4px 8px',
+          backgroundColor: '#0a0b0e',
+          color: 'var(--text-secondary)',
+          borderRadius: '3px',
+          fontSize: '0.7rem',
+          wordBreak: 'break-all',
+          border: '1px solid var(--border)',
+          fontFamily: 'monospace'
+        }}>
+          {file.path}
+        </code>
+      </div>
+
+      <div style={{
+        padding: '10px',
+        backgroundColor: '#1a1d2e',
+        borderRadius: '4px',
+        border: '1px solid var(--border)',
+        fontSize: '0.75rem',
+        color: 'var(--text-secondary)',
+        lineHeight: 1.4,
+        maxWidth: '340px'
+      }}>
+        {file.isZip ? (
+          "This ZIP archive can be extracted directly on the server, or downloaded to your local computer."
+        ) : (
+          "This file is large. Loading it with syntax highlighting might crash or slow down your browser. You can download it or load it as plain text."
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+        {file.isZip && (
+          <Button
+            variant="primary"
+            onClick={onUnzip}
+            loading={zipLoading}
+            icon={FolderArchive}
+          >
+            Extract Archive
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          onClick={onDownload}
+          icon={Download}
+        >
+          Download File
+        </Button>
+        {!file.isZip && (
+          <Button
+            variant="ghost"
+            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)', backgroundColor: '#1a1d2e' }}
+            onClick={onLoadAnyway}
+          >
+            Load as Text Anyway
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FileManager() {
   const toast = useToast();
-  const [currentPath, setCurrentPath] = useState('/');
+
+  const getQueryPath = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('path') || localStorage.getItem('nanofly_filemanager_path') || '/';
+  };
+
+  const [currentPath, setCurrentPath] = useState(getQueryPath);
   const [rootPath, setRootPath] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -233,10 +338,11 @@ export default function FileManager() {
   const folderInputRef = useRef(null);
 
   // Selected file details
-  const [selectedFile, setSelectedFile] = useState(null); // { path: string, content: string, originalContent: string }
+  const [selectedFile, setSelectedFile] = useState(null); 
   const [editorLoading, setEditorLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [editorError, setEditorError] = useState('');
+  const [zipLoading, setZipLoading] = useState(false);
 
   // Modals / Inputs
   const [showCreateModal, setShowCreateModal] = useState(null); // 'file' | 'folder' | null
@@ -244,7 +350,19 @@ export default function FileManager() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
 
+  // Sync currentPath to URL search params & localStorage
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (currentPath) {
+      params.set('path', currentPath);
+      localStorage.setItem('nanofly_filemanager_path', currentPath);
+    } else {
+      params.delete('path');
+    }
+    const newSearch = params.toString() ? `?${params.toString()}` : '';
+    if (window.location.search !== newSearch) {
+      window.history.replaceState(null, '', window.location.pathname + newSearch);
+    }
     loadDirectory(currentPath);
   }, [currentPath]);
 
@@ -287,9 +405,24 @@ export default function FileManager() {
         path: item.path,
         name: item.name,
         size: item.size_human,
+        sizeBytes: item.size,
         isMedia: true,
         mediaType,
         rawUrl
+      });
+      return;
+    }
+
+    const isZip = item.name.endsWith('.zip');
+    // If it's a ZIP or larger than 2 MB, intercept with overview details card to prevent freezing
+    if (isZip || item.size > 2 * 1024 * 1024) {
+      setSelectedFile({
+        path: item.path,
+        name: item.name,
+        size: item.size_human,
+        sizeBytes: item.size,
+        isOverview: true,
+        isZip
       });
       return;
     }
@@ -304,13 +437,72 @@ export default function FileManager() {
           name: item.name,
           content: res.content,
           originalContent: res.content,
-          size: item.size_human
+          size: item.size_human,
+          sizeBytes: item.size,
+          isPlaintextFallback: item.size > 500 * 1024 // bypass heavy highlight rendering for files > 500 KB
         });
       }
     } catch (err) {
       setEditorError(err.message || 'Failed to open file');
     } finally {
       setEditorLoading(false);
+    }
+  };
+
+  const handleLoadAnyway = async (file) => {
+    setEditorError('');
+    setEditorLoading(true);
+    try {
+      const res = await filesApi.view(file.path);
+      if (res) {
+        setSelectedFile({
+          path: file.path,
+          name: file.name,
+          content: res.content,
+          originalContent: res.content,
+          size: file.size,
+          sizeBytes: file.sizeBytes,
+          isPlaintextFallback: true
+        });
+      }
+    } catch (err) {
+      setEditorError(err.message || 'Failed to open file');
+    } finally {
+      setEditorLoading(false);
+    }
+  };
+
+  const handleDownloadFile = (file) => {
+    const token = localStorage.getItem('nanofly_token');
+    const rawUrl = `/api/v1/files/raw?path=${encodeURIComponent(file.path)}&token=${token}`;
+    window.open(rawUrl, '_blank');
+  };
+
+  const handleZipItem = async (item, e) => {
+    e?.stopPropagation();
+    setZipLoading(true);
+    try {
+      await filesApi.zip(item.path);
+      toast.success(`Successfully zipped ${item.name}`);
+      loadDirectory(currentPath);
+    } catch (err) {
+      toast.error(err.message || 'Failed to compress item');
+    } finally {
+      setZipLoading(false);
+    }
+  };
+
+  const handleUnzipItem = async (item, e) => {
+    e?.stopPropagation();
+    setZipLoading(true);
+    try {
+      await filesApi.unzip(item.path);
+      toast.success(`Successfully extracted archive ${item.name}`);
+      loadDirectory(currentPath);
+    } catch (err) {
+      toast.error(err.message || 'Failed to extract archive');
+    } finally {
+      setZipLoading(false);
     }
   };
 
@@ -324,7 +516,6 @@ export default function FileManager() {
         ...prev,
         originalContent: prev.content
       }));
-      // Reload directory in case size changed
       loadDirectory(currentPath);
     } catch (err) {
       setEditorError(err.message || 'Failed to save file');
@@ -420,7 +611,6 @@ export default function FileManager() {
     }
   };
 
-  // Breadcrumbs parsing
   const getBreadcrumbs = () => {
     const root = (rootPath || currentPath || '').replace(/\\/g, '/');
     const current = (currentPath || root).replace(/\\/g, '/');
@@ -436,7 +626,7 @@ export default function FileManager() {
       return crumbs;
     }
 
-    let accum = current.startsWith('/') ? '' : '';
+    let accum = '';
     current.split('/').filter(Boolean).forEach(part => {
       accum = accum ? `${accum}/${part}` : current.startsWith('/') ? `/${part}` : part;
       crumbs.push({ name: part, path: accum });
@@ -464,39 +654,40 @@ export default function FileManager() {
   })();
 
   const getFileIcon = (item) => {
-    if (item.is_dir) return <Folder size={18} style={{ color: '#eab308' }} />;
+    if (item.is_dir) return <Folder size={16} style={{ color: '#eab308' }} />;
     const ext = item.name.split('.').pop().toLowerCase();
+    if (ext === 'zip') return <Archive size={16} style={{ color: '#eab308' }} />;
     if (['go', 'js', 'jsx', 'ts', 'tsx', 'py', 'php', 'html', 'css', 'json', 'sh', 'yaml', 'yml'].includes(ext)) {
-      return <FileCode size={18} style={{ color: '#3b82f6' }} />;
+      return <FileCode size={16} style={{ color: '#3b82f6' }} />;
     }
     if (['md', 'txt', 'log', 'conf', 'env'].includes(ext)) {
-      return <FileText size={18} style={{ color: '#10b981' }} />;
+      return <FileText size={16} style={{ color: '#10b981' }} />;
     }
-    return <File size={18} style={{ color: 'var(--text-muted)' }} />;
+    return <File size={16} style={{ color: 'var(--text-muted)' }} />;
   };
 
   const isModified = selectedFile && selectedFile.content !== selectedFile.originalContent;
 
   return (
-    <div className="page-content fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 4rem)', padding: '1.5rem' }}>
+    <div className="page-content fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 4rem)', padding: '1rem', backgroundColor: '#090a0f' }}>
 
       {/* Top Header */}
-      <div className="page-header" style={{ marginBottom: '1.25rem', flexShrink: 0 }}>
+      <div className="page-header" style={{ marginBottom: '1rem', flexShrink: 0, borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>File Manager</h1>
-          <p className="page-subtitle">Inspect, edit, and manage files on your NanoFly server</p>
+          <h1 className="page-title" style={{ marginBottom: 2, fontSize: '1.25rem' }}>File Manager</h1>
+          <p className="page-subtitle" style={{ fontSize: '0.78rem' }}>Inspect, edit, and manage files on your NanoFly server</p>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
           <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} />
-          <Button variant="secondary" size="sm" loading={uploadLoading} onClick={() => fileInputRef.current?.click()} icon={Upload}>
+          <Button variant="secondary" size="sm" loading={uploadLoading} style={{ background: '#121420', border: '1px solid var(--border)' }} onClick={() => fileInputRef.current?.click()} icon={Upload}>
             Upload Files
           </Button>
-          <Button variant="secondary" size="sm" loading={uploadLoading} onClick={() => folderInputRef.current?.click()} icon={Upload}>
+          <Button variant="secondary" size="sm" loading={uploadLoading} style={{ background: '#121420', border: '1px solid var(--border)' }} onClick={() => folderInputRef.current?.click()} icon={Upload}>
             Upload Folder
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowCreateModal('folder')} icon={FolderPlus}>
+          <Button variant="secondary" size="sm" style={{ background: '#121420', border: '1px solid var(--border)' }} onClick={() => setShowCreateModal('folder')} icon={FolderPlus}>
             New Folder
           </Button>
           <Button variant="primary" size="sm" onClick={() => setShowCreateModal('file')} icon={FilePlus}>
@@ -505,23 +696,23 @@ export default function FileManager() {
         </div>
       </div>
 
-      {/* Path Breadcrumbs */}
+      {/* Breadcrumbs and Actions Bar */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        padding: '0.625rem 1rem',
-        background: 'var(--bg-elevated)',
+        padding: '0.5rem 0.75rem',
+        background: '#121420',
         border: '1px solid var(--border)',
-        borderRadius: 'var(--radius)',
-        marginBottom: '1rem',
+        borderRadius: '4px',
+        marginBottom: '0.75rem',
         flexWrap: 'wrap',
-        fontSize: '0.875rem',
+        fontSize: '0.82rem',
         flexShrink: 0
       }}>
         {getBreadcrumbs().map((crumb, idx) => (
-          <div key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {idx > 0 && <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />}
+          <div key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {idx > 0 && <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />}
             <span
               onClick={() => setCurrentPath(crumb.path)}
               style={{
@@ -537,65 +728,51 @@ export default function FileManager() {
             </span>
           </div>
         ))}
-        <Button variant="ghost" size="sm" style={{ marginLeft: 'auto', padding: '4px 8px' }} onClick={(e) => copyPath(currentPath || rootPath, e)} icon={Copy}>
+        <Button variant="ghost" size="sm" style={{ marginLeft: 'auto', padding: '2px 6px', border: '1px solid var(--border)', background: '#171924' }} onClick={(e) => copyPath(currentPath || rootPath, e)} icon={Copy}>
           Copy Path
         </Button>
       </div>
 
+      {/* Warning banner */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: 8,
-        marginBottom: '1rem',
-        color: 'var(--text-muted)',
-        fontSize: '0.78rem',
-        flexShrink: 0,
-        minWidth: 0
+        marginBottom: '0.75rem',
+        padding: '0.5rem 0.75rem',
+        border: protectedPath ? '1px solid #d97706' : '1px solid var(--border)',
+        borderRadius: '4px',
+        background: protectedPath ? '#1e1b12' : '#10111a',
+        color: protectedPath ? '#f59e0b' : 'var(--text-secondary)',
+        fontSize: '0.76rem',
+        flexShrink: 0
       }}>
-        <span style={{ flexShrink: 0 }}>Location</span>
-        <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
-          {currentPath || rootPath || 'Loading...'}
-        </code>
+        <AlertTriangle size={14} style={{ color: protectedPath ? '#f59e0b' : 'var(--accent)' }} />
+        <span>{protectedPath ? 'System files alert: Editing or deleting here can break NanoFly or the server.' : 'Safe workspace: Use directory storage to edit configuration and project files.'}</span>
         {uploadStatus && <span style={{ marginLeft: 'auto', color: uploadStatus.includes('failed') ? 'var(--red)' : 'var(--green)' }}>{uploadStatus}</span>}
       </div>
 
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        marginBottom: '1rem',
-        padding: '0.75rem 1rem',
-        border: protectedPath ? '1px solid rgba(245,158,11,0.32)' : '1px solid var(--border)',
-        borderRadius: 'var(--radius)',
-        background: protectedPath ? 'rgba(245,158,11,0.08)' : 'rgba(79,110,247,0.06)',
-        color: protectedPath ? '#f59e0b' : 'var(--text-secondary)',
-        fontSize: '0.82rem',
-        flexShrink: 0
-      }}>
-        <AlertTriangle size={16} />
-        <span>{protectedPath ? 'This location may contain system files. Editing or deleting here can break NanoFly or the server.' : 'App folders are safer to edit here. Keep a backup before changing production files.'}</span>
-      </div>
-
-      {/* Main Split Layout */}
-      <div style={{ display: 'flex', gap: '1.25rem', flex: 1, minHeight: 0 }}>
+      {/* Main Double Panel Layout */}
+      <div style={{ display: 'flex', gap: '0.75rem', flex: 1, minHeight: 0 }}>
 
         {/* Drives Sidebar */}
         {drives.length > 0 && (
-          <div className="card" style={{
-            width: '220px',
+          <div style={{
+            width: '180px',
             display: 'flex',
             flexDirection: 'column',
-            padding: '1rem',
-            gap: '0.875rem',
-            background: 'var(--bg-elevated)',
+            padding: '0.75rem',
+            gap: '0.5rem',
+            background: '#121420',
             border: '1px solid var(--border)',
+            borderRadius: '4px',
             flexShrink: 0,
             overflowY: 'auto'
           }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
               Drives & Mounts
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {drives.map(drive => {
                 const normalize = p => (p || '').replace(/\\/g, '/').replace(/\/+$/, '');
                 const normCurrent = normalize(currentPath);
@@ -615,35 +792,34 @@ export default function FileManager() {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '0.625rem',
-                      padding: '0.625rem 0.75rem',
-                      borderRadius: 'var(--radius)',
+                      gap: '8px',
+                      padding: '8px',
+                      borderRadius: '4px',
                       cursor: 'pointer',
-                      background: isDriveActive ? 'rgba(79, 110, 247, 0.08)' : 'transparent',
+                      background: isDriveActive ? '#1a1d2e' : 'transparent',
                       border: '1px solid',
-                      borderColor: isDriveActive ? 'rgba(79, 110, 247, 0.25)' : 'transparent',
-                      transition: 'all var(--transition)'
+                      borderColor: isDriveActive ? 'var(--accent)' : 'transparent',
+                      transition: 'all 0.15s'
                     }}
-                    className="drive-item-card"
                   >
                     <div style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      height: '28px',
-                      width: '28px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: isDriveActive ? 'var(--accent)' : 'var(--bg-base)',
+                      height: '24px',
+                      width: '24px',
+                      borderRadius: '3px',
+                      background: isDriveActive ? 'var(--accent)' : '#1a1d2e',
                       color: isDriveActive ? '#fff' : 'var(--accent)',
                       flexShrink: 0
                     }}>
-                      <HardDrive size={15} />
+                      <HardDrive size={13} />
                     </div>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={drive.name}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={drive.name}>
                         {drive.name}
                       </div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                      <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                         {drive.free_human} free
                       </div>
                     </div>
@@ -654,88 +830,89 @@ export default function FileManager() {
           </div>
         )}
 
-        {/* Left Side: Directory Explorer */}
-        <div className="card" style={{
-          flex: 1.2,
+        {/* Directory Explorer Pane */}
+        <div style={{
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          padding: '1.25rem',
+          padding: '0.875rem',
           minWidth: 0,
-          background: 'var(--bg-elevated)',
-          border: '1px solid var(--border)'
+          background: '#121420',
+          border: '1px solid var(--border)',
+          borderRadius: '4px',
+          position: 'relative'
         }}>
-          {/* Search bar */}
-          <div className="form-group" style={{ marginBottom: '1rem', flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input
-                  className="form-input"
-                  style={{ paddingLeft: 36 }}
-                  placeholder="Filter files by name..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 3 }}>
-                <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 6, color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                  <LayoutList size={15} />
-                </button>
-                <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 6, color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                  <LayoutGrid size={15} />
-                </button>
-              </div>
+          {/* Search bar & view toggle */}
+          <div style={{ marginBottom: '0.75rem', flexShrink: 0, display: 'flex', gap: 6 }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                className="form-input"
+                style={{ paddingLeft: 30, height: '32px', fontSize: '0.8rem', background: '#0a0b10', border: '1px solid var(--border)', borderRadius: '4px' }}
+                placeholder="Filter files..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 2, background: '#0a0b10', border: '1px solid var(--border)', borderRadius: '4px', padding: 2 }}>
+              <button className={`btn btn-ghost btn-sm ${viewMode === 'list' ? 'active' : ''}`} title="List view" onClick={() => setViewMode('list')} style={{ padding: 4, height: 26, width: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewMode === 'list' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                <LayoutList size={13} />
+              </button>
+              <button className={`btn btn-ghost btn-sm ${viewMode === 'grid' ? 'active' : ''}`} title="Grid view" onClick={() => setViewMode('grid')} style={{ padding: 4, height: 26, width: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewMode === 'grid' ? 'var(--accent)' : 'var(--text-muted)' }}>
+                <LayoutGrid size={13} />
+              </button>
             </div>
           </div>
 
-          {/* Directory Content Table/List */}
+          {/* Directory Content list */}
           <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {error && (
-              <div className="auth-error" style={{ marginBottom: '1rem' }}>{error}</div>
+              <div className="auth-error" style={{ marginBottom: '0.75rem' }}>{error}</div>
             )}
 
-            {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10 }}>
-                <div className="spinner" style={{ width: 20, height: 20, borderTopColor: 'var(--accent)' }} />
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Reading folder...</span>
+            {filteredItems.length === 0 && !loading && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: 6 }}>
+                <Folder size={28} style={{ opacity: 0.3 }} />
+                <span style={{ fontSize: '0.78rem' }}>No matches found</span>
               </div>
-            ) : filteredItems.length === 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: 8 }}>
-                <Folder size={32} style={{ opacity: 0.4 }} />
-                <span style={{ fontSize: '0.875rem' }}>Empty directory or no search matches</span>
-              </div>
-            ) : (
-              <div style={{
-                display: viewMode === 'grid' ? 'grid' : 'flex',
-                gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(138px, 1fr))' : undefined,
-                flexDirection: viewMode === 'grid' ? undefined : 'column',
-                gap: viewMode === 'grid' ? 10 : 4
-              }}>
-                {/* Back Link if not at Root */}
-                {getParentPath() && (
-                  <div
-                    onClick={() => setCurrentPath(getParentPath())}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '0.625rem 0.75rem',
-                      borderRadius: 'var(--radius)',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem',
-                      color: 'var(--text-secondary)',
-                      transition: 'background 0.2s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <ArrowLeft size={16} />
-                    <span>.. (Parent Directory)</span>
-                  </div>
-                )}
+            )}
 
-                {/* Items */}
-                {filteredItems.map(item => (
+            <div style={{
+              display: viewMode === 'grid' ? 'grid' : 'flex',
+              gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(118px, 1fr))' : undefined,
+              flexDirection: viewMode === 'grid' ? undefined : 'column',
+              gap: viewMode === 'grid' ? 6 : 2
+            }}>
+              {/* Back Link */}
+              {getParentPath() && (
+                <div
+                  onClick={() => setCurrentPath(getParentPath())}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    borderRadius: '3px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid transparent',
+                    background: '#181a26'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
+                >
+                  <ArrowLeft size={13} />
+                  <span>.. (Parent Directory)</span>
+                </div>
+              )}
+
+              {/* File/Folder Items */}
+              {filteredItems.map(item => {
+                const isZip = item.name.endsWith('.zip');
+                const isItemActive = selectedFile?.path === item.path;
+
+                return (
                   <div
                     key={item.path}
                     onClick={() => {
@@ -750,23 +927,23 @@ export default function FileManager() {
                       flexDirection: viewMode === 'grid' ? 'column' : 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: viewMode === 'grid' ? '0.9rem 0.75rem' : '0.625rem 0.75rem',
-                      borderRadius: 'var(--radius)',
+                      padding: viewMode === 'grid' ? '8px' : '4px 8px',
+                      borderRadius: '3px',
                       cursor: 'pointer',
-                      fontSize: '0.875rem',
-                      minHeight: viewMode === 'grid' ? 118 : undefined,
-                      transition: 'background 0.2s, border-color 0.2s',
-                      background: selectedFile?.path === item.path ? 'rgba(79, 110, 247, 0.08)' : 'transparent',
+                      fontSize: '0.8rem',
+                      minHeight: viewMode === 'grid' ? 96 : undefined,
+                      transition: 'background 0.1s, border-color 0.1s',
+                      background: isItemActive ? '#1a1d2e' : 'transparent',
                       border: '1px solid',
-                      borderColor: selectedFile?.path === item.path ? 'rgba(79, 110, 247, 0.2)' : 'transparent',
+                      borderColor: isItemActive ? 'var(--accent)' : 'transparent',
                     }}
                     onMouseEnter={e => {
-                      if (selectedFile?.path !== item.path) {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+                      if (!isItemActive) {
+                        e.currentTarget.style.background = '#181a26';
                       }
                     }}
                     onMouseLeave={e => {
-                      if (selectedFile?.path !== item.path) {
+                      if (!isItemActive) {
                         e.currentTarget.style.background = 'transparent';
                       }
                     }}
@@ -775,12 +952,12 @@ export default function FileManager() {
                       display: 'flex',
                       alignItems: 'center',
                       flexDirection: viewMode === 'grid' ? 'column' : 'row',
-                      gap: viewMode === 'grid' ? 8 : 10,
+                      gap: viewMode === 'grid' ? 6 : 8,
                       minWidth: 0,
                       width: viewMode === 'grid' ? '100%' : undefined,
                       textAlign: viewMode === 'grid' ? 'center' : 'left'
                     }}>
-                      <span style={{ transform: viewMode === 'grid' ? 'scale(1.45)' : 'none', marginBottom: viewMode === 'grid' ? 4 : 0 }}>{getFileIcon(item)}</span>
+                      <span style={{ transform: viewMode === 'grid' ? 'scale(1.2)' : 'none', marginBottom: viewMode === 'grid' ? 2 : 0 }}>{getFileIcon(item)}</span>
                       <span style={{
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -797,20 +974,42 @@ export default function FileManager() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: viewMode === 'grid' ? 'center' : 'flex-end',
-                      gap: viewMode === 'grid' ? 8 : 16,
+                      gap: viewMode === 'grid' ? 4 : 8,
                       flexShrink: 0,
                       width: viewMode === 'grid' ? '100%' : undefined,
-                      marginTop: viewMode === 'grid' ? 10 : 0
+                      marginTop: viewMode === 'grid' ? 6 : 0
                     }}>
                       {!item.is_dir && (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                           {item.size_human}
                         </span>
                       )}
+
+                      {/* Zip / Extract Actions */}
+                      {isZip ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          style={{ color: '#eab308', padding: 2, height: 20, width: 20 }}
+                          onClick={(e) => handleUnzipItem(item, e)}
+                          title="Extract ZIP"
+                          icon={FolderArchive}
+                        />
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          style={{ color: 'var(--accent)', padding: 2, height: 20, width: 20 }}
+                          onClick={(e) => handleZipItem(item, e)}
+                          title="Compress to ZIP"
+                          icon={Archive}
+                        />
+                      )}
+
                       <Button
                         variant="ghost"
                         size="sm"
-                        style={{ color: 'var(--text-muted)', padding: 4 }}
+                        style={{ color: 'var(--text-muted)', padding: 2, height: 20, width: 20 }}
                         onClick={(e) => copyPath(item.path, e)}
                         title="Copy path"
                         icon={Copy}
@@ -818,27 +1017,51 @@ export default function FileManager() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        style={{ color: 'var(--red)', padding: 4 }}
+                        style={{ color: 'var(--red)', padding: 2, height: 20, width: 20 }}
                         onClick={(e) => handleDeleteItem(item, e)}
+                        title="Delete"
                         icon={Trash2}
                       />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
+
+          {/* Directory Fetch Loader */}
+          {loading && (
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(18, 20, 32, 0.85)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              zIndex: 10,
+              borderRadius: '4px'
+            }}>
+              <div className="spinner" style={{ width: 18, height: 18, borderTopColor: 'var(--accent)' }} />
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Loading folder...</span>
+            </div>
+          )}
         </div>
 
-        {/* Right Side: File Editor or Detail view */}
-        <div className="card" style={{
-          flex: 1.8,
+        {/* Right Side: File Editor & Detail View */}
+        <div style={{
+          flex: 1.5,
           display: 'flex',
           flexDirection: 'column',
-          padding: '1.25rem',
+          padding: '0.875rem',
           minWidth: 0,
-          background: 'var(--bg-elevated)',
-          border: '1px solid var(--border)'
+          background: '#121420',
+          border: '1px solid var(--border)',
+          borderRadius: '4px',
+          position: 'relative'
         }}>
           {selectedFile ? (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -849,84 +1072,128 @@ export default function FileManager() {
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 borderBottom: '1px solid var(--border)',
-                paddingBottom: '0.75rem',
-                marginBottom: '1rem',
+                paddingBottom: '0.5rem',
+                marginBottom: '0.75rem',
                 flexShrink: 0
               }}>
                 <div>
-                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>
                     {selectedFile.name}
                   </h3>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Size: {selectedFile.size} · {isModified ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Modified</span> : 'Saved'}
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Size: {selectedFile.size} · {selectedFile.isOverview ? 'Archive/Big file' : isModified ? <span style={{ color: 'var(--yellow)', fontWeight: 500 }}>Modified</span> : 'Saved'}
                   </span>
                 </div>
 
-                <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <code style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 520 }}>
-                    {selectedFile.path}
-                  </code>
-                  <Button variant="ghost" size="sm" style={{ padding: 3 }} onClick={(e) => copyPath(selectedFile.path, e)} title="Copy file path" icon={Copy} />
-                </div>
-
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 4 }}>
                   <Button
                     variant="ghost"
                     size="sm"
+                    style={{ border: '1px solid var(--border)', background: '#171924', padding: '2px 8px', height: 26 }}
                     onClick={() => setSelectedFile(null)}
                     icon={X}
                   >
                     Close
                   </Button>
-                  {!selectedFile.isMedia && (
+                  {!selectedFile.isMedia && !selectedFile.isOverview && (
                     <Button
                       variant="primary"
                       size="sm"
+                      style={{ padding: '2px 8px', height: 26 }}
                       disabled={!isModified}
                       loading={saveLoading}
                       onClick={handleSaveFile}
                       icon={Save}
                     >
-                      Save File
+                      Save
                     </Button>
                   )}
                 </div>
               </div>
 
               {editorError && (
-                <div className="auth-error" style={{ marginBottom: '1rem', flexShrink: 0 }}>{editorError}</div>
+                <div className="auth-error" style={{ marginBottom: '0.5rem', flexShrink: 0 }}>{editorError}</div>
               )}
 
-              {/* Text Area Code Editor or Media Previews */}
-              {selectedFile.isMedia ? (
-                selectedFile.mediaType === 'image' ? (
-                  <ImageViewer file={selectedFile} />
-                ) : selectedFile.mediaType === 'audio' ? (
-                  <AudioPlayer file={selectedFile} />
-                ) : selectedFile.mediaType === 'video' ? (
-                  <VideoPlayer file={selectedFile} />
-                ) : selectedFile.mediaType === 'pdf' ? (
-                  <PdfReader file={selectedFile} />
-                ) : null
-              ) : (
-                <CodeEditor
-                  value={selectedFile.content}
-                  onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
-                  language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
-                />
+              {/* Loader for loading file content */}
+              {editorLoading && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(18, 20, 32, 0.9)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: 8,
+                  zIndex: 10,
+                  borderRadius: '4px'
+                }}>
+                  <div className="spinner" style={{ width: 22, height: 22, borderTopColor: 'var(--accent)' }} />
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading file content...</span>
+                </div>
               )}
-            </div>
-          ) : editorLoading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
-              <div className="spinner" style={{ width: 28, height: 28, borderTopColor: 'var(--accent)' }} />
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading file contents...</span>
+
+              {/* Content area: Previews, Editor or plain textarea */}
+              <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                {selectedFile.isOverview ? (
+                  <FileOverview
+                    file={selectedFile}
+                    onUnzip={() => handleUnzipItem(selectedFile)}
+                    onDownload={() => handleDownloadFile(selectedFile)}
+                    onLoadAnyway={() => handleLoadAnyway(selectedFile)}
+                    zipLoading={zipLoading}
+                  />
+                ) : selectedFile.isMedia ? (
+                  selectedFile.mediaType === 'image' ? (
+                    <ImageViewer file={selectedFile} />
+                  ) : selectedFile.mediaType === 'audio' ? (
+                    <AudioPlayer file={selectedFile} />
+                  ) : selectedFile.mediaType === 'video' ? (
+                    <VideoPlayer file={selectedFile} />
+                  ) : selectedFile.mediaType === 'pdf' ? (
+                    <PdfReader file={selectedFile} />
+                  ) : null
+                ) : selectedFile.isPlaintextFallback ? (
+                  <textarea
+                    value={selectedFile.content}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setSelectedFile(prev => ({ ...prev, content: val }));
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      fontFamily: 'monospace',
+                      fontSize: '0.8rem',
+                      backgroundColor: '#0a0b10',
+                      color: '#c9d1d9',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      padding: '10px',
+                      outline: 'none',
+                      resize: 'none',
+                      lineHeight: '1.45'
+                    }}
+                  />
+                ) : (
+                  <CodeEditor
+                    value={selectedFile.content}
+                    onChange={val => setSelectedFile(prev => ({ ...prev, content: val }))}
+                    language={selectedFile?.name?.endsWith('.json') ? 'javascript' : selectedFile?.name?.endsWith('.py') ? 'python' : selectedFile?.name?.endsWith('.yaml') || selectedFile?.name?.endsWith('.yml') ? 'yaml' : selectedFile?.name?.includes('Dockerfile') ? 'docker' : 'javascript'}
+                  />
+                )}
+              </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: 12 }}>
-              <File size={40} style={{ opacity: 0.3 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', gap: 10 }}>
+              <File size={32} style={{ opacity: 0.25 }} />
               <div style={{ textAlign: 'center' }}>
-                <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No File Selected</h3>
-                <p style={{ fontSize: '0.78rem', maxWidth: 280 }}>Select a file from the explorer list on the left to edit or preview its content.</p>
+                <h3 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 2 }}>No File Selected</h3>
+                <p style={{ fontSize: '0.74rem', maxWidth: 220, margin: '0 auto' }}>Select a file from the explorer list on the left to edit or preview.</p>
               </div>
             </div>
           )}

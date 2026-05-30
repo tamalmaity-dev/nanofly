@@ -148,6 +148,8 @@ export const filesApi = {
   upload: (formData)      => uploadRequest('/files/upload', formData),
   delete: (path)          => del(`/files/delete?path=${encodeURIComponent(path || '')}`),
   drives: ()              => get('/files/drives'),
+  zip:    (path, dest)    => post('/files/zip', { path, dest }),
+  unzip:  (path, dest)    => post('/files/unzip', { path, dest }),
 };
 
 // Panel Update Management
