@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Folder, File, FileText, FileCode, Trash2, Save,
   ArrowLeft, Search, X, FolderPlus, FilePlus, ChevronRight, Copy, Upload,
-  LayoutGrid, LayoutList, AlertTriangle
+  LayoutGrid, LayoutList, AlertTriangle, HardDrive
 } from 'lucide-react';
 import { filesApi } from '../api/client';
 import { Modal, Button, useToast } from '../components/ui';
@@ -20,6 +20,7 @@ export default function FileManager() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
   const [viewMode, setViewMode] = useState('list');
+  const [drives, setDrives] = useState([]);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
@@ -48,6 +49,10 @@ export default function FileManager() {
         setItems(res.items || []);
         setRootPath(res.root_path || '');
         setCurrentPath(res.current_path || '');
+      }
+      const dr = await filesApi.drives().catch(() => null);
+      if (dr) {
+        setDrives(dr);
       }
     } catch (err) {
       setError(err.message || 'Failed to read directory');
@@ -341,6 +346,81 @@ export default function FileManager() {
 
       {/* Main Split Layout */}
       <div style={{ display: 'flex', gap: '1.25rem', flex: 1, minHeight: 0 }}>
+
+        {/* Drives Sidebar */}
+        {drives.length > 0 && (
+          <div className="card" style={{
+            width: '220px',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '1rem',
+            gap: '0.875rem',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            flexShrink: 0,
+            overflowY: 'auto'
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+              Drives & Mounts
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {drives.map(drive => {
+                const normalize = p => (p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+                const normCurrent = normalize(currentPath);
+                const normDrive = normalize(drive.path);
+
+                const isOtherDriveActive = drives.some(d => {
+                  const normD = normalize(d.path);
+                  return normD !== '' && normD !== '/' && normD !== normDrive && normCurrent.startsWith(normD);
+                });
+
+                const isDriveActive = (normDrive === '' || normDrive === '/') ? !isOtherDriveActive : (normCurrent === normDrive || normCurrent.startsWith(normDrive + '/'));
+
+                return (
+                  <div
+                    key={drive.path}
+                    onClick={() => setCurrentPath(drive.path)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.625rem',
+                      padding: '0.625rem 0.75rem',
+                      borderRadius: 'var(--radius)',
+                      cursor: 'pointer',
+                      background: isDriveActive ? 'rgba(79, 110, 247, 0.08)' : 'transparent',
+                      border: '1px solid',
+                      borderColor: isDriveActive ? 'rgba(79, 110, 247, 0.25)' : 'transparent',
+                      transition: 'all var(--transition)'
+                    }}
+                    className="drive-item-card"
+                  >
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '28px',
+                      width: '28px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isDriveActive ? 'var(--accent)' : 'var(--bg-base)',
+                      color: isDriveActive ? '#fff' : 'var(--accent)',
+                      flexShrink: 0
+                    }}>
+                      <HardDrive size={15} />
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={drive.name}>
+                        {drive.name}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                        {drive.free_human} free
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Left Side: Directory Explorer */}
         <div className="card" style={{

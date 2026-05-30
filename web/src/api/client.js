@@ -147,6 +147,7 @@ export const filesApi = {
   create: (path, isDir)   => post('/files/create', { path, is_dir: isDir }),
   upload: (formData)      => uploadRequest('/files/upload', formData),
   delete: (path)          => del(`/files/delete?path=${encodeURIComponent(path || '')}`),
+  drives: ()              => get('/files/drives'),
 };
 
 // Panel Update Management

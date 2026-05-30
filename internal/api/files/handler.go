@@ -69,6 +69,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/create", h.Create)
 	r.Post("/upload", h.Upload)
 	r.Delete("/delete", h.Delete)
+	r.Get("/drives", h.Drives)
 }
 
 func (h *Handler) resolvePath(target string) string {
@@ -298,4 +299,18 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Success(w, map[string]string{"status": "deleted"})
+}
+
+type DriveInfo struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Type      string `json:"type"` // "system", "external"
+	SizeHuman string `json:"size_human"`
+	FreeHuman string `json:"free_human"`
+}
+
+// GET /api/v1/files/drives
+func (h *Handler) Drives(w http.ResponseWriter, r *http.Request) {
+	drives := getDrives()
+	response.Success(w, drives)
 }

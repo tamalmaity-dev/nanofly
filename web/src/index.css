@@ -1399,3 +1399,9 @@ code, pre {
   box-shadow: var(--shadow-sm);
 }
 
+/* Custom Drive Item Card styling */
+.drive-item-card:hover {
+  border-color: var(--border-focus) !important;
+  background-color: var(--bg-hover) !important;
+}
+

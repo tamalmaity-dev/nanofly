@@ -1084,6 +1084,17 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 				return
 			}
 			log("Container started: " + containerID)
+
+			// Check if wordpress, wait until it's ready and copy files to /var/www/html
+			if strings.Contains(strings.ToLower(svc.Image), "wordpress") {
+				log("[INFO] Waiting for WordPress initialization to finish (copying files & web server startup)...")
+				if err := m.waitForWordPressReady(bgCtx, svc.ContainerName(), log); err != nil {
+					log("[ERROR] WordPress initialization failed: " + err.Error())
+					finalStatus = "error"
+					return
+				}
+			}
+
 			m.db.ExecContext(bgCtx, `UPDATE services SET status='running', port=? WHERE id=?`, hostPort, serviceID) //nolint:errcheck
 		}
 
@@ -1092,6 +1103,83 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 	}()
 
 	return m.GetDeployment(ctx, deployID)
+}
+
+// wordpressLogsReady returns true when the WordPress container has completed
+// copying files to /var/www/html (if it needed to) and its web server (Apache/FPM) is ready.
+func wordpressLogsReady(logs string) bool {
+	lower := strings.ToLower(logs)
+	// If the log indicates it started copying, we must wait for it to complete.
+	if strings.Contains(lower, "copying now...") {
+		if !strings.Contains(lower, "complete! wordpress has been successfully copied") {
+			return false
+		}
+	}
+	// Once copied (or if already present), wait for Apache or FPM to start
+	return strings.Contains(lower, "apache2 -d foreground") ||
+		strings.Contains(lower, "ready to handle connections") ||
+		strings.Contains(lower, "fpm is running") ||
+		strings.Contains(lower, "listening on http")
+}
+
+// waitForWordPressReady polls the container logs until WordPress is fully copied
+// and the web server is ready.
+func (m *Manager) waitForWordPressReady(ctx context.Context, containerName string, log func(string)) error {
+	// Cap total wait to 10 minutes (copying can be slow on Raspberry Pi/constrained servers)
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer waitCancel()
+
+	const pollInterval = 3 * time.Second
+	const logTail = "1000"
+
+	var lastSeenLine string
+
+	for {
+		if err := waitCtx.Err(); err != nil {
+			return fmt.Errorf("wordpress readiness wait timed out or canceled: %w", err)
+		}
+
+		// Check if container is still running
+		inspectCtx, inspectCancel := context.WithTimeout(waitCtx, 5*time.Second)
+		inspect, inspectErr := m.docker.InspectContainer(inspectCtx, containerName)
+		inspectCancel()
+		if inspectErr == nil && inspect.State != nil && !inspect.State.Running {
+			return fmt.Errorf("wordpress container exited during startup (exit code %d)", inspect.State.ExitCode)
+		}
+
+		// Fetch and stream logs
+		logsCtx, logsCancel := context.WithTimeout(waitCtx, 5*time.Second)
+		rawLogs, _ := m.docker.Logs(logsCtx, containerName, logTail)
+		logsCancel()
+
+		allLines := strings.Split(rawLogs, "\n")
+		if len(allLines) > 0 {
+			startIndex := 0
+			if lastSeenLine != "" {
+				for j := len(allLines) - 1; j >= 0; j-- {
+					if strings.TrimRight(allLines[j], "\r") == lastSeenLine {
+						startIndex = j + 1
+						break
+					}
+				}
+			}
+			for i := startIndex; i < len(allLines); i++ {
+				line := strings.TrimRight(allLines[i], "\r")
+				if line != "" {
+					log("[WordPress] " + line)
+					lastSeenLine = line
+				}
+			}
+		}
+
+		// Check if ready
+		if wordpressLogsReady(rawLogs) {
+			log("[OK] WordPress is fully initialized and accepting connections.")
+			return nil
+		}
+
+		time.Sleep(pollInterval)
+	}
 }
 
 // isMySQLFamilyImage returns true if the image is a MySQL or MariaDB variant.
