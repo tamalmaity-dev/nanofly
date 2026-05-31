@@ -102,8 +102,6 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		"--providers.file.directory=/etc/traefik/dynamic",
 		"--entrypoints.web.address=:80",
 		"--entrypoints.websecure.address=:443",
-		"--entrypoints.web.http.redirections.entrypoint.to=websecure",
-		"--entrypoints.web.http.redirections.entrypoint.scheme=https",
 		"--certificatesresolvers.letsencrypt.acme.tlschallenge=true",
 		"--certificatesresolvers.letsencrypt.acme.email=admin@nanofly.io",
 		"--certificatesresolvers.letsencrypt.acme.storage=/acme.json",

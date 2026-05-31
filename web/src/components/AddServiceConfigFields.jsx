@@ -442,6 +442,12 @@ export function AddServiceConfigFields({
   }, [form.githubAppId, selectedResourceId]);
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  const handleGenerateDomain = () => {
+    const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+    const host = window.location.hostname;
+    const cleanHost = host.split(':')[0];
+    setForm(f => ({ ...f, domain: `http://${randomStr}.${cleanHost}.sslip.io` }));
+  };
   const builderType = parseBuilderValue(form.gitBuilder).type;
   const title = resourceMeta?.title || 'Application';
   const resourceId = selectedResourceId || '';
@@ -475,8 +481,28 @@ export function AddServiceConfigFields({
           <input className="form-input" placeholder="e.g. api, wordpress, worker" value={form.name} onChange={set('name')} />
         </div>
         <div className="form-group">
+          <label className="form-label">Description</label>
+          <input className="form-input" placeholder="A short description of this service" value={form.description || ''} onChange={set('description')} />
+        </div>
+        <div className="form-group">
           <label className="form-label">Domain</label>
-          <input className="form-input" placeholder="e.g. app.sslip.io" value={form.domain || ''} onChange={set('domain')} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              className="form-input"
+              placeholder="e.g. http://app.sslip.io"
+              value={form.domain || ''}
+              onChange={set('domain')}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleGenerateDomain}
+              style={{ border: '1px solid var(--border)', height: 38, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+            >
+              Generate Domain
+            </button>
+          </div>
           <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             Specify the domain name for this service. If left blank, NanoFly will generate an auto-routing sslip.io domain.
           </p>

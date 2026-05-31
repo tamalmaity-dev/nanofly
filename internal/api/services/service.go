@@ -2537,33 +2537,47 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 	}
 	defer rows.Close()
 
-	var domains []string
+	var sslipDomains []string
+	var customDomains []string
 	for rows.Next() {
 		var d string
-		if err := rows.Scan(&d); err == nil {
-			domains = append(domains, d)
+		if err := rows.Scan(&d); err == nil && d != "" {
+			d = strings.ToLower(strings.TrimSpace(d))
+			if strings.Contains(d, ".sslip.io") {
+				sslipDomains = append(sslipDomains, d)
+			} else {
+				customDomains = append(customDomains, d)
+			}
 		}
 	}
 
-	if len(domains) > 0 {
+	if len(sslipDomains) > 0 || len(customDomains) > 0 {
 		runArgs = append(runArgs, "-l", "traefik.enable=true")
-		rule := "Host(`" + strings.Join(domains, "`, `") + "`)"
-
-		// Clean router name (Traefik router names must be alphanumeric)
 		routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
-
-		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".rule="+rule)
-		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".entrypoints=websecure")
-		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".tls.certresolver=myresolver")
-
-		// HTTP redirect to HTTPS
-		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+rule)
-		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
-		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
-		runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
 
 		if exposedPort > 0 {
 			runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", routerName, exposedPort))
+		}
+
+		if len(sslipDomains) > 0 {
+			rule := "Host(`" + strings.Join(sslipDomains, "`, `") + "`)"
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-sslip.rule="+rule)
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-sslip.entrypoints=web")
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-sslip.service="+routerName)
+		}
+
+		if len(customDomains) > 0 {
+			rule := "Host(`" + strings.Join(customDomains, "`, `") + "`)"
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".rule="+rule)
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".entrypoints=websecure")
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".tls.certresolver=letsencrypt")
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".service="+routerName)
+
+			// HTTP redirect to HTTPS
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+rule)
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
+			runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
 		}
 	}
 

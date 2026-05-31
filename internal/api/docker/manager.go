@@ -843,8 +843,6 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 		"--providers.docker.exposedbydefault=false",
 		"--entrypoints.web.address=:80",
 		"--entrypoints.websecure.address=:443",
-		"--entrypoints.web.http.redirections.entrypoint.to=websecure",
-		"--entrypoints.web.http.redirections.entrypoint.scheme=https",
 		"--certificatesresolvers.letsencrypt.acme.tlschallenge=true",
 		"--certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json",
 	}

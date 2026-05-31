@@ -827,7 +827,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
       const host = window.location.hostname;
       const cleanHost = host.split(':')[0];
       const randomStr = Math.random().toString(36).substring(2, 10);
-      const generatedDomain = `${randomStr}.${cleanHost}.sslip.io`;
+      const generatedDomain = `http://${randomStr}.${cleanHost}.sslip.io`;
 
       setForm(f => ({
         ...f,
@@ -2054,121 +2054,95 @@ function WebhookPanel({ serviceId, githubAppId, gitRepoUrl }) {
 // Settings Panel 
 function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const toast = useToast();
-  const [name, setName] = useState(service.name);
-  const [description, setDescription] = useState(service.description || '');
-  const [image, setImage] = useState(service.image || '');
-  const [port, setPort] = useState(service.port || '');
-  const [gitUrl, setGitUrl] = useState(service.git_repo_url || '');
-  const [localPath, setLocalPath] = useState('');
-  const [branch, setBranch] = useState(service.git_branch || 'main');
-  const [gitBuilder, setGitBuilder] = useState(service.git_builder || 'auto');
-  const [appDirectory, setAppDirectory] = useState(service.app_directory || '');
-  const [runFile, setRunFile] = useState(service.run_file || '');
-  const [requirementsFile, setRequirementsFile] = useState(service.requirements_file || 'requirements.txt');
-  const [useVenv, setUseVenv] = useState(service.use_venv !== false);
-  const [startCommand, setStartCommand] = useState(service.start_command || '');
-  const [installCommand, setInstallCommand] = useState(service.install_command || '');
-  const [dockerArgs, setDockerArgs] = useState(service.docker_args || '');
-  const [gitToken, setGitToken] = useState(service.git_token || '');
-  const [sshKey, setSshKey] = useState(service.ssh_key || '');
-  const [dockerfileContent, setDockerfileContent] = useState(service.dockerfile_content || '');
-  const [dockerComposeContent, setDockerComposeContent] = useState(service.docker_compose_content || '');
-  const [dbUser, setDbUser] = useState(service.db_user || '');
-  const [dbPassword, setDbPassword] = useState(service.db_password || '');
-  const [dbName, setDbName] = useState(service.db_name || '');
-  const [resourceTier, setResourceTier] = useState(service.resource_tier || 'micro');
-  const [customMemory, setCustomMemory] = useState(service.custom_memory || 0);
-  const [customCPU, setCustomCPU] = useState(service.custom_cpu || 0);
-  const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [githubApps, setGithubApps] = useState([]);
 
-  // Domains & Direction handling
-  const [domainVal, setDomainVal] = useState('');
+  // Routing direction handling
   const [direction, setDirection] = useState('both');
 
-  useEffect(() => {
-    setName(service.name);
-    setDescription(service.description || '');
-    setImage(service.image || '');
-    setPort(service.port || '');
-    if (service.git_repo_url?.startsWith('file://')) {
-      setLocalPath(service.git_repo_url.replace('file://', ''));
-      setGitUrl('');
-    } else {
-      setLocalPath('');
-      setGitUrl(service.git_repo_url || '');
-    }
-    setBranch(service.git_branch || 'main');
-    setGitBuilder(service.git_builder || 'auto');
-    setAppDirectory(service.app_directory || '');
-    setRunFile(service.run_file || '');
-    setRequirementsFile(service.requirements_file || 'requirements.txt');
-    setUseVenv(service.use_venv !== false);
-    setStartCommand(service.start_command || '');
-    setInstallCommand(service.install_command || '');
-    setDockerArgs(service.docker_args || '');
-    setGitToken(service.git_token || '');
-    setSshKey(service.ssh_key || '');
-    setDockerfileContent(service.dockerfile_content || '');
-    setDockerComposeContent(service.docker_compose_content || '');
-    setDbUser(service.db_user || '');
-    setDbPassword(service.db_password || '');
-    setDbName(service.db_name || '');
-    setResourceTier(service.resource_tier || 'micro');
-    setCustomMemory(service.custom_memory || 0);
-    setCustomCPU(service.custom_cpu || 0);
+  const [form, setForm] = useState(() => ({
+    name: service.name,
+    description: service.description || '',
+    image: service.image || '',
+    port: service.port || '',
+    gitUrl: service.git_repo_url?.startsWith('file://') ? '' : (service.git_repo_url || ''),
+    localPath: service.git_repo_url?.startsWith('file://') ? service.git_repo_url.replace('file://', '') : '',
+    branch: service.git_branch || 'main',
+    gitBuilder: service.git_builder || 'auto',
+    appDirectory: service.app_directory || '',
+    runFile: service.run_file || '',
+    requirementsFile: service.requirements_file || 'requirements.txt',
+    useVenv: service.use_venv !== false,
+    startCommand: service.start_command || '',
+    installCommand: service.install_command || '',
+    dockerArgs: service.docker_args || '',
+    token: service.git_token || '',
+    sshKey: service.ssh_key || '',
+    githubAppId: service.github_app_id || '',
+    dockerfileContent: service.dockerfile_content || '',
+    dockerComposeContent: service.docker_compose_content || '',
+    dbUser: service.db_user || '',
+    dbPassword: service.db_password || '',
+    dbName: service.db_name || '',
+    resourceTier: service.resource_tier || 'micro',
+    customMemory: service.custom_memory || 0,
+    customCPU: service.custom_cpu || 0,
+    domain: '',
+  }));
 
+  useEffect(() => {
+    githubApi.listApps().then(apps => setGithubApps(apps || [])).catch(() => { });
+  }, []);
+
+  useEffect(() => {
     const matched = domains.find(d => d.service === service.name && d.project === project?.name);
-    setDomainVal(matched ? matched.domain : '');
+    let initialDomain = '';
+    if (matched) {
+      initialDomain = matched.domain;
+      // Ensure it starts with http:// or https://
+      if (!initialDomain.startsWith('http://') && !initialDomain.startsWith('https://')) {
+        initialDomain = `http://${initialDomain}`;
+      }
+    }
+
+    setForm({
+      name: service.name,
+      description: service.description || '',
+      image: service.image || '',
+      port: service.port || '',
+      gitUrl: service.git_repo_url?.startsWith('file://') ? '' : (service.git_repo_url || ''),
+      localPath: service.git_repo_url?.startsWith('file://') ? service.git_repo_url.replace('file://', '') : '',
+      branch: service.git_branch || 'main',
+      gitBuilder: service.git_builder || 'auto',
+      appDirectory: service.app_directory || '',
+      runFile: service.run_file || '',
+      requirementsFile: service.requirements_file || 'requirements.txt',
+      useVenv: service.use_venv !== false,
+      startCommand: service.start_command || '',
+      installCommand: service.install_command || '',
+      dockerArgs: service.docker_args || '',
+      token: service.git_token || '',
+      sshKey: service.ssh_key || '',
+      githubAppId: service.github_app_id || '',
+      dockerfileContent: service.dockerfile_content || '',
+      dockerComposeContent: service.docker_compose_content || '',
+      dbUser: service.db_user || '',
+      dbPassword: service.db_password || '',
+      dbName: service.db_name || '',
+      resourceTier: service.resource_tier || 'micro',
+      customMemory: service.custom_memory || 0,
+      customCPU: service.custom_cpu || 0,
+      domain: initialDomain,
+    });
+
     setDirection(matched && matched.direction ? matched.direction : 'both');
   }, [service, domains, project]);
 
-  const handleGenerateDomain = () => {
-    const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
-    const host = window.location.hostname;
-    const cleanHost = host.split(':')[0];
-    setDomainVal(`${randomStr}.${cleanHost}.sslip.io`);
-  };
-
-  const handleSetDirection = async () => {
-    const cleanNewDomain = domainVal.trim().replace(/^https?:\/\//, '');
-    if (!cleanNewDomain) {
-      setError('Please specify a domain before setting direction');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    setSuccess(false);
-    try {
-      const matched = domains.find(d => d.service === service.name && d.project === project?.name);
-      if (matched) {
-        await domainsApi.update(matched.id, {
-          domain: cleanNewDomain,
-          service: service.name,
-          project: project?.name || 'Production',
-          direction: direction
-        });
-      } else {
-        await domainsApi.create({
-          domain: cleanNewDomain,
-          service: service.name,
-          project: project?.name || 'Production',
-          direction: direction
-        });
-      }
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-      onUpdate();
-    } catch (err) {
-      setError(err.message || 'Failed to set direction');
-    }
-    setSaving(false);
-  };
-
   const handleSave = async () => {
-    if (!name.trim()) {
+    if (!form.name.trim()) {
       setError('Name is required');
       toast.error('Name is required');
       return;
@@ -2177,51 +2151,51 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setError('');
     setSuccess(false);
 
-    let finalGitUrl = gitUrl.trim();
+    let finalGitUrl = form.gitUrl.trim();
     if (service.type === 'app') {
-      const isLocalPathApp = service.git_repo_url?.startsWith('file://') || localPath.trim() !== '';
+      const isLocalPathApp = service.git_repo_url?.startsWith('file://') || form.localPath.trim() !== '';
       if (isLocalPathApp) {
-        if (!localPath.trim()) {
+        if (!form.localPath.trim()) {
           setError('Server folder path is required');
           toast.error('Server folder path is required');
           setSaving(false);
           return;
         }
-        finalGitUrl = 'file://' + localPath.trim();
+        finalGitUrl = 'file://' + form.localPath.trim();
       }
     }
 
     try {
       await servicesApi.update(service.id, {
-        name: name.trim(),
-        description: description.trim(),
-        image: image.trim(),
-        port: Number(port) || 0,
+        name: form.name.trim(),
+        description: form.description.trim(),
+        image: form.image.trim(),
+        port: Number(form.port) || 0,
         git_repo_url: finalGitUrl,
-        git_branch: branch.trim(),
-        git_builder: gitBuilder,
-        app_directory: appDirectory.trim(),
-        run_file: runFile.trim(),
-        requirements_file: requirementsFile.trim() || 'requirements.txt',
-        use_venv: !!useVenv,
-        start_command: startCommand.trim(),
-        install_command: installCommand.trim(),
-        docker_args: dockerArgs.trim(),
-        git_token: gitToken.trim(),
-        ssh_key: sshKey.trim(),
-        dockerfile_content: dockerfileContent,
-        docker_compose_content: dockerComposeContent,
-        db_user: dbUser.trim(),
-        db_password: dbPassword.trim(),
-        db_name: dbName.trim(),
-        tier_name: resourceTier,
-        custom_memory: Number(customMemory),
-        custom_cpu: Number(customCPU),
+        git_branch: form.branch.trim(),
+        git_builder: form.gitBuilder,
+        app_directory: form.appDirectory.trim(),
+        run_file: form.runFile.trim(),
+        requirements_file: form.requirementsFile.trim() || 'requirements.txt',
+        use_venv: !!form.useVenv,
+        start_command: form.startCommand.trim(),
+        install_command: form.installCommand.trim(),
+        docker_args: form.dockerArgs.trim(),
+        git_token: form.token.trim(),
+        ssh_key: form.sshKey.trim(),
+        dockerfile_content: form.dockerfileContent,
+        docker_compose_content: form.dockerComposeContent,
+        db_user: form.dbUser.trim(),
+        db_password: form.dbPassword.trim(),
+        db_name: form.dbName.trim(),
+        tier_name: form.resourceTier,
+        custom_memory: Number(form.customMemory),
+        custom_cpu: Number(form.customCPU),
       });
 
       // Update domain and direction in domains_v2 if modified
       const matched = domains.find(d => d.service === service.name && d.project === project?.name);
-      const cleanNewDomain = domainVal.trim().replace(/^https?:\/\//, ''); // strip protocol
+      const cleanNewDomain = form.domain.trim().replace(/^https?:\/\//, ''); // strip protocol
       const cleanOldDomain = matched ? matched.domain : '';
 
       if (cleanNewDomain !== cleanOldDomain) {
@@ -2231,7 +2205,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         if (cleanNewDomain) {
           await domainsApi.create({
             domain: cleanNewDomain,
-            service: service.name,
+            service: form.name.trim(),
             project: project?.name || 'Production',
             direction: direction
           });
@@ -2239,7 +2213,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       } else if (matched && matched.direction !== direction) {
         await domainsApi.update(matched.id, {
           domain: cleanNewDomain,
-          service: service.name,
+          service: form.name.trim(),
           project: project?.name || 'Production',
           direction: direction
         });
@@ -2258,8 +2232,8 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     setSaving(false);
   };
 
-  const isBuiltApp = !!(service.git_repo_url || service.local_path || localPath);
-  const isWordPress = (image || '').toLowerCase().includes('wordpress');
+  const isBuiltApp = !!(service.git_repo_url || service.local_path || form.localPath);
+  const isWordPress = (form.image || '').toLowerCase().includes('wordpress');
 
   const getResourceMeta = () => {
     if (service.type === 'database') {
@@ -2290,7 +2264,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       };
     }
 
-    const isLocal = service.git_repo_url?.startsWith('file://') || localPath;
+    const isLocal = service.git_repo_url?.startsWith('file://') || form.localPath;
 
     if (isBuiltApp && !isLocal) {
       if (service.github_app_id) {
@@ -2300,7 +2274,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           desc: 'Deploy public & private repositories through GitHub Apps integrations.'
         };
       }
-      if (sshKey) {
+      if (form.sshKey) {
         return {
           id: 'git-private-key',
           title: 'Private Repository (Deploy Key)',
@@ -2315,7 +2289,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     }
 
     if (isLocal) {
-      const currentBuilder = parseBuilderValue(gitBuilder).type;
+      const currentBuilder = parseBuilderValue(form.gitBuilder).type;
       if (currentBuilder === 'dockerfile') {
         return {
           id: 'dockerfile',
@@ -2345,6 +2319,8 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   };
 
   const resourceMeta = getResourceMeta();
+  const subType = resourceMeta.id.startsWith('git-') ? 'github' : (['dockerfile', 'docker-compose', 'local-folder', 'node-template', 'python-template'].includes(resourceMeta.id) ? 'local' : 'docker');
+  const isPrivate = service.github_app_id || resourceMeta.id === 'git-private-key';
 
   const ConfigSection = ({ title, desc, children }) => (
     <div
@@ -2369,86 +2345,6 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8, maxWidth: 900 }}>
-      {/* Template Header Card */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          padding: '1rem 1.25rem',
-          background: 'linear-gradient(135deg, rgba(79,110,247,0.12) 0%, rgba(79,110,247,0.04) 100%)',
-          border: '1px solid rgba(79,110,247,0.2)',
-          borderRadius: 'var(--radius)',
-          marginBottom: '1.25rem',
-        }}
-      >
-        <ResourceIcon type={resourceMeta.id} size={40} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{resourceMeta.title}</div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-            {resourceMeta.desc}
-          </div>
-        </div>
-        <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>production</span>
-      </div>
-
-      <ConfigSection title="Basics" desc="Name, description, and resource tier limits for this service.">
-        <div className="form-group">
-          <label className="form-label">Service name *</label>
-          <input className="form-input" placeholder="e.g. api, wordpress, worker" value={name} onChange={e => setName(e.target.value)} />
-        </div>
-        <div className="form-group">
-          <label className="form-label">Description</label>
-          <input className="form-input" placeholder="A short description of this service" value={description} onChange={e => setDescription(e.target.value)} />
-        </div>
-        <div className="form-group">
-          <label className="form-label">Resource tier</label>
-          <select className="form-input" value={resourceTier} onChange={e => setResourceTier(e.target.value)}>
-            <option value="nano">Nano (128MB / 0.25 CPU)</option>
-            <option value="micro">Micro (256MB / 0.5 CPU) - Default</option>
-            <option value="standard">Standard (512MB / 1.0 CPU)</option>
-            <option value="large">Large (1GB / 2.0 CPU)</option>
-            <option value="unlimited">Unlimited (No Limits)</option>
-            <option value="custom">Custom (Set Your Own Limits)</option>
-          </select>
-        </div>
-        {resourceTier === 'custom' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                Memory Limit (MB)
-                <Tooltip content="Maximum memory the container can use. 512 MB = 0.5 GB">
-                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-                </Tooltip>
-              </label>
-              <input
-                type="number"
-                className="form-input form-input-sm"
-                value={customMemory ? customMemory / (1024 * 1024) : ''}
-                onChange={e => setCustomMemory(Number(e.target.value) * 1024 * 1024)}
-                placeholder="e.g., 512"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                CPU Limit (Cores)
-                <Tooltip content="Maximum CPU cores the container can use. 1.0 = 1 full core, 0.5 = half a core">
-                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-                </Tooltip>
-              </label>
-              <input
-                type="number"
-                step="0.25"
-                className="form-input form-input-sm"
-                value={customCPU || ''}
-                onChange={e => setCustomCPU(Number(e.target.value))}
-                placeholder="e.g., 1.5"
-              />
-            </div>
-          </div>
-        )}
-      </ConfigSection>
-
       {service.type === 'database' ? (
         <ConfigSection title="Database Credentials" desc="Keep these in sync with your running database container.">
           <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
@@ -2457,7 +2353,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '0.75rem' }}>Username</label>
-              <input className="form-input" value={dbUser} onChange={e => setDbUser(e.target.value)} />
+              <input className="form-input" value={form.dbUser} onChange={e => setForm(prev => ({ ...prev, dbUser: e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '0.75rem' }}>Password</label>
@@ -2465,8 +2361,8 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
                 <input
                   className="form-input"
                   type={showPassword ? "text" : "password"}
-                  value={dbPassword}
-                  onChange={e => setDbPassword(e.target.value)}
+                  value={form.dbPassword}
+                  onChange={e => setForm(prev => ({ ...prev, dbPassword: e.target.value }))}
                   style={{ flex: 1 }}
                 />
                 <Button variant="ghost" size="sm" type="button" onClick={() => setShowPassword(!showPassword)} style={{ height: 38, width: 38, padding: 0 }}>
@@ -2477,355 +2373,44 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
           </div>
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.75rem' }}>Initial Database</label>
-            <input className="form-input" value={dbName} onChange={e => setDbName(e.target.value)} />
+            <input className="form-input" value={form.dbName} onChange={e => setForm(prev => ({ ...prev, dbName: e.target.value }))} />
           </div>
           <div className="form-group">
             <label className="form-label">Database Engine</label>
-            <input className="form-input" value={image} onChange={e => setImage(e.target.value)} placeholder="e.g. postgres, redis, mysql" />
+            <input className="form-input" value={form.image} onChange={e => setForm(prev => ({ ...prev, image: e.target.value }))} placeholder="e.g. postgres, redis, mysql" />
           </div>
         </ConfigSection>
       ) : (
         <>
-          {isWordPress && (
-            <ConfigSection title="WordPress runtime" desc="Official WordPress image with PHP and Apache.">
-              <div className="form-group">
-                <label className="form-label">WordPress / PHP version *</label>
-                <select className="form-input" value={image} onChange={e => setImage(e.target.value)}>
-                  {WORDPRESS_VERSIONS.map(v => (
-                    <option key={v.value} value={v.value}>{v.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Host port</label>
-                <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="8080" />
-              </div>
-            </ConfigSection>
-          )}
+          <AddServiceConfigFields
+            projectId={project?.id}
+            resourceMeta={resourceMeta}
+            form={form}
+            setForm={setForm}
+            subType={subType}
+            isPrivate={isPrivate}
+            selectedResourceId={resourceMeta.id}
+            githubApps={githubApps}
+          />
 
-          {!isWordPress && !isBuiltApp && (
-            <ConfigSection title="Docker image" desc="Pull and run a ready-made image from Docker Hub or your registry.">
-              <div className="form-group">
-                <label className="form-label">Image name *</label>
-                <input className="form-input" placeholder="nginx:alpine" value={image} onChange={e => setImage(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Host port</label>
-                <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="80" />
-              </div>
-            </ConfigSection>
-          )}
-
-          {isBuiltApp && (
-            <>
-              {(!service.git_repo_url || !service.git_repo_url.startsWith('file://')) && !localPath ? (
-                <ConfigSection title="Git repository" desc="Clone and build from your remote repository.">
-                  <div className="form-group">
-                    <label className="form-label">Repository URL *</label>
-                    <input className="form-input" placeholder="https://github.com/user/repo" value={gitUrl} onChange={e => setGitUrl(e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Branch</label>
-                    <input className="form-input" value={branch} onChange={e => setBranch(e.target.value)} placeholder="main" />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">GitHub token / Access Token (optional)</label>
-                    <input className="form-input" type="password" value={gitToken} onChange={e => setGitToken(e.target.value)} placeholder="Leave blank to keep unchanged" />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">SSH private key *</label>
-                    <textarea
-                      className="form-input"
-                      style={{ fontFamily: 'monospace', height: 100, fontSize: '0.8rem' }}
-                      value={sshKey}
-                      onChange={e => setSshKey(e.target.value)}
-                      placeholder="Leave blank to keep unchanged"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Container port</label>
-                    <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="3000" />
-                  </div>
-                </ConfigSection>
-              ) : (
-                <ConfigSection title="Local folder" desc="Point to any folder; pick how NanoFly should build and run it.">
-                  <div className="form-group">
-                    <label className="form-label">Server folder path *</label>
-                    <input
-                      className="form-input"
-                      placeholder="/opt/nanofly/apps/my-app"
-                      value={localPath}
-                      onChange={e => setLocalPath(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Container port</label>
-                    <input className="form-input" value={port} onChange={e => setPort(e.target.value)} placeholder="3000" />
-                  </div>
-                </ConfigSection>
-              )}
-
-              <ConfigSection title="Build Method" desc="Select the builder and compilation configurations.">
-                <div className="form-group">
-                  <label className="form-label">Build Method</label>
-                  <select
-                    className="form-input"
-                    value={parseBuilderValue(gitBuilder).type}
-                    onChange={e => {
-                      const val = e.target.value;
-                      let finalVal = val;
-                      if (val === 'node') finalVal = 'node:22-alpine';
-                      else if (val === 'python') finalVal = 'python:3.11-slim';
-                      else if (val === 'go') finalVal = 'golang:1.22-alpine';
-                      else if (val === 'php') finalVal = 'php:8.2-apache';
-                      setGitBuilder(finalVal);
-                      if (val === 'dockerfile' || val === 'docker-compose') {
-                        setUseVenv(false);
-                      }
-                    }}
-                  >
-                    <option value="auto">Auto-detect (Recommended)</option>
-                    <option value="node">Node.js</option>
-                    <option value="python">Python</option>
-                    <option value="go">Go</option>
-                    <option value="php">PHP</option>
-                    <option value="static">Static HTML</option>
-                    <option value="dockerfile">Dockerfile</option>
-                    <option value="docker-compose">Docker Compose</option>
-                    <option value="nixpacks">Nixpacks (Auto-build)</option>
-                  </select>
-                </div>
-
-                {['node', 'python', 'go', 'php'].includes(parseBuilderValue(gitBuilder).type) && (
-                  <>
-                    <div className="form-group">
-                      <label className="form-label">Runtime Version</label>
-                      <select
-                        className="form-input"
-                        value={gitBuilder}
-                        onChange={e => setGitBuilder(e.target.value)}
-                      >
-                        {getSvcRuntimeVersions(parseBuilderValue(gitBuilder).type).map(v => (
-                          <option key={v.value} value={v.value}>{v.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                      <div className="form-group">
-                        <label className="form-label">App Directory</label>
-                        <input className="form-input" placeholder="Leave blank for project root" value={appDirectory} onChange={e => setAppDirectory(e.target.value)} />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">{parseBuilderValue(gitBuilder).type === 'node' ? 'Entry file' : 'Run file'}</label>
-                        <input
-                          className="form-input"
-                          placeholder={parseBuilderValue(gitBuilder).type === 'node' ? 'index.js or server.js' : parseBuilderValue(gitBuilder).type === 'python' ? 'app.py' : 'main.go'}
-                          value={runFile}
-                          onChange={e => setRunFile(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    {parseBuilderValue(gitBuilder).type === 'python' && (
-                      <div className="form-group">
-                        <label className="form-label">Requirements file</label>
-                        <input className="form-input" value={requirementsFile} onChange={e => setRequirementsFile(e.target.value)} placeholder="requirements.txt" />
-                      </div>
-                    )}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                      <div className="form-group">
-                        <label className="form-label">Install command</label>
-                        <input className="form-input" value={installCommand} onChange={e => setInstallCommand(e.target.value)} placeholder="Auto if blank" />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Start command</label>
-                        <input className="form-input" value={startCommand} onChange={e => setStartCommand(e.target.value)} placeholder="Auto if blank" />
-                      </div>
-                    </div>
-                    {parseBuilderValue(gitBuilder).type === 'python' && (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={useVenv} onChange={e => setUseVenv(e.target.checked)} />
-                        Use Python virtual environment in container
-                      </label>
-                    )}
-                  </>
-                )}
-
-                {parseBuilderValue(gitBuilder).type === 'nixpacks' && (
-                  <div style={{ padding: '0.85rem', background: 'rgba(34,197,94,0.08)', borderRadius: 8, fontSize: '0.85rem' }}>
-                    <strong>Nixpacks</strong> builds from the directory automatically.
-                  </div>
-                )}
-
-                {parseBuilderValue(gitBuilder).type === 'auto' && (
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-                    Auto-detect scans for package.json, requirements.txt, go.mod, Dockerfile, or docker-compose.yml.
-                  </p>
-                )}
-              </ConfigSection>
-
-              {parseBuilderValue(gitBuilder).type === 'dockerfile' && (
-                <ConfigSection title="Dockerfile" desc="Edit the Dockerfile NanoFly will use to build this app. Saved to your project folder on deploy.">
-                  <div className="form-group">
-                    <label className="form-label">Load starter template</label>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {['node', 'python', 'go', 'php', 'generic'].map(lang => (
-                        <button
-                          key={lang}
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          style={{ border: '1px solid var(--border)', textTransform: 'capitalize' }}
-                          onClick={() => {
-                            let content = '';
-                            switch (lang) {
-                              case 'node': content = DOCKERFILE_TEMPLATES.node; break;
-                              case 'python': content = DOCKERFILE_TEMPLATES.python; break;
-                              case 'go': content = DOCKERFILE_TEMPLATES.go; break;
-                              case 'php': content = DOCKERFILE_TEMPLATES.php; break;
-                              default: content = DOCKERFILE_TEMPLATES.generic;
-                            }
-                            setDockerfileContent(content);
-                          }}
-                        >
-                          {lang}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <CodeEditor
-                    value={dockerfileContent}
-                    onChange={val => setDockerfileContent(val)}
-                    language="docker"
-                    style={{ height: 260 }}
-                  />
-                </ConfigSection>
-              )}
-
-              {parseBuilderValue(gitBuilder).type === 'docker-compose' && (
-                <ConfigSection title="Docker Compose" desc="Define services in docker-compose.yml. NanoFly runs compose up for this project.">
-                  <CodeEditor
-                    value={dockerComposeContent}
-                    onChange={val => setDockerComposeContent(val)}
-                    language="yaml"
-                    style={{ height: 280 }}
-                  />
-                </ConfigSection>
-              )}
-
-              <ConfigSection title="Advanced" desc="Extra Docker flags for hardware or networking.">
-                <div className="form-group">
-                  <label className="form-label">Docker run arguments</label>
-                  <input
-                    className="form-input"
-                    value={dockerArgs}
-                    onChange={e => setDockerArgs(e.target.value)}
-                    placeholder="--network host"
-                    style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-                  />
-                </div>
-              </ConfigSection>
-
-              {((service.git_repo_url && service.git_repo_url.startsWith('file://')) || localPath) && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8, padding: '0 8px' }}>
-                  <Button
-                    variant="outline" color="amber" size="sm"
-                    onClick={async () => {
-                      const localPathVal = localPath.trim() || (service.git_repo_url ? service.git_repo_url.replace('file://', '') : '');
-                      const builderType = parseBuilderValue(gitBuilder).type;
-                      const baseImage = gitBuilder.includes(':') ? gitBuilder : (
-                        builderType === 'python' ? 'python:3.11-slim' :
-                          builderType === 'node' ? 'node:22-alpine' :
-                            builderType === 'go' ? 'golang:1.22-alpine' :
-                              builderType === 'php' ? 'php:8.2-apache' : 'ubuntu:22.04'
-                      );
-                      const runCmd = startCommand.trim() || (
-                        builderType === 'python' ? `python ${runFile || 'app.py'}` :
-                          builderType === 'node' ? 'npm start' :
-                            builderType === 'go' ? 'go run .' :
-                              builderType === 'php' ? 'apache2-foreground' : './start.sh'
-                      );
-                      const installCmd = installCommand.trim() || (
-                        builderType === 'python' ? 'pip install -r requirements.txt' :
-                          builderType === 'node' ? 'npm install --production' :
-                            builderType === 'go' ? 'go mod download' : ''
-                      );
-                      const portLine = port > 0 ? `EXPOSE ${port}\nENV PORT=${port}` : '';
-                      const installLine = installCmd ? `RUN ${installCmd}` : '';
-                      const content = [
-                        `FROM ${baseImage}`,
-                        'WORKDIR /app',
-                        'COPY . .',
-                        installLine,
-                        portLine,
-                        `CMD ["sh", "-c", "${runCmd}"]`,
-                      ].filter(Boolean).join('\n');
-                      try {
-                        await filesApi.save(localPathVal + '/Dockerfile', content);
-                        toast.success('Dockerfile created successfully');
-                      } catch (e) { toast.error('Failed to create Dockerfile: ' + e.message); }
-                    }}
-                  >
-                    📄 Initialize Dockerfile Template
-                  </Button>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Creates a starter Dockerfile in the project folder</span>
-                </div>
-              )}
-            </>
-          )}
-
-          <ConfigSection title="Domain & Routing" desc="Public URL and redirect behavior. Point your DNS A record to your server IP.">
-            <div className="form-group">
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                Domains
-                <Tooltip content="Add custom domains. Point your DNS A record to your server IP.">
-                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-                </Tooltip>
-              </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  className="form-input"
-                  value={domainVal}
-                  onChange={e => setDomainVal(e.target.value)}
-                  placeholder="e.g. app.yourdomain.com"
-                  style={{ flex: 1 }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={handleGenerateDomain}
-                  style={{ border: '1px solid var(--border)', height: 38, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                >
-                  Generate Domain
-                </button>
-              </div>
-            </div>
-
-            <div className="form-group">
+          <ConfigSection title="Routing Direction" desc="Select how requests to www and non-www subdomains are handled.">
+            <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 Direction
                 <Tooltip content="Select how requests to www and non-www subdomains are handled.">
                   <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
                 </Tooltip>
               </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <select
-                  className="form-input"
-                  value={direction}
-                  onChange={e => setDirection(e.target.value)}
-                  style={{ flex: 1 }}
-                >
-                  <option value="both">Allow www & non-www.</option>
-                  <option value="www">Redirect to www</option>
-                  <option value="non-www">Redirect to non-www</option>
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={handleSetDirection}
-                  style={{ border: '1px solid var(--border)', height: 38, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                >
-                  Set Direction
-                </button>
-              </div>
+              <select
+                className="form-input"
+                value={direction}
+                onChange={e => setDirection(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="both">Allow www & non-www.</option>
+                <option value="www">Redirect to www</option>
+                <option value="non-www">Redirect to non-www</option>
+              </select>
             </div>
           </ConfigSection>
         </>
@@ -3421,9 +3006,10 @@ export default function ProjectDetail() {
     loadingStates.stopping === svcId ||
     loadingStates.deleting === svcId;
 
+  
   useEffect(() => {
     load();
-    if (activeTab !== 'settings' && activeTab !== 'resources' && activeTab !== 'envvars') {
+    if (activeTab !== 'configuration' && activeTab !== 'resources' && activeTab !== 'envvars') {
       const t = setInterval(load, 5000);
       return () => clearInterval(t);
     }
@@ -3809,7 +3395,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
               { id: 'backup', label: 'Backup & Restore', icon: Database },
-              { id: 'settings', label: 'Configuration', icon: Settings },
+              { id: 'configuration', label: 'Configuration', icon: Settings },
             ]}
           >
             <TabsContent value="connection">
@@ -3853,7 +3439,7 @@ export default function ProjectDetail() {
                 <SourceFilesPanel service={selectedSvc} />
               </TabsContent>
             )}
-            <TabsContent value="settings">
+            <TabsContent value="configuration">
               <SettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />
             </TabsContent>
             <TabsContent value="backup">
