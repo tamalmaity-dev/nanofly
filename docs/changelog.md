@@ -4,6 +4,17 @@ This document tracks all version iterations, key fixes, and feature additions ch
 
 ---
 
+## 🚀 v0.3.20.19-beta — Expanded Layout, First-tab Configuration, and Docker Image Build Packs
+
+### 🌟 Key Features
+*   **Expanded Card Layout**: Removed the hardcoded width limits (`maxWidth: 900`) for the service settings panel, letting the form expand to fill the full card layout and utilize available horizontal space.
+*   **First-tab Configuration Navigation**: Ordered the "Configuration" tab as the first tab in the list for application services and configured default switching behavior to focus on configuration when opening services.
+*   **Docker Image Build Packs Selector**: Exposed the build method selector dropdown for "Docker Image Apps" as well, allowing seamless transition from a pre-built Docker image to building from source folders via Nixpacks, Dockerfile, Docker Compose, or static files.
+*   **Inline Code Editors for Docker Images**: Choosing Dockerfile or Docker Compose build method inside a Docker Image App immediately displays the inline code area editor and local path fields.
+*   **Cleaned Redundant Variables UI**: Excluded the redundant "Environment Variables" section from the configuration tab to focus on deployment properties since environment variable editing has its own dedicated tab.
+
+---
+
 ## 🚀 v0.3.20.18-beta — Unified Local Project Templates, Docker Code Area & Advanced Service Configurations
 
 ### 🌟 Key Features

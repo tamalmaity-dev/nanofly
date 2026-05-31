@@ -94,7 +94,7 @@ services:
     restart: unless-stopped`;
 
 export const parseBuilderValue = (val) => {
-  if (!val || val === 'auto' || val === 'dockerfile' || val === 'docker-compose' || val === 'nixpacks' || val === 'static') {
+  if (!val || val === 'auto' || val === 'dockerfile' || val === 'docker-compose' || val === 'nixpacks' || val === 'static' || val === 'docker-image') {
     return { type: val || 'auto', version: val || '' };
   }
   if (val.includes(':')) {
@@ -239,6 +239,7 @@ function BuilderTypeSelect({ value, onChange, lockTo }) {
         { id: 'dockerfile', label: 'Dockerfile' },
         { id: 'docker-compose', label: 'Docker Compose' },
         { id: 'nixpacks', label: 'Nixpacks (Auto-build)' },
+        { id: 'docker-image', label: 'Pre-built Docker Image' },
       ];
 
   const currentType = parseBuilderValue(value).type;
@@ -423,6 +424,7 @@ export function AddServiceConfigFields({
   isPrivate,
   selectedResourceId,
   githubApps,
+  hideEnvVars,
 }) {
   const [repos, setRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -670,63 +672,59 @@ export function AddServiceConfigFields({
         </ConfigSection>
       )}
 
-      {/* ——— Pre-built Docker image ——— */}
-      {resourceId === 'docker-image' && (
-        <ConfigSection title="Docker image" desc="Pull and run a ready-made image from Docker Hub or your registry.">
-          <div className="form-group">
-            <label className="form-label">Image name *</label>
-            <input className="form-input" placeholder="nginx:alpine" value={form.image} onChange={set('image')} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Host port</label>
-            <input className="form-input" value={form.port} onChange={set('port')} placeholder="80" />
-          </div>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Need a custom build? Use the <strong>Dockerfile</strong> or <strong>Local Folder</strong> template instead — those let you edit a Dockerfile before deploy.
-          </p>
-        </ConfigSection>
-      )}
-
-      {/* ——— Node template ——— */}
-      {resourceId === 'node-template' && (
-        <ConfigSection title="Node.js project" desc="Node.js Alpine runtime — use Local Folder template to switch to Dockerfile, Compose, or Nixpacks.">
-          <LocalPathFields form={form} setForm={setForm} required />
-          <div className="form-group">
-            <label className="form-label">Container port</label>
-            <input className="form-input" value={form.port} onChange={set('port')} placeholder="3000" />
-          </div>
-          <LanguageFields builderType="node" form={form} setForm={setForm} />
-        </ConfigSection>
-      )}
-
-      {/* ——— Python template ——— */}
-      {resourceId === 'python-template' && (
-        <ConfigSection title="Python project" desc="Python slim/Alpine runtime — use Local Folder for Dockerfile, Compose, or Nixpacks.">
-          <LocalPathFields form={form} setForm={setForm} required />
-          <div className="form-group">
-            <label className="form-label">Container port</label>
-            <input className="form-input" value={form.port} onChange={set('port')} placeholder="8000" />
-          </div>
-          <LanguageFields builderType="python" form={form} setForm={setForm} />
-        </ConfigSection>
-      )}
-
-      {/* ——— Local folder, Dockerfile, Compose projects ——— */}
-      {['local-folder', 'dockerfile', 'docker-compose'].includes(resourceId) && (
+      {/* ——— Local folder, Dockerfile, Compose, and Prebuilt Docker Image projects ——— */}
+      {['local-folder', 'dockerfile', 'docker-compose', 'docker-image'].includes(resourceId) && (
         <>
-          <ConfigSection title="Project folder" desc="Folder that contains your app/configuration.">
-            <LocalPathFields form={form} setForm={setForm} required />
-            <div className="form-group">
-              <label className="form-label">Container port</label>
-              <input className="form-input" value={form.port} onChange={set('port')} placeholder="8080" />
-            </div>
-            <BuilderTypeSelect value={form.gitBuilder} onChange={val => setForm(f => ({
-              ...f,
-              gitBuilder: val,
-              useVenv: val.startsWith('python') ? f.useVenv : false,
-            }))} />
-            {['node', 'python', 'go', 'php'].includes(builderType) && (
-              <LanguageFields builderType={builderType} form={form} setForm={setForm} />
+          <ConfigSection title="Project deployment" desc="Configure your app's deployment source, build method, and context.">
+            <BuilderTypeSelect value={form.gitBuilder} onChange={val => setForm(f => {
+              const next = { ...f, gitBuilder: val };
+              if (val === 'docker-image') {
+                next.localPath = '';
+                next.gitUrl = '';
+              } else if (!f.localPath && !f.gitUrl) {
+                // Initialize default local path if switching from docker-image to a builder
+                next.localPath = `/opt/nanofly/apps/${f.name || 'app'}`;
+              }
+              return next;
+            })} />
+
+            {builderType === 'docker-image' ? (
+              <>
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Image name *
+                    <Tooltip content="E.g. nginx:alpine or registry.hub.docker.com/library/nginx:alpine">
+                      <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                    </Tooltip>
+                  </label>
+                  <input className="form-input" placeholder="nginx:alpine" value={form.image} onChange={set('image')} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Host port / Container port
+                    <Tooltip content="The port on which your container runs and is exposed to the reverse proxy routing.">
+                      <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                    </Tooltip>
+                  </label>
+                  <input className="form-input" value={form.port} onChange={set('port')} placeholder="80" />
+                </div>
+              </>
+            ) : (
+              <>
+                <LocalPathFields form={form} setForm={setForm} required />
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Container port
+                    <Tooltip content="The port on which your container runs inside the network.">
+                      <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                    </Tooltip>
+                  </label>
+                  <input className="form-input" value={form.port} onChange={set('port')} placeholder="8080" />
+                </div>
+                {['node', 'python', 'go', 'php'].includes(builderType) && (
+                  <LanguageFields builderType={builderType} form={form} setForm={setForm} />
+                )}
+              </>
             )}
           </ConfigSection>
           {builderType === 'dockerfile' && <DockerfileEditor form={form} setForm={setForm} showTemplatePicker />}
@@ -842,7 +840,7 @@ export function AddServiceConfigFields({
         </ConfigSection>
       )}
 
-      {resourceId !== 'wordpress' && (
+      {resourceId !== 'wordpress' && !hideEnvVars && (
         <ConfigSection title="Environment variables" desc="Optional KEY=value pairs, one per line.">
           <textarea
             className="form-input"

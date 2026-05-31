@@ -2388,7 +2388,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8, maxWidth: 900 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8, maxWidth: '100%' }}>
       {service.type === 'database' ? (
         <ConfigSection title="Database Credentials" desc="Keep these in sync with your running database container.">
           <div style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)', borderRadius: 8, padding: '0.75rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
@@ -2435,6 +2435,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
             isPrivate={isPrivate}
             selectedResourceId={resourceMeta.id}
             githubApps={githubApps}
+            hideEnvVars={true}
           />
 
           <ConfigSection title="Routing Direction" desc="Select how requests to www and non-www subdomains are handled.">
@@ -2984,7 +2985,7 @@ export default function ProjectDetail() {
   const [domains, setDomains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [activeTab, setActiveTab] = useState('deployments');
+  const [activeTab, setActiveTab] = useState('configuration');
   const [activeSvc, setActiveSvc] = useState(null);
   const [deletingSvc, setDeletingSvc] = useState(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
@@ -3218,7 +3219,7 @@ export default function ProjectDetail() {
       members: [stack.app, ...(stack.databases || [])].filter(Boolean),
       onOpen: () => {
         setActiveSvc(stack.app.id);
-        setActiveTab('deployments');
+        setActiveTab('configuration');
       },
     })),
     ...services.filter(s => !groupedIds.has(s.id)).map(svc => ({
@@ -3231,7 +3232,7 @@ export default function ProjectDetail() {
       members: [svc],
       onOpen: () => {
         setActiveSvc(svc.id);
-        setActiveTab(svc.type === 'database' ? 'connection' : 'deployments');
+        setActiveTab(svc.type === 'database' ? 'connection' : 'configuration');
       },
     })),
   ];
@@ -3429,6 +3430,7 @@ export default function ProjectDetail() {
             value={activeTab}
             onValueChange={setActiveTab}
             items={[
+              ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
               ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
               { id: 'deployments', label: 'Deployments' },
               { id: 'logs', label: 'Logs' },
@@ -3439,7 +3441,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
               { id: 'backup', label: 'Backup & Restore', icon: Database },
-              { id: 'configuration', label: 'Configuration', icon: Settings },
+              ...(selectedSvc.type === 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
             ]}
           >
             <TabsContent value="connection">
@@ -3732,7 +3734,7 @@ export default function ProjectDetail() {
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Applications</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                     {standaloneApps.map(s => (
-                      <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('deployments'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
+                      <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('configuration'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
                         <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
                       </div>
                     ))}
