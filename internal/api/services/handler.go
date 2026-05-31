@@ -74,7 +74,18 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		SSHKey               string   `json:"ssh_key"`
 		DockerfileContent    string   `json:"dockerfile_content"`
 		DockerComposeContent string   `json:"docker_compose_content"`
-		TierName            string   `json:"tier_name"`
+		TierName             string   `json:"tier_name"`
+		DockerfileLocation   string   `json:"dockerfile_location"`
+		BuildStageTarget     string   `json:"build_stage_target"`
+		BuildCustomOptions   string   `json:"build_custom_options"`
+		BaseDirectory        string   `json:"base_directory"`
+		DockerRegistryImage  string   `json:"docker_registry_image"`
+		DockerRegistryTag    string   `json:"docker_registry_tag"`
+		PortsExposes         int      `json:"ports_exposes"`
+		PortMappings         string   `json:"port_mappings"`
+		NetworkAliases       string   `json:"network_aliases"`
+		BuildWatchPaths      string   `json:"build_watch_paths"`
+		BuildUseServer       bool     `json:"build_use_server"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -113,6 +124,17 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		DockerfileContent:    req.DockerfileContent,
 		DockerComposeContent: req.DockerComposeContent,
 		TierName:             req.TierName,
+		DockerfileLocation:   req.DockerfileLocation,
+		BuildStageTarget:     req.BuildStageTarget,
+		BuildCustomOptions:   req.BuildCustomOptions,
+		BaseDirectory:        req.BaseDirectory,
+		DockerRegistryImage:  req.DockerRegistryImage,
+		DockerRegistryTag:    req.DockerRegistryTag,
+		PortsExposes:         req.PortsExposes,
+		PortMappings:         req.PortMappings,
+		NetworkAliases:       req.NetworkAliases,
+		BuildWatchPaths:      req.BuildWatchPaths,
+		BuildUseServer:       req.BuildUseServer,
 	})
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

@@ -87,6 +87,17 @@ type Service struct {
 	DockerComposeContent string  `json:"docker_compose_content,omitempty"`
 	GitToken             string  `json:"git_token,omitempty"`
 	SSHKey               string  `json:"ssh_key,omitempty"`
+	DockerfileLocation   string  `json:"dockerfile_location,omitempty"`
+	BuildStageTarget     string  `json:"build_stage_target,omitempty"`
+	BuildCustomOptions   string  `json:"build_custom_options,omitempty"`
+	BaseDirectory        string  `json:"base_directory,omitempty"`
+	DockerRegistryImage  string  `json:"docker_registry_image,omitempty"`
+	DockerRegistryTag    string  `json:"docker_registry_tag,omitempty"`
+	PortsExposes         int     `json:"ports_exposes,omitempty"`
+	PortMappings         string  `json:"port_mappings,omitempty"`
+	NetworkAliases       string  `json:"network_aliases,omitempty"`
+	BuildWatchPaths      string  `json:"build_watch_paths,omitempty"`
+	BuildUseServer       bool    `json:"build_use_server"`
 	ConnString           string  `json:"conn_string,omitempty"` // databases only (encrypted stub)
 
 	// Real-time resource metrics (populated in memory)
@@ -465,7 +476,10 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
 		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
 		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
-		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id
+		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id,
+		       COALESCE(s.dockerfile_location,''), COALESCE(s.build_stage_target,''), COALESCE(s.build_custom_options,''), COALESCE(s.base_directory,''),
+		       COALESCE(s.docker_registry_image,''), COALESCE(s.docker_registry_tag,''), COALESCE(s.ports_exposes,0), COALESCE(s.port_mappings,''),
+		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0)
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -476,6 +490,9 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.Image, &s.Builder, &s.StartCommand, &s.InstallCommand,
 		&s.AppDirectory, &s.RunFile, &s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
 		&s.DockerfileContent, &s.DockerComposeContent, &s.GitToken, &s.SSHKey, &s.GitHubAppID,
+		&s.DockerfileLocation, &s.BuildStageTarget, &s.BuildCustomOptions, &s.BaseDirectory,
+		&s.DockerRegistryImage, &s.DockerRegistryTag, &s.PortsExposes, &s.PortMappings,
+		&s.NetworkAliases, &s.BuildWatchPaths, &s.BuildUseServer,
 	)
 	if err != nil {
 		return nil, err
@@ -538,11 +555,22 @@ type CreateAppReq struct {
 	AppDirectory         string
 	RunFile              string
 	RequirementsFile     string
-	UseVenv              bool
-	DockerArgs           string
-	DockerfileContent    string
-	DockerComposeContent string
-	TierName             string
+	UseVenv              bool    `json:"use_venv"`
+	DockerArgs           string  `json:"docker_args"`
+	DockerfileContent    string  `json:"dockerfile_content"`
+	DockerComposeContent string  `json:"docker_compose_content"`
+	TierName             string  `json:"tier_name"`
+	DockerfileLocation   string  `json:"dockerfile_location"`
+	BuildStageTarget     string  `json:"build_stage_target"`
+	BuildCustomOptions   string  `json:"build_custom_options"`
+	BaseDirectory        string  `json:"base_directory"`
+	DockerRegistryImage  string  `json:"docker_registry_image"`
+	DockerRegistryTag    string  `json:"docker_registry_tag"`
+	PortsExposes         int     `json:"ports_exposes"`
+	PortMappings         string  `json:"port_mappings"`
+	NetworkAliases       string  `json:"network_aliases"`
+	BuildWatchPaths      string  `json:"build_watch_paths"`
+	BuildUseServer       bool    `json:"build_use_server"`
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -552,14 +580,18 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 		INSERT INTO services (
 			project_id, name, type, status, port, image, resource_tier,
 			start_command, install_command, app_directory, run_file, requirements_file, use_venv, docker_args,
-			dockerfile_content, docker_compose_content
+			dockerfile_content, docker_compose_content, dockerfile_location, build_stage_target, build_custom_options,
+			base_directory, docker_registry_image, docker_registry_tag, ports_exposes, port_mappings, network_aliases,
+			build_watch_paths, build_use_server
 		)
-		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`, req.ProjectID, req.Name, req.Port, req.Image, req.TierName,
 		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
 		defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
-		req.DockerfileContent, req.DockerComposeContent,
+		req.DockerfileContent, req.DockerComposeContent, req.DockerfileLocation, req.BuildStageTarget, req.BuildCustomOptions,
+		req.BaseDirectory, req.DockerRegistryImage, req.DockerRegistryTag, req.PortsExposes, req.PortMappings, req.NetworkAliases,
+		req.BuildWatchPaths, req.BuildUseServer,
 	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating service: %w", err)
@@ -1424,26 +1456,85 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		return nil
 	}
 
+	// Determine build context directory
+	contextDir := repoDir
+	if svc.BaseDirectory != "" {
+		contextDir = filepath.Join(repoDir, svc.BaseDirectory)
+		log("Build context directory (Base Directory): " + contextDir)
+	}
+
 	// If custom Dockerfile is present, write it
 	if svc.Builder == "dockerfile" && svc.DockerfileContent != "" {
-		dockerfilePath := filepath.Join(repoDir, "Dockerfile")
+		dfPath := "Dockerfile"
+		if svc.DockerfileLocation != "" {
+			dfPath = svc.DockerfileLocation
+		}
+		dockerfilePath := filepath.Join(repoDir, dfPath)
+		os.MkdirAll(filepath.Dir(dockerfilePath), 0755) //nolint:errcheck
 		if err := os.WriteFile(dockerfilePath, []byte(svc.DockerfileContent), 0644); err != nil {
 			return fmt.Errorf("writing Dockerfile: %w", err)
 		}
 	}
 
 	// Dynamic detection and generation of Dockerfile if none exists
-	if err := detectAndWriteDockerfile(repoDir, svc.Port, svc.Builder, svc.StartCommand, svc.InstallCommand, svc.AppDirectory, svc.RunFile, svc.RequirementsFile, svc.UseVenv, log); err != nil {
+	if err := detectAndWriteDockerfile(contextDir, svc.Port, svc.Builder, svc.StartCommand, svc.InstallCommand, svc.AppDirectory, svc.RunFile, svc.RequirementsFile, svc.UseVenv, log); err != nil {
 		return fmt.Errorf("generating Dockerfile: %w", err)
 	}
 
-	log("🔨 Building Docker image…")
 	imageTag := "nf-" + svc.Name + ":latest"
-	buildCmd := exec.CommandContext(ctx, "docker", "build", "-t", imageTag, repoDir)
-	buildOut, err := buildCmd.CombinedOutput()
-	log(string(buildOut))
-	if err != nil {
-		return fmt.Errorf("docker build: %w", err)
+
+	if svc.Builder == "nixpacks" {
+		log("📦 Building with Nixpacks…")
+		buildCmd := exec.CommandContext(ctx, "nixpacks", "build", contextDir, "--name", imageTag)
+		buildOut, err := buildCmd.CombinedOutput()
+		log(string(buildOut))
+		if err != nil {
+			return fmt.Errorf("nixpacks build: %w", err)
+		}
+	} else {
+		log("🔨 Building Docker image…")
+		buildArgs := []string{"build", "-t", imageTag}
+		if svc.DockerfileLocation != "" {
+			buildArgs = append(buildArgs, "-f", filepath.Join(repoDir, svc.DockerfileLocation))
+		}
+		if svc.BuildStageTarget != "" {
+			buildArgs = append(buildArgs, "--target", svc.BuildStageTarget)
+		}
+		if svc.BuildCustomOptions != "" {
+			buildArgs = append(buildArgs, strings.Fields(svc.BuildCustomOptions)...)
+		}
+		buildArgs = append(buildArgs, contextDir)
+
+		buildCmd := exec.CommandContext(ctx, "docker", buildArgs...)
+		buildOut, err := buildCmd.CombinedOutput()
+		log(string(buildOut))
+		if err != nil {
+			return fmt.Errorf("docker build: %w", err)
+		}
+	}
+
+	// Tag and Push to Docker Registry if specified
+	if svc.DockerRegistryImage != "" {
+		tag := "latest"
+		if svc.DockerRegistryTag != "" {
+			tag = svc.DockerRegistryTag
+		}
+		destTag := fmt.Sprintf("%s:%s", svc.DockerRegistryImage, tag)
+
+		log(fmt.Sprintf("🏷️ Tagging image as %s…", destTag))
+		tagCmd := exec.CommandContext(ctx, "docker", "tag", imageTag, destTag)
+		if tagOut, err := tagCmd.CombinedOutput(); err != nil {
+			log(string(tagOut))
+			return fmt.Errorf("docker tag: %w", err)
+		}
+
+		log(fmt.Sprintf("📤 Pushing image to registry %s…", destTag))
+		pushCmd := exec.CommandContext(ctx, "docker", "push", destTag)
+		if pushOut, err := pushCmd.CombinedOutput(); err != nil {
+			log(string(pushOut))
+			return fmt.Errorf("docker push: %w", err)
+		}
+		log("✓ Image pushed successfully!")
 	}
 
 	log("🚀 Starting container…")
@@ -1470,8 +1561,30 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		runArgs = append(runArgs, "-e", env)
 	}
 
-	if svc.Port > 0 {
+	// Determine ports and mappings
+	containerPort := svc.Port
+	if svc.PortsExposes > 0 {
+		containerPort = svc.PortsExposes
+	} else if svc.PortMappings != "" {
+		parts := strings.Split(svc.PortMappings, ":")
+		var cp int
+		if len(parts) > 1 {
+			fmt.Sscanf(parts[1], "%d", &cp)
+		} else {
+			fmt.Sscanf(parts[0], "%d", &cp)
+		}
+		if cp > 0 {
+			containerPort = cp
+		}
+	}
+
+	if svc.PortMappings != "" {
+		runArgs = append(runArgs, "-p", svc.PortMappings)
+	} else if svc.Port > 0 {
 		runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", svc.Port, svc.Port))
+	}
+
+	if containerPort > 0 {
 		// Inject dynamic PORT env if not already defined
 		hasPortEnv := false
 		for _, env := range envSlice {
@@ -1481,9 +1594,10 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 			}
 		}
 		if !hasPortEnv {
-			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", svc.Port))
+			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", containerPort))
 		}
 	}
+
 	// Append custom docker run arguments
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
@@ -1492,7 +1606,18 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	// Join the shared nanofly network for container-to-container DNS
 	runArgs = append(runArgs, "--network", docker.NanoflyNetworkName())
 
-	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
+	// Add network aliases if configured
+	if svc.NetworkAliases != "" {
+		runArgs = append(runArgs, "--network-alias", svc.NetworkAliases)
+	}
+
+	// Determine port exposed to Traefik
+	exposedPort := containerPort
+	if exposedPort <= 0 {
+		exposedPort = svc.Port
+	}
+
+	runArgs = m.appendTraefikLabels(ctx, svc, exposedPort, runArgs)
 	runArgs = append(runArgs, imageTag)
 
 	exec.CommandContext(ctx, "docker", "rm", "-f", svc.ContainerName()).Run() //nolint:errcheck
@@ -2123,6 +2248,17 @@ type UpdateServiceReq struct {
 	TierName             string `json:"tier_name"`
 	CustomMemory         int64  `json:"custom_memory"`
 	CustomCPU            int64  `json:"custom_cpu"`
+	DockerfileLocation   string `json:"dockerfile_location"`
+	BuildStageTarget     string `json:"build_stage_target"`
+	BuildCustomOptions   string `json:"build_custom_options"`
+	BaseDirectory        string `json:"base_directory"`
+	DockerRegistryImage  string `json:"docker_registry_image"`
+	DockerRegistryTag    string `json:"docker_registry_tag"`
+	PortsExposes         int    `json:"ports_exposes"`
+	PortMappings         string `json:"port_mappings"`
+	NetworkAliases       string `json:"network_aliases"`
+	BuildWatchPaths      string `json:"build_watch_paths"`
+	BuildUseServer       bool   `json:"build_use_server"`
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -2131,11 +2267,15 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		UPDATE services
 		SET name = ?, description = ?, db_user = ?, db_password = ?, db_name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
-		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, resource_tier = ?, custom_memory = ?, custom_cpu = ?, updated_at = CURRENT_TIMESTAMP
+		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, resource_tier = ?, custom_memory = ?, custom_cpu = ?,
+		    dockerfile_location = ?, build_stage_target = ?, build_custom_options = ?, base_directory = ?, docker_registry_image = ?, docker_registry_tag = ?,
+		    ports_exposes = ?, port_mappings = ?, network_aliases = ?, build_watch_paths = ?, build_use_server = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, req.Name, req.Description, req.DBUser, req.DBPassword, req.DBName, req.Image, req.Port, req.StartCommand, req.InstallCommand,
 		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
-		req.DockerfileContent, req.DockerComposeContent, req.TierName, req.CustomMemory, req.CustomCPU, serviceID)
+		req.DockerfileContent, req.DockerComposeContent, req.TierName, req.CustomMemory, req.CustomCPU,
+		req.DockerfileLocation, req.BuildStageTarget, req.BuildCustomOptions, req.BaseDirectory, req.DockerRegistryImage, req.DockerRegistryTag,
+		req.PortsExposes, req.PortMappings, req.NetworkAliases, req.BuildWatchPaths, req.BuildUseServer, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}

@@ -4,9 +4,11 @@ import { ArrowLeft, Info, RefreshCw } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import { ResourceIcon } from './ServiceLogo';
 import { SelectRoot, SelectTrigger, SelectContent, SelectItem } from './ui/Select';
+import { Tooltip } from './ui/Tooltip';
 import { buildWordPressEnvTemplate, generateSecurePassword, generateRandomIdent } from '../utils/password';
 import { githubApi, servicesApi } from '../api/client';
 
+// Runtime Versions
 const RUNTIME_VERSIONS = {
   node: [
     { value: 'node:24-alpine', label: 'Node.js 24 Alpine (Latest)' },
@@ -122,6 +124,17 @@ export function getResourceFormDefaults(resource) {
     token: '',
     sshKey: '',
     githubAppId: '',
+    dockerRegistryImage: '',
+    dockerRegistryTag: '',
+    baseDirectory: '',
+    dockerfileLocation: '',
+    buildStageTarget: '',
+    buildWatchPaths: '',
+    buildCustomOptions: '',
+    buildUseServer: false,
+    portsExposes: '',
+    portMappings: '',
+    networkAliases: '',
   };
 
   switch (resource.id) {
@@ -698,14 +711,14 @@ export function AddServiceConfigFields({
         </ConfigSection>
       )}
 
-      {/* ——— Local folder (generic) ——— */}
-      {resourceId === 'local-folder' && (
+      {/* ——— Local folder, Dockerfile, Compose projects ——— */}
+      {['local-folder', 'dockerfile', 'docker-compose'].includes(resourceId) && (
         <>
-          <ConfigSection title="Local folder" desc="Point to any folder; pick how NanoFly should build and run it.">
+          <ConfigSection title="Project folder" desc="Folder that contains your app/configuration.">
             <LocalPathFields form={form} setForm={setForm} required />
             <div className="form-group">
               <label className="form-label">Container port</label>
-              <input className="form-input" value={form.port} onChange={set('port')} placeholder="3000" />
+              <input className="form-input" value={form.port} onChange={set('port')} placeholder="8080" />
             </div>
             <BuilderTypeSelect value={form.gitBuilder} onChange={val => setForm(f => ({
               ...f,
@@ -728,30 +741,6 @@ export function AddServiceConfigFields({
               Auto-detect scans for package.json, requirements.txt, go.mod, Dockerfile, or docker-compose.yml.
             </p>
           )}
-        </>
-      )}
-
-      {/* ——— Dockerfile-only ——— */}
-      {resourceId === 'dockerfile' && (
-        <>
-          <ConfigSection title="Project folder" desc="Folder that contains your app and Dockerfile.">
-            <LocalPathFields form={form} setForm={setForm} required />
-            <div className="form-group">
-              <label className="form-label">Container port</label>
-              <input className="form-input" value={form.port} onChange={set('port')} placeholder="8080" />
-            </div>
-          </ConfigSection>
-          <DockerfileEditor form={form} setForm={setForm} showTemplatePicker />
-        </>
-      )}
-
-      {/* ——— Compose-only ——— */}
-      {resourceId === 'docker-compose' && (
-        <>
-          <ConfigSection title="Project folder" desc="Folder with docker-compose.yml (or paste definition below).">
-            <LocalPathFields form={form} setForm={setForm} required />
-          </ConfigSection>
-          <ComposeEditor form={form} setForm={setForm} />
         </>
       )}
 
@@ -878,6 +867,181 @@ export function AddServiceConfigFields({
             />
           </div>
         </ConfigSection>
+      )}
+
+      {resourceId !== 'wordpress' && (
+        <>
+          <ConfigSection title="Docker Registry" desc="Specify a Docker Registry to tag and push the compiled image (optional).">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Docker Image
+                  <Tooltip content="E.g. registry.hub.docker.com/username/image. Empty means it won't push the image to a docker registry.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. username/my-app"
+                  value={form.dockerRegistryImage || ''}
+                  onChange={set('dockerRegistryImage')}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Docker Image Tag
+                  <Tooltip content="Empty means it will only push with 'latest'.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. latest, v1.0.0"
+                  value={form.dockerRegistryTag || ''}
+                  onChange={set('dockerRegistryTag')}
+                />
+              </div>
+            </div>
+          </ConfigSection>
+
+          <ConfigSection title="Build" desc="Configure compilation paths, multi-stage targets, and custom builder options.">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Base Directory
+                  <Tooltip content="Directory inside your repository where the build command is run (default '/').">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="/"
+                  value={form.baseDirectory || ''}
+                  onChange={set('baseDirectory')}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Dockerfile Location
+                  <Tooltip content="Path to the Dockerfile relative to repository root.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="/Dockerfile"
+                  value={form.dockerfileLocation || ''}
+                  onChange={set('dockerfileLocation')}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Docker Build Stage Target
+                  <Tooltip content="Target build stage for multi-stage Dockerfiles.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. runner"
+                  value={form.buildStageTarget || ''}
+                  onChange={set('buildStageTarget')}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Watch Paths
+                <Tooltip content="Custom paths to watch for automatic redeployment.">
+                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                </Tooltip>
+              </label>
+              <input
+                className="form-input"
+                placeholder="e.g. src/pages/**, api/*.go"
+                value={form.buildWatchPaths || ''}
+                onChange={set('buildWatchPaths')}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Custom Docker Options
+                <Tooltip content="Extra docker build arguments.">
+                  <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                </Tooltip>
+              </label>
+              <input
+                className="form-input"
+                placeholder="e.g. --build-arg HTTP_PROXY=http://10.20.30.40:8080"
+                value={form.buildCustomOptions || ''}
+                onChange={set('buildCustomOptions')}
+              />
+            </div>
+
+            <div className="form-group" style={{ margin: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.buildUseServer}
+                  onChange={e => setForm(f => ({ ...f, buildUseServer: e.target.checked }))}
+                />
+                Use a Build Server?
+              </label>
+            </div>
+          </ConfigSection>
+
+          <ConfigSection title="Network" desc="Container network, exposed ports, and port forwarding configuration.">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Ports Exposes *
+                  <Tooltip content="The port on which your container runs and is exposed to the reverse proxy routing.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="3000"
+                  value={form.portsExposes || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setForm(f => ({ ...f, portsExposes: val, port: val }));
+                  }}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Port Mappings
+                  <Tooltip content="Forward host ports to container. E.g. '80:3000' or '8080:8080'. Leave blank to use reverse proxy only.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="3000:3000"
+                  value={form.portMappings || ''}
+                  onChange={set('portMappings')}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Network Aliases
+                  <Tooltip content="Alias name for container inside the shared NanoFly Docker network.">
+                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                  </Tooltip>
+                </label>
+                <input
+                  className="form-input"
+                  placeholder="my-alias-name"
+                  value={form.networkAliases || ''}
+                  onChange={set('networkAliases')}
+                />
+              </div>
+            </div>
+          </ConfigSection>
+        </>
       )}
     </div>
   );

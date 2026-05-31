@@ -4,6 +4,18 @@ This document tracks all version iterations, key fixes, and feature additions ch
 
 ---
 
+## 🚀 v0.3.20.18-beta — Unified Local Project Templates, Docker Code Area & Advanced Service Configurations
+
+### 🌟 Key Features
+*   **Unified Local Projects Selection**: Local folder projects, Dockerfile projects, and Docker Compose projects are now unified under a single, highly flexible configuration selector. Users can dynamically switch build methods (e.g., from local-folder autodetect to manual Dockerfile, Nixpacks, Docker Compose, or static) at any time.
+*   **Inline Code Area Editors**: When selecting the `Dockerfile` or `Docker Compose` build method, the inline monospaced code editors (with starter templates load support) display immediately inside the project configuration page, matching the creation wizard exactly.
+*   **Advanced Service Configuration Persistence**: Integrated full synchronization and update handling for 11 advanced configuration options:
+    *   **Docker Registry**: Docker Registry Image, Docker Registry Tag (for pushing tagged production builds).
+    *   **Build Engine**: Base Directory, Dockerfile Location, Docker Build Stage Target, Watch Paths, Custom Docker Options (arguments), and "Use a Build Server?" toggle.
+    *   **Networking**: Ports Exposes (container port configuration), Port Mappings (host-to-container overrides), and Network Aliases.
+
+---
+
 ## 🚀 v0.3.11-beta — UI Overhaul, Devicon Logos, Quick Access Sidebar, Build Progress & Mobile Responsiveness
 
 ### 🌟 Key Features

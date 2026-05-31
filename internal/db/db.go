@@ -90,6 +90,17 @@ func (db *DB) migrate() error {
 		resource_tier TEXT NOT NULL DEFAULT 'micro',
 		custom_memory INTEGER DEFAULT 0,
 		custom_cpu INTEGER DEFAULT 0,
+		dockerfile_location TEXT DEFAULT '',
+		build_stage_target TEXT DEFAULT '',
+		build_custom_options TEXT DEFAULT '',
+		base_directory TEXT DEFAULT '',
+		docker_registry_image TEXT DEFAULT '',
+		docker_registry_tag TEXT DEFAULT '',
+		ports_exposes INTEGER DEFAULT 0,
+		port_mappings TEXT DEFAULT '',
+		network_aliases TEXT DEFAULT '',
+		build_watch_paths TEXT DEFAULT '',
+		build_use_server INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -204,6 +215,19 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN custom_cpu INTEGER DEFAULT 0")
 	
 	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN github_app_id TEXT REFERENCES github_apps(id) ON DELETE SET NULL")
+	
+	// Advanced configuration settings
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN dockerfile_location TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_stage_target TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_custom_options TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN base_directory TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_registry_image TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_registry_tag TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN ports_exposes INTEGER DEFAULT 0")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN port_mappings TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN network_aliases TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_watch_paths TEXT DEFAULT ''")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_use_server INTEGER DEFAULT 0")
 
 	return tx.Commit()
 }

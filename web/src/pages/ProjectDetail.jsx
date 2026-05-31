@@ -713,6 +713,17 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
           dockerfile_content: form.dockerfileContent,
           docker_compose_content: form.dockerComposeContent,
           tier_name: form.resourceTier,
+          dockerfile_location: form.dockerfileLocation?.trim() || '',
+          build_stage_target: form.buildStageTarget?.trim() || '',
+          build_custom_options: form.buildCustomOptions?.trim() || '',
+          base_directory: form.baseDirectory?.trim() || '',
+          docker_registry_image: form.dockerRegistryImage?.trim() || '',
+          docker_registry_tag: form.dockerRegistryTag?.trim() || '',
+          ports_exposes: Number(form.portsExposes) || 0,
+          port_mappings: form.portMappings?.trim() || '',
+          network_aliases: form.networkAliases?.trim() || '',
+          build_watch_paths: form.buildWatchPaths?.trim() || '',
+          build_use_server: !!form.buildUseServer,
         });
       } else if (selectedResourceId === 'wordpress') {
         let finalEnvVars = [...envVars];
@@ -2091,6 +2102,17 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
     customMemory: service.custom_memory || 0,
     customCPU: service.custom_cpu || 0,
     domain: '',
+    dockerRegistryImage: service.docker_registry_image || '',
+    dockerRegistryTag: service.docker_registry_tag || '',
+    baseDirectory: service.base_directory || '',
+    dockerfileLocation: service.dockerfile_location || '',
+    buildStageTarget: service.build_stage_target || '',
+    buildWatchPaths: service.build_watch_paths || '',
+    buildCustomOptions: service.build_custom_options || '',
+    buildUseServer: !!service.build_use_server,
+    portsExposes: service.ports_exposes ? String(service.ports_exposes) : '',
+    portMappings: service.port_mappings || '',
+    networkAliases: service.network_aliases || '',
   }));
 
   useEffect(() => {
@@ -2136,6 +2158,17 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       customMemory: service.custom_memory || 0,
       customCPU: service.custom_cpu || 0,
       domain: initialDomain,
+      dockerRegistryImage: service.docker_registry_image || '',
+      dockerRegistryTag: service.docker_registry_tag || '',
+      baseDirectory: service.base_directory || '',
+      dockerfileLocation: service.dockerfile_location || '',
+      buildStageTarget: service.build_stage_target || '',
+      buildWatchPaths: service.build_watch_paths || '',
+      buildCustomOptions: service.build_custom_options || '',
+      buildUseServer: !!service.build_use_server,
+      portsExposes: service.ports_exposes ? String(service.ports_exposes) : '',
+      portMappings: service.port_mappings || '',
+      networkAliases: service.network_aliases || '',
     });
 
     setDirection(matched && matched.direction ? matched.direction : 'both');
@@ -2191,6 +2224,17 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
         tier_name: form.resourceTier,
         custom_memory: Number(form.customMemory),
         custom_cpu: Number(form.customCPU),
+        docker_registry_image: form.dockerRegistryImage.trim(),
+        docker_registry_tag: form.dockerRegistryTag.trim(),
+        base_directory: form.baseDirectory.trim(),
+        dockerfile_location: form.dockerfileLocation.trim(),
+        build_stage_target: form.buildStageTarget.trim(),
+        build_watch_paths: form.buildWatchPaths.trim(),
+        build_custom_options: form.buildCustomOptions.trim(),
+        build_use_server: !!form.buildUseServer,
+        ports_exposes: Number(form.portsExposes) || 0,
+        port_mappings: form.portMappings.trim(),
+        network_aliases: form.networkAliases.trim(),
       });
 
       // Update domain and direction in domains_v2 if modified
