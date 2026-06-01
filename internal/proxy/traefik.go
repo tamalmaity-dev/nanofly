@@ -93,9 +93,13 @@ func EnsureTraefik(ctx context.Context, dataDir string) error {
 		"-v", dockerSocket,
 		"-v", acmePath + ":/acme.json",
 		"-v", dynamicDir + ":/etc/traefik/dynamic",
-		"--memory=64m",
-		"--cpus=0.5",
-		"traefik:v3.0",
+		"--memory=64m",   // Limit memory usage to 64MB
+		"--cpus=0.5",     // Limit CPU usage to 50% of a single core
+		// Force a Docker API version that the daemon will accept. Newer Docker
+		// daemons (>= 25) reject the very old client API Traefik historically
+		// advertises, so we pin a compatible version.
+		"-e", "DOCKER_API_VERSION=1.43", 
+		"traefik:v3.7.1",  // Use a specific version for stability traefik:v3.7.1 is a stable release as of 02/06/2026
 		"--api.insecure=false",
 		"--providers.docker=true",
 		"--providers.docker.exposedbydefault=false",

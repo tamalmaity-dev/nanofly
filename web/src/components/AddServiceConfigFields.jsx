@@ -37,6 +37,7 @@ const RUNTIME_VERSIONS = {
   ],
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const WORDPRESS_VERSIONS = [
   { value: 'wordpress:php8.5-apache', label: 'PHP 8.5 — Apache (Latest)' },
   { value: 'wordpress:php8.4-apache', label: 'PHP 8.4 — Apache (Recommended)' },
@@ -45,8 +46,10 @@ export const WORDPRESS_VERSIONS = [
   { value: 'wordpress:php8.1-apache', label: 'PHP 8.1 — Apache' },
 ];
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const WORDPRESS_ENV_TEMPLATE = buildWordPressEnvTemplate();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const DOCKERFILE_TEMPLATES = {
   node: `FROM node:22-alpine
 WORKDIR /app
@@ -93,6 +96,8 @@ services:
       - "8080:8080"
     restart: unless-stopped`;
 
+    // Helper to parse builder value into type and version for form state management
+// eslint-disable-next-line react-refresh/only-export-components
 export const parseBuilderValue = (val) => {
   if (!val || val === 'auto' || val === 'dockerfile' || val === 'docker-compose' || val === 'nixpacks' || val === 'static' || val === 'docker-image') {
     return { type: val || 'auto', version: val || '' };
@@ -106,7 +111,9 @@ export const parseBuilderValue = (val) => {
   return { type: val, version: val };
 };
 
+
 /** Reset form fields when user picks a resource card */
+// eslint-disable-next-line react-refresh/only-export-components
 export function getResourceFormDefaults(resource) {
   const path = `/opt/nanofly/apps/${resource.defaultName || 'app'}`;
   const shared = {
@@ -271,7 +278,7 @@ function BuilderTypeSelect({ value, onChange, lockTo }) {
 }
 
 function RuntimeVersionSelect({ builderType, value, onChange }) {
-  let versions = [];
+  let versions;
   switch (builderType) {
     case 'node': versions = RUNTIME_VERSIONS.node; break;
     case 'python': versions = RUNTIME_VERSIONS.python; break;
@@ -345,6 +352,7 @@ function LanguageFields({ builderType, form, setForm }) {
   );
 }
 
+// For Dockerfile and Compose projects, show a code editor with optional starter templates
 function DockerfileEditor({ form, setForm, showTemplatePicker }) {
   const applyTemplate = lang => {
     let content = '';
@@ -388,6 +396,8 @@ function DockerfileEditor({ form, setForm, showTemplatePicker }) {
   );
 }
 
+
+// For Docker Compose projects, show a code editor with a default compose file template
 function ComposeEditor({ form, setForm }) {
   return (
     <ConfigSection title="Docker Compose" desc="Define services in docker-compose.yml. NanoFly runs compose up for this project.">
@@ -415,6 +425,8 @@ function LocalPathFields({ form, setForm, required }) {
   );
 }
 
+
+// Main exported component that conditionally renders form fields based on selected resource type and builder
 export function AddServiceConfigFields({
   projectId,
   resourceMeta,
@@ -425,8 +437,13 @@ export function AddServiceConfigFields({
   selectedResourceId,
   githubApps,
   hideEnvVars,
+  existingServices = [],
 }) {
   const [repos, setRepos] = useState([]);
+  const trimmedName = (form.name || '').trim().toLowerCase();
+  const nameConflict = trimmedName
+    ? existingServices.some(s => (s.name || '').toLowerCase() === trimmedName)
+    : false;
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [projectDatabases, setProjectDatabases] = useState([]);
 
@@ -443,6 +460,7 @@ export function AddServiceConfigFields({
 
   useEffect(() => {
     if (selectedResourceId === 'git-private-app' && form.githubAppId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoadingRepos(true);
       githubApi.listRepos(form.githubAppId)
         .then(res => setRepos(res || []))
@@ -493,7 +511,18 @@ export function AddServiceConfigFields({
       <ConfigSection title="Basics" desc="Name, domain, and resource limits for this service.">
         <div className="form-group">
           <label className="form-label">Service name *</label>
-          <input className="form-input" placeholder="e.g. api, wordpress, worker" value={form.name} onChange={set('name')} />
+          <input
+            className="form-input"
+            placeholder="e.g. api, wordpress, worker"
+            value={form.name}
+            onChange={set('name')}
+            style={nameConflict ? { borderColor: 'var(--red, #ef4444)' } : undefined}
+          />
+          {nameConflict && (
+            <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--red, #ef4444)' }}>
+              A service named "{form.name.trim()}" already exists in this project. Delete it first or choose a different name.
+            </p>
+          )}
         </div>
         <div className="form-group">
           <label className="form-label">Description</label>

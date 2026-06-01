@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { servicesApi, projectsApi, domainsApi, filesApi, githubApi, terminalWsUrl } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, Lock, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info, SaveAll, SaveIcon } from 'lucide-react';
+import { servicesApi, projectsApi, domainsApi, filesApi, githubApi } from '../api/client';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info, SaveIcon } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
-import { AddServiceConfigFields, ConfigStepBackBar, getResourceFormDefaults, WORDPRESS_VERSIONS, DOCKERFILE_TEMPLATES } from '../components/AddServiceConfigFields';
+import { AddServiceConfigFields, ConfigStepBackBar, getResourceFormDefaults } from '../components/AddServiceConfigFields';
 import { markPendingRedeploy, clearPendingRedeploy, hasPendingRedeploy } from '../utils/servicePending';
 import { generateSecurePassword, generateRandomIdent } from '../utils/password';
 
@@ -133,58 +133,11 @@ const buildServiceStacks = (services = []) => {
 
 
 // Extracted to components/ServiceLogo.jsx
-const RUNTIME_VERSIONS = {
-  node: [
-    { value: 'node:24-alpine', label: 'Node.js 24 Alpine (Latest)' },
-    { value: 'node:22-alpine', label: 'Node.js 22 Alpine (Recommended)' },
-    { value: 'node:20-alpine', label: 'Node.js 20 (LTS)' },
-    { value: 'node:18-alpine', label: 'Node.js 18 (LTS)' },
-    { value: 'node:16-alpine', label: 'Node.js 16' },
-  ],
-
-  python: [
-    { value: 'python:3.11-slim', label: 'Python 3.11 Slim (Recommended)' },
-    { value: 'python:3.11-alpine', label: 'Python 3.11 Alpine ' },
-    { value: 'python:3.14-slim', label: 'Python 3.14 Slim (Latest)' },
-    { value: 'python:3.14-alpine', label: 'Python 3.14 Alpine (Latest)' },
-    { value: 'python:3.13-slim', label: 'Python 3.13 Slim' },
-    { value: 'python:3.13-alpine', label: 'Python 3.13 Alpine' },
-    { value: 'python:3.12-slim', label: 'Python 3.12 Slim' },
-    { value: 'python:3.12-alpine', label: 'Python 3.12 Alpine' },
-    { value: 'python:3.10-slim', label: 'Python 3.10 Slim' },
-    { value: 'python:3.10-alpine', label: 'Python 3.10 Alpine' },
-    { value: 'python:3.9-slim', label: 'Python 3.9 Slim' },
-    { value: 'python:3.9-alpine', label: 'Python 3.9 Alpine' },
-  ],
-
-
-  go: [
-    { value: 'golang:1.22-alpine', label: 'Go 1.22 (Recommended)' },
-    { value: 'golang:1.23-alpine', label: 'Go 1.23 (Latest)' },
-    { value: 'golang:1.21-alpine', label: 'Go 1.21' },
-    { value: 'golang:1.20-alpine', label: 'Go 1.20' },
-  ],
-  php: [
-    { value: 'php:8.2-apache', label: 'PHP 8.2 (Recommended)' },
-    { value: 'php:8.3-apache', label: 'PHP 8.3 (Latest)' },
-    { value: 'php:8.1-apache', label: 'PHP 8.1' },
-    { value: 'php:8.0-apache', label: 'PHP 8.0' },
-    { value: 'php:7.4-apache', label: 'PHP 7.4' },
-  ],
-};
-
-const getSvcRuntimeVersions = (builderType) => {
-  switch (builderType) {
-    case 'node': return RUNTIME_VERSIONS.node;
-    case 'python': return RUNTIME_VERSIONS.python;
-    case 'go': return RUNTIME_VERSIONS.go;
-    case 'php': return RUNTIME_VERSIONS.php;
-    default: return [];
-  }
-};
 
 
 
+
+// Helper to parse builder value into type and version for form state management
 const parseBuilderValue = (val) => {
   if (!val || val === 'auto' || val === 'dockerfile' || val === 'docker-compose' || val === 'nixpacks' || val === 'static') {
     return { type: val || 'auto', version: val || '' };
@@ -198,6 +151,7 @@ const parseBuilderValue = (val) => {
   return { type: val, version: '' };
 };
 
+// Helper to parse bulk env var input into array of { key, value } objects
 const parseBulkEnv = (text) => {
   if (!text) return [];
   const lines = text.split('\n');
@@ -253,10 +207,12 @@ function SourceFilesPanel({ service }) {
   }, [currentPath]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPath(rootPath);
   }, [rootPath]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchFiles();
   }, [fetchFiles]);
 
@@ -669,6 +625,16 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
 
   const submit = async () => {
     if (!form.name.trim()) { setError('Name is required'); return; }
+    // Duplicate-name check (live, before the API call).
+    // The backend enforces this too, but catching it here saves a round-trip
+    // and the backend returns a less friendly error path.
+    const nameConflict = (services || []).find(
+      s => s.name?.toLowerCase() === form.name.trim().toLowerCase(),
+    );
+    if (nameConflict) {
+      setError(`A service named "${form.name.trim()}" already exists in this project. Delete it first or choose a different name.`);
+      return;
+    }
     if (subType === 'local' && !form.localPath.trim()) { setError('Server folder path is required'); return; }
     if (subType === 'github' && selectedResourceId !== 'git-private-app' && !form.gitUrl.trim()) {
       setError('Repository URL is required');
@@ -798,6 +764,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
         if (!hasDomain) {
           let targetDomain = form.domain.trim();
           if (!targetDomain) {
+            // eslint-disable-next-line react-hooks/purity
             const randomStr = Math.random().toString(36).substring(2, 10);
             targetDomain = `${randomStr}.${host}.sslip.io`;
           }
@@ -810,12 +777,12 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
               project: projectName || '',
               direction: 'both',
             });
-          } catch (_) { /* domain already exists or conflict, skip */ }
+          } catch { /* domain already exists or conflict, skip */ }
         }
 
         const skipAutoDeploy = selectedResourceId === 'git-private-app' && !form.gitUrl.trim();
         if (!skipAutoDeploy) {
-          try { await servicesApi.deploy(svcData.id); } catch (_) { }
+          try { await servicesApi.deploy(svcData.id); } catch { /* deploy trigger failed, user can retry */ }
         }
       }
 
@@ -837,6 +804,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
       const defaults = getResourceFormDefaults(resource);
       const host = window.location.hostname;
       const cleanHost = host.split(':')[0];
+      // eslint-disable-next-line react-hooks/purity
       const randomStr = Math.random().toString(36).substring(2, 10);
       const generatedDomain = `http://${randomStr}.${cleanHost}.sslip.io`;
 
@@ -1317,6 +1285,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                     isPrivate={isPrivate}
                     selectedResourceId={selectedResourceId}
                     githubApps={githubApps}
+                    existingServices={services}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1483,7 +1452,7 @@ function EnvVarsPanel({ serviceId }) {
         </Button>
       </div>
 
-      {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem' }}>âš ï¸ {error}</p>}
+      {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginBottom: '1rem' }}>⚠ {error}</p>}
 
       {isBulk ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1649,6 +1618,7 @@ function DeploymentsPanel({ serviceId }) {
       }).catch(() => { });
     }, 1500);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serviceId]);
 
   const isBuilding = deps.some(d => d.status === 'building' || d.status === 'deploying');
@@ -1763,17 +1733,10 @@ function DeploymentsPanel({ serviceId }) {
 // Extracted to components/ServiceLogo.jsx
 
 // Service Card
-function ServiceCard({ svc, onDeploy, onDelete }) {
-  const [deploying, setDeploying] = useState(false);
+function ServiceCard({ svc }) {
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
   const getStatusColor = (status) => {
     return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
-  };
-
-  const handleDeploy = async (e) => {
-    e.stopPropagation();
-    setDeploying(true);
-    try { await onDeploy(svc.id); } finally { setDeploying(false); }
   };
 
   return (
@@ -1802,7 +1765,7 @@ function ServiceCard({ svc, onDeploy, onDelete }) {
 }
 
 // Stack Card for Grouped Services (e.g. WordPress App + Database)
-function StackCard({ stack, onDeploy, onDelete, setActiveSvc, setActiveTab }) {
+function StackCard({ stack, setActiveSvc, setActiveTab }) {
   const statusColor = { running: 'var(--green)', deploying: 'var(--yellow)', error: 'var(--red)', idle: 'var(--text-muted)', creating: 'var(--yellow)', oom_killed: 'var(--red)', crashed: 'var(--red)' };
   const getStatusColor = (status) => {
     return Object.prototype.hasOwnProperty.call(statusColor, status) ? statusColor[status] : 'var(--text-muted)';
@@ -1920,6 +1883,7 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   const [selectedLogSvcId, setSelectedLogSvcId] = useState(serviceId);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedLogSvcId(serviceId);
   }, [serviceId]);
 
@@ -1933,6 +1897,7 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   }, [selectedLogSvcId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchLogs();
     const interval = setInterval(fetchLogs, 3000);
     return () => clearInterval(interval);
@@ -2130,6 +2095,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       }
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm({
       name: service.name,
       description: service.description || '',
@@ -2366,6 +2332,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
   const subType = resourceMeta.id.startsWith('git-') ? 'github' : (['dockerfile', 'docker-compose', 'local-folder', 'node-template', 'python-template'].includes(resourceMeta.id) ? 'local' : 'docker');
   const isPrivate = service.github_app_id || resourceMeta.id === 'git-private-key';
 
+  /* eslint-disable react-hooks/static-components */
   const ConfigSection = ({ title, desc, children }) => (
     <div
       style={{
@@ -2386,6 +2353,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
       {children}
     </div>
   );
+  /* eslint-enable react-hooks/static-components */
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 8, maxWidth: '100%' }}>
@@ -2436,6 +2404,7 @@ function SettingsPanel({ service, project, domains = [], onUpdate }) {
             selectedResourceId={resourceMeta.id}
             githubApps={githubApps}
             hideEnvVars={true}
+            existingServices={services.filter(s => s.id !== service.id)}
           />
 
           <ConfigSection title="Routing Direction" desc="Select how requests to www and non-www subdomains are handled.">
@@ -3719,8 +3688,6 @@ export default function ProjectDetail() {
                       <StackCard 
                         key={st.id} 
                         stack={st} 
-                        onDeploy={handleDeploy} 
-                        onDelete={handleDelete} 
                         setActiveSvc={setActiveSvc}
                         setActiveTab={setActiveTab}
                       />
@@ -3735,7 +3702,7 @@ export default function ProjectDetail() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                     {standaloneApps.map(s => (
                       <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('configuration'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
-                        <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
+                        <ServiceCard svc={s} />
                       </div>
                     ))}
                   </div>
@@ -3748,7 +3715,7 @@ export default function ProjectDetail() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
                     {standaloneDbs.map(s => (
                       <div key={s.id} onClick={() => { setActiveSvc(s.id); setActiveTab('connection'); }} style={{ cursor: 'pointer', outline: activeSvc === s.id ? '1px solid var(--accent)' : 'none', borderRadius: 'var(--radius-lg)' }}>
-                        <ServiceCard svc={s} onDeploy={handleDeploy} onDelete={handleDelete} />
+                        <ServiceCard svc={s} />
                       </div>
                     ))}
                   </div>

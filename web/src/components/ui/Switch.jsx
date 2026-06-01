@@ -1,4 +1,3 @@
-import React from 'react';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 
 export function Switch({ checked, onCheckedChange, disabled }) {

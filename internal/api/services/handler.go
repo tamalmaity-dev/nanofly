@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nanofly/nanofly/internal/response"
@@ -137,6 +138,12 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		BuildUseServer:       req.BuildUseServer,
 	})
 	if err != nil {
+		// 409 Conflict when the error is a duplicate name in this project;
+		// anything else is a real 500.
+		if strings.Contains(err.Error(), "already exists in this project") {
+			response.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -172,6 +179,10 @@ func (h *Handler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 		TierName:   req.TierName,
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "already exists in this project") {
+			response.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -264,6 +275,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	svc, err := h.mgr.Update(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
+		if strings.Contains(err.Error(), "already exists in this project") {
+			response.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -394,11 +394,23 @@ func (m *Manager) GetServiceMetrics(ctx context.Context, serviceID string) (*Ser
 // List returns all services for a project.
 func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, project_id, name, COALESCE(description,''), COALESCE(db_user,''), COALESCE(db_password,''), COALESCE(db_name,''), 
-		       type, status, COALESCE(image,''), COALESCE(port,0), COALESCE(resource_tier,'micro'), 
-		       COALESCE(custom_memory,0), COALESCE(custom_cpu,0), created_at, updated_at
-		FROM services WHERE project_id = ?
-		ORDER BY created_at DESC
+		SELECT s.id, s.project_id, s.name, COALESCE(s.description,''), COALESCE(s.db_user,''), COALESCE(s.db_password,''), COALESCE(s.db_name,''),
+		       s.type, s.status, COALESCE(s.image,''), COALESCE(s.port,0), COALESCE(s.resource_tier,'micro'),
+		       COALESCE(s.custom_memory,0), COALESCE(s.custom_cpu,0), s.created_at, s.updated_at,
+		       COALESCE(g.repo_url,''), COALESCE(g.branch,'main'),
+		       COALESCE(s.start_command,''), COALESCE(s.install_command,''),
+		       COALESCE(s.app_directory,''), COALESCE(s.run_file,''),
+		       COALESCE(s.requirements_file,'requirements.txt'), COALESCE(s.use_venv,1),
+		       COALESCE(s.docker_args,''), COALESCE(s.dockerfile_content,''), COALESCE(s.docker_compose_content,''),
+		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id,
+		       COALESCE(s.dockerfile_location,''), COALESCE(s.build_stage_target,''), COALESCE(s.build_custom_options,''), COALESCE(s.base_directory,''),
+		       COALESCE(s.docker_registry_image,''), COALESCE(s.docker_registry_tag,''), COALESCE(s.ports_exposes,0), COALESCE(s.port_mappings,''),
+		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0),
+		       COALESCE(g.builder,'auto')
+		FROM services s
+		LEFT JOIN git_sources g ON g.service_id = s.id
+		WHERE s.project_id = ?
+		ORDER BY s.created_at DESC
 	`, projectID)
 	if err != nil {
 		return nil, err
@@ -416,12 +428,21 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.DBUser, &s.DBPassword, &s.DBName,
 			&s.Type, &s.Status, &s.Image, &s.Port, &s.ResourceTier,
 			&s.CustomMemory, &s.CustomCPU, &createdAt, &updatedAt,
+			&s.GitRepoURL, &s.GitBranch,
+			&s.StartCommand, &s.InstallCommand,
+			&s.AppDirectory, &s.RunFile,
+			&s.RequirementsFile, &s.UseVenv, &s.DockerArgs,
+			&s.DockerfileContent, &s.DockerComposeContent,
+			&s.GitToken, &s.SSHKey, &s.GitHubAppID,
+			&s.DockerfileLocation, &s.BuildStageTarget, &s.BuildCustomOptions, &s.BaseDirectory,
+			&s.DockerRegistryImage, &s.DockerRegistryTag, &s.PortsExposes, &s.PortMappings,
+			&s.NetworkAliases, &s.BuildWatchPaths, &s.BuildUseServer,
+			&s.Builder,
 		); err != nil {
 			return nil, err
 		}
 		s.CreatedAt = parseSqliteTime(createdAt)
 		s.UpdatedAt = parseSqliteTime(updatedAt)
-		s.CreatedAt = parseSqliteTime(createdAt)
 		s.Type = ServiceType(string(s.Type))
 
 		// Map stats
@@ -575,6 +596,23 @@ type CreateAppReq struct {
 
 // CreateApp creates an App service record (doesn't deploy yet).
 func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, error) {
+	// Reject duplicate service names within the same project. A unique index
+	// (idx_services_project_name) also enforces this at the DB level, but
+	// checking first gives the user a clear error message instead of a raw
+	// SQLite UNIQUE constraint failure.
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("service name is required")
+	}
+	var existingID string
+	_ = m.db.QueryRowContext(ctx,
+		`SELECT id FROM services WHERE project_id = ? AND name = ? LIMIT 1`,
+		req.ProjectID, name,
+	).Scan(&existingID)
+	if existingID != "" {
+		return nil, fmt.Errorf("a service named %q already exists in this project — choose a different name (or delete the existing one first)", name)
+	}
+
 	var id string
 	err := m.db.QueryRowContext(ctx, `
 		INSERT INTO services (
@@ -645,6 +683,19 @@ type CreateDBReq struct {
 func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service, error) {
 	if m.docker == nil {
 		return nil, fmt.Errorf("docker is not available on this server")
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("service name is required")
+	}
+	var existingID string
+	_ = m.db.QueryRowContext(ctx,
+		`SELECT id FROM services WHERE project_id = ? AND name = ? LIMIT 1`,
+		req.ProjectID, name,
+	).Scan(&existingID)
+	if existingID != "" {
+		return nil, fmt.Errorf("a service named %q already exists in this project — choose a different name (or delete the existing one first)", name)
 	}
 
 	password := req.DBPassword
@@ -2254,6 +2305,19 @@ type UpdateServiceReq struct {
 
 // Update updates the service's details in DB and optional git sources.
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
+	// Reject name collisions on rename (DB unique index would also enforce this,
+	// but a friendly pre-check beats a raw UNIQUE constraint error).
+	if newName := strings.TrimSpace(req.Name); newName != "" {
+		var collision string
+		_ = m.db.QueryRowContext(ctx,
+			`SELECT id FROM services WHERE project_id = (SELECT project_id FROM services WHERE id = ?) AND name = ? AND id != ? LIMIT 1`,
+			serviceID, newName, serviceID,
+		).Scan(&collision)
+		if collision != "" {
+			return nil, fmt.Errorf("a service named %q already exists in this project — choose a different name", newName)
+		}
+	}
+
 	_, err := m.db.ExecContext(ctx, `
 		UPDATE services
 		SET name = ?, description = ?, db_user = ?, db_password = ?, db_name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
@@ -2479,6 +2543,26 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 			if !hasPortEnv {
 				runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", svc.Port))
 			}
+		} else {
+			// Port not specified by the user. Pick a sensible default container
+			// port for a Dockerfile-based app and a free host port so Traefik
+			// still has a backend to forward to.
+			hostPort := docker.ResolveHostPort(0)
+			containerPort := 8080
+			runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", hostPort, containerPort))
+			hasPortEnv := false
+			for _, env := range envSlice {
+				if strings.HasPrefix(strings.ToUpper(env), "PORT=") {
+					hasPortEnv = true
+					break
+				}
+			}
+			if !hasPortEnv {
+				runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", containerPort))
+			}
+			log(fmt.Sprintf("ℹ️  No container port specified; defaulting container=%d host=%d", containerPort, hostPort))
+			_, _ = m.db.ExecContext(ctx, `UPDATE services SET port=? WHERE id=?`, hostPort, svc.ID)
+			svc.Port = hostPort
 		}
 
 		// Join the shared nanofly network for container-to-container DNS
@@ -2489,6 +2573,9 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 			runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 		}
 
+		// Traefik must always know the container port, even if the user didn't
+		// specify one. Use the saved service port (= container port) as the
+		// backend target.
 		runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
 		runArgs = append(runArgs, imageTag)
 
@@ -2623,8 +2710,10 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		}
 	}
 
+	containerPort := 0
+	hostPort := svc.Port
 	if svc.Port > 0 {
-		containerPort := svc.Port
+		containerPort = svc.Port
 		if resolvedType == "php" || resolvedType == "static" {
 			containerPort = 80
 		}
@@ -2632,14 +2721,44 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		if !hasPortEnv {
 			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", containerPort))
 		}
+	} else {
+		// No port specified by the user. Choose a sensible container port for
+		// the detected builder and a free host port so Traefik still has a
+		// backend to forward to.
+		switch resolvedType {
+		case "static", "php":
+			containerPort = 80
+		case "python":
+			containerPort = 8000
+		case "go":
+			containerPort = 8080
+		default:
+			containerPort = 3000 // node and anything else
+		}
+		hostPort = docker.ResolveHostPort(0)
+		runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", hostPort, containerPort))
+		if !hasPortEnv {
+			runArgs = append(runArgs, "-e", fmt.Sprintf("PORT=%d", containerPort))
+		}
+		log(fmt.Sprintf("ℹ️  No container port specified; defaulting container=%d host=%d for %s", containerPort, hostPort, resolvedType))
+		_, _ = m.db.ExecContext(ctx, `UPDATE services SET port=? WHERE id=?`, hostPort, svc.ID)
+		svc.Port = hostPort
 	}
+
+	// Join the shared nanofly network so Traefik (also on this network) can
+	// reach the container by DNS name and so the app can reach sibling services.
+	runArgs = append(runArgs, "--network", docker.NanoflyNetworkName())
 
 	// Append custom docker run arguments before image
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
 
-	runArgs = m.appendTraefikLabels(ctx, svc, svc.Port, runArgs)
+	// Traefik must always be told the *container* port. Traefik lives on the
+	// same Docker network and resolves the container by name, so it must hit
+	// the in-container listener (e.g. 80 for nginx/php, 3000 for node),
+	// never the host port we mapped for direct browser access.
+	runArgs = m.appendTraefikLabels(ctx, svc, containerPort, runArgs)
 
 	runArgs = append(runArgs, baseImage)
 	if len(runCmdArgs) > 0 {
@@ -2688,6 +2807,11 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 
 		if exposedPort > 0 {
 			runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", routerName, exposedPort))
+		} else {
+			// Defensive fallback: if no exposed port was provided, assume 80
+			// (covers nginx/apache). Without this, Traefik has a router
+			// pointing at a service with no backend port and returns 404.
+			runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=80", routerName))
 		}
 
 		if len(sslipDomains) > 0 {

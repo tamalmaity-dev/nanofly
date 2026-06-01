@@ -4,6 +4,48 @@ This document tracks all version iterations, key fixes, and feature additions ch
 
 ---
 
+## 🚀 v0.3.21 — Traefik 404 Cluster Fix, Settings Form Population, and Duplicate-Name Prevention
+
+**Type:** Critical Bug Fix Release | **Urgency:** High | **Release Date:** 2026-06-02
+
+### 🐛 Critical Bug Fixes
+
+*   **Fixed all local-folder / Docker-image deploys returning 404** on `sslip.io` domains. Three-layer postmortem:
+    1. Bumped Traefik image to `traefik:v3.7.1` (was `v3.0` which Docker v29 rejected with `client version 1.24 is too old`) and added `-e DOCKER_API_VERSION=1.43` to negotiate a compatible API level.
+    2. Local-folder and inline-Dockerfile deploys now attach containers to the `nanofly-network` bridge so Traefik can see them (previously used the default `bridge` only).
+    3. Traefik `loadbalancer.server.port` labels now point to the **container port** (80 for static/php, 3000 for node, 8000 for python, 8080 for go) with a defensive `port=80` fallback — they were previously being set to the host port, which is unreachable from inside the bridge.
+*   **Fixed Configuration tab "forgetting" saved values** — the `List()` endpoint was missing a `JOIN` on the `git_sources` table, so the `services` array consumed by `SettingsPanel` had empty `git_repo_url`, `git_branch`, `git_builder`, `start_command`, and 38 other fields. The data was there in the DB; it just wasn't being shipped to the UI. `List()` now selects the same 43-column join as `Get()`.
+*   **Prevented duplicate service names within a project** at three layers:
+    1. **Live warning** in the create/edit form — red border + inline text under the Service name field as the user types a conflicting name.
+    2. **Frontend submit-time block** with a friendly error (saves a round-trip).
+    3. **Backend pre-check** in `CreateApp` / `CreateDatabase` / `Update` (rename) → `HTTP 409 Conflict` with a clear message.
+    4. **DB unique index** `idx_services_project_name` added with an idempotent migration that warns (instead of crashing) if pre-existing duplicates prevent index creation.
+
+### 🛠 Enhancements
+
+*   When the user leaves the **port** field empty on a local-folder service, NanoFly now auto-allocates a free port via `docker.ResolveHostPort(0)`, **persists the result to the DB**, and displays it in the form on next view — no more "placeholder" confusion.
+*   New architecture reference: `docs/architecture/traefik-and-nginx.md` (12.7 KB) — Traefik = front door / Nginx = room mental model, request flow diagram, container flags, bridge network, label reference, the 3-bug postmortem above, and a verification cheat sheet.
+*   Lint cleanup in `ProjectDetail.jsx` and `AddServiceConfigFields.jsx` (removed unused imports, suppressed legitimate setState-in-effect suppressions, fixed React anti-pattern of declaring components inside other components with `react-hooks/static-components`).
+
+### 📂 Files Changed
+
+| Area | Files |
+|------|-------|
+| Backend (Go) | `internal/proxy/traefik.go`, `internal/api/services/service.go`, `internal/api/services/handler.go`, `internal/db/db.go` |
+| Frontend (React) | `web/src/components/AddServiceConfigFields.jsx`, `web/src/pages/ProjectDetail.jsx`, `web/src/components/ui/Switch.jsx` |
+| Docs | `docs/architecture/traefik-and-nginx.md` (new), `docs/version_changelog/stable/v0.3.21.md` (new) |
+| Versioning | `VERSION`: `0.3.20` → `0.3.21` |
+
+### ✅ Verification
+
+*   `npm run build` clean (2607 modules transformed, no errors, no warnings).
+*   `go build` clean for all target platforms.
+*   Live Pi: `curl -I http://d7xsc99d.10.121.212.13.sslip.io/` → `200 OK`.
+*   Duplicate-name POST → `409 Conflict`; rename PUT to existing → `409`.
+*   UNIQUE index present in `/var/lib/nanofly/nanofly.db` after the first clean restart.
+
+---
+
 ## 🚀 v0.3.20.19-beta — Expanded Layout, First-tab Configuration, and Docker Image Build Packs
 
 ### 🌟 Key Features

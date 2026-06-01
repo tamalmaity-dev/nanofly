@@ -229,6 +229,16 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_watch_paths TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_use_server INTEGER DEFAULT 0")
 
+	// Service name uniqueness per project (added 2026-06-02 to prevent duplicate
+	// "local-app" type names that confuse routing and the UI). If existing
+	// duplicates are present, the index creation will fail — we log it so the
+	// operator can clean them up, but we don't fail startup. The API layer
+	// pre-checks duplicate names and gives a clear error, so the runtime
+	// stays protected even when this index can't be created yet.
+	if _, idxErr := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_services_project_name ON services(project_id, name)"); idxErr != nil {
+		fmt.Printf("WARN: idx_services_project_name could not be created (likely existing duplicate names): %v\n", idxErr)
+	}
+
 	return tx.Commit()
 }
 
