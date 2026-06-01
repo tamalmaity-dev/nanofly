@@ -1421,9 +1421,8 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	if len(gitEnv) > 0 {
 		cmd.Env = gitEnv
 	}
-	out, err := cmd.CombinedOutput()
-	log(string(out))
-	if err != nil {
+	log("Cloning repository: " + svc.GitRepoURL + " (branch: " + svc.GitBranch + ")")
+	if err := runCommandStreaming(cmd, log); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
 
@@ -1444,13 +1443,11 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		log("🐳 Running docker compose up…")
 		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
 		downCmd.Dir = repoDir
-		downCmd.Run()
+		runCommandStreaming(downCmd, log) //nolint:errcheck
 
 		upCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "up", "-d", "--build")
 		upCmd.Dir = repoDir
-		upOut, err := upCmd.CombinedOutput()
-		log(string(upOut))
-		if err != nil {
+		if err := runCommandStreaming(upCmd, log); err != nil {
 			return fmt.Errorf("docker compose up: %w", err)
 		}
 		return nil
@@ -1486,9 +1483,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 	if svc.Builder == "nixpacks" {
 		log("📦 Building with Nixpacks…")
 		buildCmd := exec.CommandContext(ctx, "nixpacks", "build", contextDir, "--name", imageTag)
-		buildOut, err := buildCmd.CombinedOutput()
-		log(string(buildOut))
-		if err != nil {
+		if err := runCommandStreaming(buildCmd, log); err != nil {
 			return fmt.Errorf("nixpacks build: %w", err)
 		}
 	} else {
@@ -1506,9 +1501,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		buildArgs = append(buildArgs, contextDir)
 
 		buildCmd := exec.CommandContext(ctx, "docker", buildArgs...)
-		buildOut, err := buildCmd.CombinedOutput()
-		log(string(buildOut))
-		if err != nil {
+		if err := runCommandStreaming(buildCmd, log); err != nil {
 			return fmt.Errorf("docker build: %w", err)
 		}
 	}
@@ -1523,15 +1516,13 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 
 		log(fmt.Sprintf("🏷️ Tagging image as %s…", destTag))
 		tagCmd := exec.CommandContext(ctx, "docker", "tag", imageTag, destTag)
-		if tagOut, err := tagCmd.CombinedOutput(); err != nil {
-			log(string(tagOut))
+		if err := runCommandStreaming(tagCmd, log); err != nil {
 			return fmt.Errorf("docker tag: %w", err)
 		}
 
 		log(fmt.Sprintf("📤 Pushing image to registry %s…", destTag))
 		pushCmd := exec.CommandContext(ctx, "docker", "push", destTag)
-		if pushOut, err := pushCmd.CombinedOutput(); err != nil {
-			log(string(pushOut))
+		if err := runCommandStreaming(pushCmd, log); err != nil {
 			return fmt.Errorf("docker push: %w", err)
 		}
 		log("✓ Image pushed successfully!")
@@ -2945,3 +2936,37 @@ func (m *Manager) getServiceDomains(ctx context.Context, serviceName string) []s
 	}
 	return domains
 }
+
+type logWriter struct {
+	logFunc func(string)
+	buffer  strings.Builder
+}
+
+func (w *logWriter) Write(p []byte) (n int, err error) {
+	for _, b := range p {
+		if b == '\n' {
+			w.logFunc(w.buffer.String())
+			w.buffer.Reset()
+		} else if b != '\r' {
+			w.buffer.WriteByte(b)
+		}
+	}
+	return len(p), nil
+}
+
+func (w *logWriter) Flush() {
+	if w.buffer.Len() > 0 {
+		w.logFunc(w.buffer.String())
+		w.buffer.Reset()
+	}
+}
+
+func runCommandStreaming(cmd *exec.Cmd, log func(string)) error {
+	writer := &logWriter{logFunc: log}
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+	err := cmd.Run()
+	writer.Flush()
+	return err
+}
+
