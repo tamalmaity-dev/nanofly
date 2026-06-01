@@ -4,6 +4,23 @@ This document tracks all version iterations, key fixes, and feature additions ch
 
 ---
 
+## 🚀 v0.3.22 — SettingsPanel Crash Fix (`services is not defined`)
+
+**Type:** Hotfix | **Urgency:** Critical | **Release Date:** 2026-06-02
+
+### 🐛 Critical Bug Fix
+
+*   **Fixed `Uncaught ReferenceError: services is not defined`** in the production minified bundle — the project detail page crashed completely after v0.3.21 because the `SettingsPanel` component referenced a `services` variable that was not in scope. Pass `services={services}` to `<SettingsPanel />` and destructure it on the function signature. The Vite build (no type checker) silently bundled the broken code; this is now fixed in 2 lines.
+
+### 📂 Files Changed
+
+| Area | Files |
+|------|-------|
+| Frontend (React) | `web/src/pages/ProjectDetail.jsx` |
+| Versioning | `VERSION`: `0.3.21` → `0.3.22` |
+
+---
+
 ## 🚀 v0.3.21 — Traefik 404 Cluster Fix, Settings Form Population, and Duplicate-Name Prevention
 
 **Type:** Critical Bug Fix Release | **Urgency:** High | **Release Date:** 2026-06-02

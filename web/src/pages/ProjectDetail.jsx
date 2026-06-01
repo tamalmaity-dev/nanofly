@@ -14,6 +14,7 @@ import MonitoringPanel from '../components/panels/MonitoringPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
 
 
+// A map of database types to their available versions, ordered from oldest to newest (with 'latest' as an alias for the newest stable version). This is used to populate the version dropdown when adding a new database service. The keys should match the identifiers used in the backend for DB types.
 const DB_VERSIONS = {
   postgres: ['postgres:18', 'postgres:17', 'postgres:16', 'postgres:15', 'postgres:14', 'postgres:13', 'postgres:12', 'postgres:latest'],
   mysql: ['mysql:8.4', 'mysql:8.3', 'mysql:8.0', 'mysql:5.7', 'mysql:latest'],
@@ -2028,7 +2029,7 @@ function WebhookPanel({ serviceId, githubAppId, gitRepoUrl }) {
 }
 
 // Settings Panel 
-function SettingsPanel({ service, project, domains = [], onUpdate }) {
+function SettingsPanel({ service, project, domains = [], services = [], onUpdate }) {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -3455,7 +3456,7 @@ export default function ProjectDetail() {
               </TabsContent>
             )}
             <TabsContent value="configuration">
-              <SettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />
+              <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />
             </TabsContent>
             <TabsContent value="backup">
               <BackupRestorePanel service={selectedSvc} />
