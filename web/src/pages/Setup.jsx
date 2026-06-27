@@ -1,11 +1,11 @@
 // src/pages/Setup.jsx — First-run setup wizard
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { setupApi } from '../api/client';
 import { Button } from '../components/ui';
 import {
-  ArrowRight, ArrowLeft, Check, AlertCircle,
+  ArrowRight, ArrowLeft, Check, AlertCircle, Terminal,
   Activity, Container, Shield, Webhook, Eye, EyeOff
 } from 'lucide-react';
 
@@ -40,6 +40,13 @@ export default function Setup() {
   const [showPw, setShowPw]     = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [form, setForm]         = useState({ email: '', name: '', password: '', confirm: '' });
+  const [version, setVersion]   = useState('');
+
+  useEffect(() => {
+    setupApi.status()
+      .then(res => { if (res?.version) setVersion(res.version); })
+      .catch(() => {});
+  }, []);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const strength = pwStrength(form.password);
@@ -250,6 +257,12 @@ export default function Setup() {
             </button>
           </div>
         )}
+
+        {/* Footer */}
+        <div className="auth-footer">
+          <Terminal size={12} />
+          <span>{version || 'NanoFly'}</span>
+        </div>
       </div>
     </div>
   );

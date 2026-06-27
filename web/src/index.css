@@ -811,33 +811,44 @@ code, pre {
   margin-bottom: 2rem;
 }
 .auth-logo-ring {
-  width: 64px; height: 64px;
-  border-radius: 18px;
+  width: 80px; height: 80px;
+  border-radius: 22px;
   background: linear-gradient(135deg, rgba(79,110,247,0.15), rgba(168,85,247,0.10));
   border: 1px solid rgba(79,110,247,0.2);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 1rem;
-  box-shadow: 0 0 30px rgba(79,110,247,0.12);
+  box-shadow: 0 0 40px rgba(79,110,247,0.15);
 }
 .auth-logo-img {
-  width: 36px; height: 36px;
-  object-fit: contain;
+  width: 48px; height: 48px;
+  object-fit: cover;
 }
 .auth-brand {
-  font-size: 1.5rem;
+  font-size: 1.625rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-primary);
   margin: 0 0 0.25rem;
 }
 .auth-tagline {
   color: var(--text-muted);
   font-size: 0.8125rem;
   margin: 0;
+}
+.auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.01em;
 }
 
 /* Titles */

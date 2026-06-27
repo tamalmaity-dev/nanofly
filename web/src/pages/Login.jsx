@@ -119,8 +119,8 @@ export default function Login() {
 
         {/* Footer */}
         <div className="auth-footer">
-          <Terminal size={13} />
-          <span>NanoFly {version || 'v0.3.6-beta'}</span>
+          <Terminal size={12} />
+          <span>{version || 'NanoFly'}</span>
         </div>
       </div>
     </div>
