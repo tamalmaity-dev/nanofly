@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi, filesApi, githubApi } from '../api/client';
-import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info, SaveIcon } from 'lucide-react';
+import { Plus, Play, Trash2, RefreshCw, ChevronRight, GitBranch, Package, Database, Globe, Settings, Eye, EyeOff, Copy, X, Check, ExternalLink, Cpu, MemoryStick, Folder, Key, FileCode, Sliders, Upload, FolderPlus, FilePlus, ArrowLeft, Save, FileText, TerminalSquare, AlertCircle, Info, SaveIcon, HardDrive } from 'lucide-react';
 import { Modal, Tabs, TabsContent, Button, SelectRoot, SelectTrigger, SelectContent, SelectItem, Tooltip, useToast } from '../components/ui';
 import CodeEditor from '../components/CodeEditor';
 import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
@@ -11,6 +11,7 @@ import { generateSecurePassword, generateRandomIdent } from '../utils/password';
 
 // Lazy-loaded terminal (xterm); monitoring imported eagerly for faster tab open
 import MonitoringPanel from '../components/panels/MonitoringPanel';
+import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
 
 
@@ -1251,7 +1252,10 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                       </div>
                       <div className="form-group">
                         <label className="form-label">Port ⓘ</label>
-                        <input className="form-input" value={form.port} onChange={set('port')} placeholder="3000" />
+                        <input className="form-input" value={form.port} onChange={e => {
+                          const val = e.target.value;
+                          setForm(f => ({ ...f, port: val, portsExposes: val }));
+                        }} placeholder="3000" />
                       </div>
                     </div>
 
@@ -2076,7 +2080,7 @@ function SettingsPanel({ service, project, domains = [], services = [], onUpdate
     buildWatchPaths: service.build_watch_paths || '',
     buildCustomOptions: service.build_custom_options || '',
     buildUseServer: !!service.build_use_server,
-    portsExposes: service.ports_exposes ? String(service.ports_exposes) : '',
+    portsExposes: service.ports_exposes ? String(service.ports_exposes) : (service.port ? String(service.port) : ''),
     portMappings: service.port_mappings || '',
     networkAliases: service.network_aliases || '',
   }));
@@ -2133,7 +2137,7 @@ function SettingsPanel({ service, project, domains = [], services = [], onUpdate
       buildWatchPaths: service.build_watch_paths || '',
       buildCustomOptions: service.build_custom_options || '',
       buildUseServer: !!service.build_use_server,
-      portsExposes: service.ports_exposes ? String(service.ports_exposes) : '',
+      portsExposes: service.ports_exposes ? String(service.ports_exposes) : (service.port ? String(service.port) : ''),
       portMappings: service.port_mappings || '',
       networkAliases: service.network_aliases || '',
     });
@@ -3407,6 +3411,7 @@ export default function ProjectDetail() {
               ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
               { id: 'monitoring', label: 'Monitoring', icon: Cpu },
               { id: 'resources', label: 'Resource Limits', icon: Sliders },
+              { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
               ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
               ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
               ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
@@ -3440,6 +3445,9 @@ export default function ProjectDetail() {
             </TabsContent>
             <TabsContent value="resources">
               <ResourceLimitsPanel service={selectedSvc} onUpdate={load} />
+            </TabsContent>
+            <TabsContent value="volumes">
+              <VolumesPanel service={selectedSvc} onUpdate={load} />
             </TabsContent>
             {(selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) && (
               <TabsContent value="webhooks">

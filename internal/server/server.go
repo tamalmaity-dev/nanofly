@@ -99,15 +99,17 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	s.router = s.buildRouter()
 
 	s.httpSrv = &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      s.router,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           s.router,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      0, // no write timeout — allows long-lived WebSocket connections
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go s.backupScheduler()
 	go s.projectBackupScheduler()
+	go s.periodicCleanup()
 
 	return s, nil
 }
@@ -1395,6 +1397,18 @@ func (s *Server) writeBackupArchive(dest string) error {
 		}
 		return closeErr
 	})
+}
+
+// periodicCleanup runs database maintenance every 6 hours to prevent
+// unbounded growth of deployment logs, activity logs, and database bloat.
+func (s *Server) periodicCleanup() {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		slog.Info("Running periodic database cleanup...")
+		s.db.CleanupOldRecords()
+		slog.Info("Periodic database cleanup complete.")
+	}
 }
 
 func (s *Server) backupScheduler() {

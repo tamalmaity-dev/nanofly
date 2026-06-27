@@ -17,6 +17,7 @@ go.work
 *.log
 *.tmp
 temp/
+bin/
 
 # ── Node/Vite Frontend Files ────────────────────────
 /web/node_modules/
@@ -31,6 +32,7 @@ temp/
 /web/.env.development.local
 /web/.env.test.local
 /web/.env.production.local
+/web/lint.txt
 
 # ── OS & IDE Files ──────────────────────────────────
 .DS_Store

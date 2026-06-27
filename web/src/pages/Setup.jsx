@@ -4,17 +4,45 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { setupApi } from '../api/client';
 import { Button } from '../components/ui';
+import {
+  ArrowRight, ArrowLeft, Check, AlertCircle,
+  Activity, Container, Shield, Webhook, Eye, EyeOff
+} from 'lucide-react';
+
+const FEATURES = [
+  { icon: Activity,   label: 'Real-time CPU, RAM, Disk & Temperature' },
+  { icon: Container,  label: 'Deploy apps with Docker, one click' },
+  { icon: Shield,     label: 'Auto-HTTPS with Let\'s Encrypt via Caddy' },
+  { icon: Webhook,    label: 'GitHub webhooks & auto-deploy on push' },
+];
+
+function pwStrength(pw) {
+  if (!pw) return { score: 0, label: '', color: '' };
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  if (score <= 2) return { score, label: 'Weak', color: '#ef4444' };
+  if (score <= 3) return { score, label: 'Fair', color: '#f59e0b' };
+  if (score <= 4) return { score, label: 'Strong', color: '#22c55e' };
+  return { score, label: 'Very Strong', color: '#10b981' };
+}
 
 export default function Setup() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const [step, setStep]         = useState(1); // 1 = welcome, 2 = account
+  const [step, setStep]         = useState(1);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [showPw, setShowPw]     = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [form, setForm]         = useState({ email: '', name: '', password: '', confirm: '' });
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const strength = pwStrength(form.password);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -36,45 +64,41 @@ export default function Setup() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card fade-in" style={{ maxWidth: step === 2 ? 680 : 450, transition: 'max-width 0.3s ease' }}>
+      {/* Animated background elements */}
+      <div className="auth-bg-orb auth-bg-orb--1" />
+      <div className="auth-bg-orb auth-bg-orb--2" />
+      <div className="auth-bg-orb auth-bg-orb--3" />
+
+      <div className="auth-card auth-card--elevated fade-in" style={{
+        maxWidth: step === 2 ? 520 : 450,
+        transition: 'max-width 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+      }}>
 
         {/* Logo */}
-        <div className="auth-logo" style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '2rem' }}>
-          <img
-            src="/logo.png"
-            alt="NanoFly Logo"
-            style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '12px',
-              objectFit: 'contain',
-              flexShrink: 0
-            }}
-          />
-          <span className="auth-logo-name" style={{
-            fontSize: '1.75rem',
-            fontWeight: '800',
-            letterSpacing: '-0.02em',
-            background: 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            margin: 0
-          }}>NanoFly</span>
+        <div className="auth-header">
+          <div className="auth-logo-ring">
+            <img src="/logo.png" alt="NanoFly" className="auth-logo-img" />
+          </div>
+          <h1 className="auth-brand">NanoFly</h1>
+          <p className="auth-tagline">Let's get you set up in under a minute</p>
         </div>
 
         {/* Steps */}
-        <div className="setup-steps">
-          {['Welcome', 'Account', 'Done'].map((label, i) => {
+        <div className="auth-steps">
+          {['Welcome', 'Account'].map((label, i) => {
             const n = i + 1;
             const done   = step > n;
             const active = step === n;
             return (
-              <div key={label} className={`setup-step ${done ? 'done' : ''} ${active ? 'active' : ''}`}>
-                <div className="step-circle">{done ? '✓' : n}</div>
-                <span className="step-label">{label}</span>
+              <div key={label} className={`auth-step ${done ? 'done' : ''} ${active ? 'active' : ''}`}>
+                <div className="auth-step-dot">
+                  {done ? <Check size={14} /> : n}
+                </div>
+                <span className="auth-step-label">{label}</span>
               </div>
             );
           })}
+          <div className={`auth-step-line ${step > 1 ? 'filled' : ''}`} />
         </div>
 
         {/* Step 1 — Welcome */}
@@ -82,25 +106,23 @@ export default function Setup() {
           <div className="fade-in">
             <h2 className="auth-title">Welcome to NanoFly</h2>
             <p className="auth-subtitle">
-              Your lightweight self-hosted server control panel. Let's get you set up in under a minute.
+              Your lightweight self-hosted server control panel.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '1.5rem 0' }}>
-              {[
-                { icon: '📊', label: 'Real-time CPU, RAM, Disk & Temperature' },
-                { icon: '🐳', label: 'Deploy apps with Docker, one click' },
-                { icon: '🔐', label: 'Auto-HTTPS with Let\'s Encrypt via Caddy' },
-                { icon: '🔗', label: 'GitHub webhooks & auto-deploy on push' },
-              ].map(f => (
-                <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  <span style={{ fontSize: '1.1rem' }}>{f.icon}</span>
-                  {f.label}
+            <div className="auth-features">
+              {FEATURES.map(f => (
+                <div key={f.label} className="auth-feature">
+                  <div className="auth-feature-icon">
+                    <f.icon size={16} />
+                  </div>
+                  <span>{f.label}</span>
                 </div>
               ))}
             </div>
 
-            <Button className="btn-full btn-lg" variant="primary" onClick={() => setStep(2)}>
-              Get Started →
+            <Button className="auth-submit" variant="primary" onClick={() => setStep(2)}>
+              Get Started
+              <ArrowRight size={16} />
             </Button>
           </div>
         )}
@@ -111,93 +133,121 @@ export default function Setup() {
             <h2 className="auth-title">Create Admin Account</h2>
             <p className="auth-subtitle">This is the owner account for your NanoFly panel.</p>
 
-            <div style={{
-              background: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              borderRadius: 'var(--radius-md)',
-              padding: '12px 14px',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              gap: 10,
-              alignItems: 'flex-start',
-              fontSize: '0.8125rem',
-              color: '#f87171',
-              lineHeight: 1.4
-            }}>
-              <span style={{ fontSize: '1rem', marginTop: -1 }}>⚠️</span>
+            <div className="auth-alert auth-alert--warning">
+              <AlertCircle size={16} />
               <div>
-                <strong style={{ color: '#ef4444', display: 'block', marginBottom: 2 }}>Crucial Security Notice</strong>
-                Make sure to write down your password or save it securely. NanoFly stores passwords using secure cryptographic hashes; if you lose it, it is impossible to recover.
+                <strong>Security Notice</strong>
+                <span>Save your password securely. NanoFly uses cryptographic hashes — passwords cannot be recovered.</span>
               </div>
             </div>
 
-            {error && <div className="auth-error">{error}</div>}
+            {error && (
+              <div className="auth-alert auth-alert--error">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
 
             <form className="auth-form" onSubmit={handleCreate}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Your Name</label>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. Alex"
-                      value={form.name}
-                      onChange={set('name')}
-                      autoFocus
-                    />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Email Address</label>
-                    <input
-                      className="form-input"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={form.email}
-                      onChange={set('email')}
-                      required
-                    />
-                  </div>
+              <div className="auth-field-row">
+                <div className="auth-field">
+                  <label className="auth-label">Your Name</label>
+                  <input
+                    className="auth-input"
+                    placeholder="e.g. Alex"
+                    value={form.name}
+                    onChange={set('name')}
+                    autoFocus
+                  />
                 </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Password</label>
-                    <input
-                      className="form-input"
-                      type="password"
-                      placeholder="At least 8 characters"
-                      value={form.password}
-                      onChange={set('password')}
-                      required
-                    />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Confirm Password</label>
-                    <input
-                      className="form-input"
-                      type="password"
-                      placeholder="Repeat your password"
-                      value={form.confirm}
-                      onChange={set('confirm')}
-                      required
-                    />
-                  </div>
+                <div className="auth-field">
+                  <label className="auth-label">Email Address</label>
+                  <input
+                    className="auth-input"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={form.email}
+                    onChange={set('email')}
+                    required
+                  />
                 </div>
               </div>
 
-              <Button className="btn-full btn-lg" variant="primary" type="submit" loading={loading}>
-                Create Account & Enter Panel →
+              <div className="auth-field">
+                <label className="auth-label">Password</label>
+                <div className="auth-input-wrap">
+                  <input
+                    className="auth-input auth-input--pw"
+                    type={showPw ? 'text' : 'password'}
+                    placeholder="At least 8 characters"
+                    value={form.password}
+                    onChange={set('password')}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="auth-pw-toggle"
+                    onClick={() => setShowPw(!showPw)}
+                    tabIndex={-1}
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
+                  >
+                    {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {form.password && (
+                  <div className="auth-pw-strength">
+                    <div className="auth-pw-bar">
+                      <div
+                        className="auth-pw-fill"
+                        style={{
+                          width: `${(strength.score / 5) * 100}%`,
+                          background: strength.color
+                        }}
+                      />
+                    </div>
+                    <span className="auth-pw-label" style={{ color: strength.color }}>
+                      {strength.label}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="auth-field">
+                <label className="auth-label">Confirm Password</label>
+                <div className="auth-input-wrap">
+                  <input
+                    className="auth-input auth-input--pw"
+                    type={showConfirm ? 'text' : 'password'}
+                    placeholder="Repeat your password"
+                    value={form.confirm}
+                    onChange={set('confirm')}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="auth-pw-toggle"
+                    onClick={() => setShowConfirm(!showConfirm)}
+                    tabIndex={-1}
+                    aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {form.confirm && form.password !== form.confirm && (
+                  <span className="auth-field-hint auth-field-hint--error">Passwords do not match</span>
+                )}
+              </div>
+
+              <Button className="auth-submit" variant="primary" type="submit" loading={loading}>
+                Create Account & Enter Panel
+                <ArrowRight size={16} />
               </Button>
             </form>
 
-            <Button
-              className="btn-full"
-              variant="ghost"
-              style={{ marginTop: '0.5rem' }}
-              onClick={() => setStep(1)}
-            >
-              ← Back
-            </Button>
+            <button className="auth-back" onClick={() => setStep(1)} type="button">
+              <ArrowLeft size={14} />
+              Back
+            </button>
           </div>
         )}
       </div>

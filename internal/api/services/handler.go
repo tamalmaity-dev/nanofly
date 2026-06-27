@@ -87,6 +87,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		NetworkAliases       string   `json:"network_aliases"`
 		BuildWatchPaths      string   `json:"build_watch_paths"`
 		BuildUseServer       bool     `json:"build_use_server"`
+		Volumes              string   `json:"volumes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid payload")
@@ -136,6 +137,7 @@ func (h *Handler) CreateApp(w http.ResponseWriter, r *http.Request) {
 		NetworkAliases:       req.NetworkAliases,
 		BuildWatchPaths:      req.BuildWatchPaths,
 		BuildUseServer:       req.BuildUseServer,
+		Volumes:              req.Volumes,
 	})
 	if err != nil {
 		// 409 Conflict when the error is a duplicate name in this project;

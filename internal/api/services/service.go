@@ -4,6 +4,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -98,11 +99,21 @@ type Service struct {
 	NetworkAliases       string  `json:"network_aliases,omitempty"`
 	BuildWatchPaths      string  `json:"build_watch_paths,omitempty"`
 	BuildUseServer       bool    `json:"build_use_server"`
+	Volumes              string  `json:"volumes,omitempty"` // JSON array of volume mounts
 	ConnString           string  `json:"conn_string,omitempty"` // databases only (encrypted stub)
 
 	// Real-time resource metrics (populated in memory)
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemoryUsage string  `json:"memory_usage"`
+}
+
+// VolumeMount represents a bind mount or volume for a container.
+type VolumeMount struct {
+	Name          string `json:"name"`           // user-friendly label (e.g. "config-data")
+	Type          string `json:"type"`           // "volume" (Docker managed), "file" (bind), or "directory" (bind)
+	HostPath      string `json:"host_path"`      // source path on host (empty for type=volume)
+	ContainerPath string `json:"container_path"` // destination path inside container
+	ReadOnly      bool   `json:"readonly"`
 }
 
 // ContainerName returns the canonical Docker container name for a service.
@@ -406,7 +417,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		       COALESCE(s.dockerfile_location,''), COALESCE(s.build_stage_target,''), COALESCE(s.build_custom_options,''), COALESCE(s.base_directory,''),
 		       COALESCE(s.docker_registry_image,''), COALESCE(s.docker_registry_tag,''), COALESCE(s.ports_exposes,0), COALESCE(s.port_mappings,''),
 		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0),
-		       COALESCE(g.builder,'auto')
+		       COALESCE(g.builder,'auto'),
+		       COALESCE(s.volumes,'[]')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -438,6 +450,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.DockerRegistryImage, &s.DockerRegistryTag, &s.PortsExposes, &s.PortMappings,
 			&s.NetworkAliases, &s.BuildWatchPaths, &s.BuildUseServer,
 			&s.Builder,
+			&s.Volumes,
 		); err != nil {
 			return nil, err
 		}
@@ -500,7 +513,8 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		       COALESCE(g.git_token,''), COALESCE(g.ssh_key,''), g.github_app_id,
 		       COALESCE(s.dockerfile_location,''), COALESCE(s.build_stage_target,''), COALESCE(s.build_custom_options,''), COALESCE(s.base_directory,''),
 		       COALESCE(s.docker_registry_image,''), COALESCE(s.docker_registry_tag,''), COALESCE(s.ports_exposes,0), COALESCE(s.port_mappings,''),
-		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0)
+		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0),
+		       COALESCE(s.volumes,'[]')
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -514,6 +528,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.DockerfileLocation, &s.BuildStageTarget, &s.BuildCustomOptions, &s.BaseDirectory,
 		&s.DockerRegistryImage, &s.DockerRegistryTag, &s.PortsExposes, &s.PortMappings,
 		&s.NetworkAliases, &s.BuildWatchPaths, &s.BuildUseServer,
+		&s.Volumes,
 	)
 	if err != nil {
 		return nil, err
@@ -592,6 +607,7 @@ type CreateAppReq struct {
 	NetworkAliases       string  `json:"network_aliases"`
 	BuildWatchPaths      string  `json:"build_watch_paths"`
 	BuildUseServer       bool    `json:"build_use_server"`
+	Volumes              string  `json:"volumes"` // JSON array of volume mounts
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -620,16 +636,16 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 			start_command, install_command, app_directory, run_file, requirements_file, use_venv, docker_args,
 			dockerfile_content, docker_compose_content, dockerfile_location, build_stage_target, build_custom_options,
 			base_directory, docker_registry_image, docker_registry_tag, ports_exposes, port_mappings, network_aliases,
-			build_watch_paths, build_use_server
+			build_watch_paths, build_use_server, volumes
 		)
-		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`, req.ProjectID, req.Name, req.Port, req.Image, req.TierName,
 		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
 		defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 		req.DockerfileContent, req.DockerComposeContent, req.DockerfileLocation, req.BuildStageTarget, req.BuildCustomOptions,
 		req.BaseDirectory, req.DockerRegistryImage, req.DockerRegistryTag, req.PortsExposes, req.PortMappings, req.NetworkAliases,
-		req.BuildWatchPaths, req.BuildUseServer,
+		req.BuildWatchPaths, req.BuildUseServer, req.Volumes,
 	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("creating service: %w", err)
@@ -857,6 +873,16 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			}
 
 			m.db.ExecContext(bgCtx, `UPDATE services SET status=? WHERE id=?`, finalStatus, serviceID) //nolint:errcheck
+
+			// Prune old deployment logs to prevent unbounded DB growth
+			if finalStatus == "running" || finalStatus == "error" {
+				go m.pruneDeploymentLogs(context.Background(), serviceID)
+			}
+
+			// Auto-prune dangling Docker images and build cache after successful deploy
+			if finalStatus == "running" && m.docker != nil {
+				go m.docker.AutoPruneAfterDeploy(context.Background())
+			}
 		}()
 
 		m.logServiceDomains(bgCtx, svc, log)
@@ -1158,7 +1184,46 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 			log("Pulling images.")
 			log("Creating Docker network: " + docker.NanoflyNetworkName())
 			log("Starting service.")
-			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU), func(msg string) {
+
+			// Parse volumes JSON into bind mount strings for Docker
+			var bindMounts []string
+			if svc.Volumes != "" && svc.Volumes != "[]" {
+				var mounts []VolumeMount
+				if jsonErr := json.Unmarshal([]byte(svc.Volumes), &mounts); jsonErr == nil {
+					for _, vol := range mounts {
+						if vol.ContainerPath == "" {
+							continue
+						}
+						switch vol.Type {
+						case "volume":
+							// Docker managed volume — use named volume
+							volName := vol.Name
+							if volName == "" {
+								volName = "nf-vol-" + svc.ID[:8]
+							}
+							bind := volName + ":" + vol.ContainerPath
+							if vol.ReadOnly {
+								bind += ":ro"
+							}
+							bindMounts = append(bindMounts, bind)
+							log(fmt.Sprintf("Volume mount: %s -> %s (Docker volume)", volName, vol.ContainerPath))
+						case "file", "directory", "bind":
+							// Bind mount from host path
+							if vol.HostPath == "" {
+								continue
+							}
+							bind := vol.HostPath + ":" + vol.ContainerPath
+							if vol.ReadOnly {
+								bind += ":ro"
+							}
+							bindMounts = append(bindMounts, bind)
+							log(fmt.Sprintf("Bind mount: %s -> %s", vol.HostPath, vol.ContainerPath))
+						}
+					}
+				}
+			}
+
+			containerID, err := m.docker.DeployApp(bgCtx, serviceID, svc.Name, svc.Image, hostPort, 0, envSlice, domains, svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU), bindMounts, func(msg string) {
 				log(msg)
 			})
 			if err != nil {
@@ -2086,6 +2151,31 @@ func (m *Manager) ListDeployments(ctx context.Context, serviceID string, limit i
 	return deps, nil
 }
 
+// pruneDeploymentLogs removes old deployment records and truncates logs to prevent
+// unbounded database growth. Keeps the most recent 20 deployments per service
+// and truncates the log text of deployments beyond the most recent 5.
+func (m *Manager) pruneDeploymentLogs(ctx context.Context, serviceID string) {
+	// Delete old deployments beyond the most recent 20 per service
+	_, _ = m.db.ExecContext(ctx, `
+		DELETE FROM deployments WHERE service_id = ? AND id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY started_at DESC) AS rn
+				FROM deployments WHERE service_id = ?
+			) WHERE rn <= 20
+		)
+	`, serviceID, serviceID)
+
+	// Truncate log text of retained deployments beyond the most recent 5 to save space
+	_, _ = m.db.ExecContext(ctx, `
+		UPDATE deployments SET log = '' WHERE service_id = ? AND id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY started_at DESC) AS rn
+				FROM deployments WHERE service_id = ?
+			) WHERE rn <= 5
+		) AND log != '' AND LENGTH(log) > 0
+	`, serviceID, serviceID)
+}
+
 // GetEnvVars returns all env vars for a service.
 func (m *Manager) GetEnvVars(ctx context.Context, serviceID string) ([]EnvVar, error) {
 	rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=? ORDER BY key`, serviceID)
@@ -2301,6 +2391,7 @@ type UpdateServiceReq struct {
 	NetworkAliases       string `json:"network_aliases"`
 	BuildWatchPaths      string `json:"build_watch_paths"`
 	BuildUseServer       bool   `json:"build_use_server"`
+	Volumes              string `json:"volumes"` // JSON array of volume mounts
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -2324,13 +2415,13 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
 		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, resource_tier = ?, custom_memory = ?, custom_cpu = ?,
 		    dockerfile_location = ?, build_stage_target = ?, build_custom_options = ?, base_directory = ?, docker_registry_image = ?, docker_registry_tag = ?,
-		    ports_exposes = ?, port_mappings = ?, network_aliases = ?, build_watch_paths = ?, build_use_server = ?, updated_at = CURRENT_TIMESTAMP
+		    ports_exposes = ?, port_mappings = ?, network_aliases = ?, build_watch_paths = ?, build_use_server = ?, volumes = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, req.Name, req.Description, req.DBUser, req.DBPassword, req.DBName, req.Image, req.Port, req.StartCommand, req.InstallCommand,
 		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 		req.DockerfileContent, req.DockerComposeContent, req.TierName, req.CustomMemory, req.CustomCPU,
 		req.DockerfileLocation, req.BuildStageTarget, req.BuildCustomOptions, req.BaseDirectory, req.DockerRegistryImage, req.DockerRegistryTag,
-		req.PortsExposes, req.PortMappings, req.NetworkAliases, req.BuildWatchPaths, req.BuildUseServer, serviceID)
+		req.PortsExposes, req.PortMappings, req.NetworkAliases, req.BuildWatchPaths, req.BuildUseServer, req.Volumes, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}

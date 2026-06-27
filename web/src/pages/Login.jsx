@@ -4,24 +4,22 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { authApi, setupApi } from '../api/client';
 import { Button } from '../components/ui';
+import { Eye, EyeOff, AlertCircle, ArrowRight, Terminal } from 'lucide-react';
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const [email, setEmail]     = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError]     = useState('');
-  const [loading, setLoading] = useState(false);
-  const [version, setVersion] = useState('');
+  const [showPw, setShowPw]     = useState(false);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [version, setVersion]   = useState('');
 
   useEffect(() => {
     setupApi.status()
-      .then(res => {
-        if (res && res.version) {
-          setVersion(res.version);
-        }
-      })
+      .then(res => { if (res?.version) setVersion(res.version); })
       .catch(() => {});
   }, []);
 
@@ -42,79 +40,88 @@ export default function Login() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card fade-in">
+      {/* Animated background elements */}
+      <div className="auth-bg-orb auth-bg-orb--1" />
+      <div className="auth-bg-orb auth-bg-orb--2" />
+      <div className="auth-bg-orb auth-bg-orb--3" />
 
-        <div className="auth-logo" style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '2rem' }}>
-          <img
-            src="/logo.png"
-            alt="NanoFly Logo"
-            style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '12px',
-              objectFit: 'contain',
-              flexShrink: 0
-            }}
-          />
-          <span className="auth-logo-name" style={{
-            fontSize: '1.75rem',
-            fontWeight: '800',
-            letterSpacing: '-0.02em',
-            background: 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            margin: 0
-          }}>NanoFly</span>
+      <div className="auth-card auth-card--elevated fade-in">
+
+        {/* Logo */}
+        <div className="auth-header">
+          <div className="auth-logo-ring">
+            <img src="/logo.png" alt="NanoFly" className="auth-logo-img" />
+          </div>
+          <h1 className="auth-brand">NanoFly</h1>
+          <p className="auth-tagline">Self-hosted server control panel</p>
         </div>
 
+        {/* Error */}
         {error && (
-          <div className="alert alert-error" style={{ marginBottom: '1.5rem', borderRadius: 'var(--radius)' }}>
-            {error}
+          <div className="auth-alert auth-alert--error">
+            <AlertCircle size={16} />
+            <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div className="form-group">
-            <label id="label-email" className="form-label" htmlFor="login-email">Email Address</label>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="login-email">Email</label>
             <input
               id="login-email"
-              className="form-input"
+              className="auth-input"
               type="email"
               placeholder="admin@nanofly.io"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
             />
           </div>
 
-          <div className="form-group">
-            <label id="label-password" className="form-label" htmlFor="login-password">Password</label>
-            <input
-              id="login-password"
-              className="form-input"
-              type="password"
-              placeholder="Your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="login-password">Password</label>
+            <div className="auth-input-wrap">
+              <input
+                id="login-password"
+                className="auth-input auth-input--pw"
+                type={showPw ? 'text' : 'password'}
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                className="auth-pw-toggle"
+                onClick={() => setShowPw(!showPw)}
+                tabIndex={-1}
+                aria-label={showPw ? 'Hide password' : 'Show password'}
+              >
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           <Button
             id="login-submit"
-            className="btn-full btn-lg"
+            className="auth-submit"
             variant="primary"
             type="submit"
             loading={loading}
-            style={{ marginTop: '0.5rem' }}
           >
-            Sign In →
+            Sign In
+            <ArrowRight size={16} />
           </Button>
         </form>
 
-        <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-          NanoFly Panel · <span style={{ color: 'var(--accent)' }}>{version || 'v0.3.6-beta'}</span>
-        </p>
+        {/* Footer */}
+        <div className="auth-footer">
+          <Terminal size={13} />
+          <span>NanoFly {version || 'v0.3.6-beta'}</span>
+        </div>
       </div>
     </div>
   );

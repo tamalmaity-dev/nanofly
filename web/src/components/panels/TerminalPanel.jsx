@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { Button } from '../ui';
 import { terminalWsUrl } from '../../api/client';
+
+const MAX_RECONNECT_ATTEMPTS = 50;
+const BASE_RECONNECT_DELAY = 1000; // 1s
+
 export default // Container Terminal Panel 
 
 function ContainerTerminalPanel({ service }) {
@@ -11,6 +15,8 @@ function ContainerTerminalPanel({ service }) {
   const xtermRef    = useRef(null);
   const fitRef      = useRef(null);
   const wsRef       = useRef(null);
+  const reconnectTimer = useRef(null);
+  const reconnectAttempts = useRef(0);
   const [status, setStatus] = useState('connecting'); // connecting | open | closed | error
   const [reconnectCount, setReconnectCount] = useState(0);
 
@@ -20,47 +26,76 @@ function ContainerTerminalPanel({ service }) {
     ? `nf-db-${service.name}${suffix}`
     : `nf-app-${service.name}${suffix}`;
 
-  useEffect(() => {
-    //  1. Create xterm instance   
-    const term = new XTerm({
-      theme: {
-        background: '#0c0c0c',
-        foreground: '#cccccc',
-        cursor: '#ffffff',
-        selectionBackground: 'rgba(255, 255, 255, 0.2)',
-        black: '#000000',
-        red: '#ef4444',
-        green: '#4af626',
-        yellow: '#eab308',
-        blue: '#00d2ff',
-        magenta: '#d8b4fe',
-        cyan: '#00ffff',
-        white: '#cccccc',
-        brightBlack: '#64748b',
-        brightRed: '#ef4444',
-        brightGreen: '#4af626',
-        brightYellow: '#eab308',
-        brightBlue: '#00d2ff',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#00ffff',
-        brightWhite: '#ffffff',
-      },
-      fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
-      fontSize: 14,
-      lineHeight: 1.6,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 5000,
-      allowTransparency: true,
-    });
+  const connect = useCallback(() => {
+    // Clean up previous connection
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(containerRef.current);
-    fit.fit();
+    setStatus('connecting');
 
-    xtermRef.current = term;
-    fitRef.current   = fit;
+    //  1. Create xterm instance (only once)
+    if (!xtermRef.current) {
+      const term = new XTerm({
+        theme: {
+          background: '#0c0c0c',
+          foreground: '#cccccc',
+          cursor: '#ffffff',
+          selectionBackground: 'rgba(255, 255, 255, 0.2)',
+          black: '#000000',
+          red: '#ef4444',
+          green: '#4af626',
+          yellow: '#eab308',
+          blue: '#00d2ff',
+          magenta: '#d8b4fe',
+          cyan: '#00ffff',
+          white: '#cccccc',
+          brightBlack: '#64748b',
+          brightRed: '#ef4444',
+          brightGreen: '#4af626',
+          brightYellow: '#eab308',
+          brightBlue: '#00d2ff',
+          brightMagenta: '#d8b4fe',
+          brightCyan: '#00ffff',
+          brightWhite: '#ffffff',
+        },
+        fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
+        fontSize: 14,
+        lineHeight: 1.6,
+        cursorBlink: true,
+        cursorStyle: 'block',
+        scrollback: 5000,
+        allowTransparency: true,
+      });
+
+      const fit = new FitAddon();
+      term.loadAddon(fit);
+      term.open(containerRef.current);
+      fit.fit();
+
+      xtermRef.current = term;
+      fitRef.current   = fit;
+
+      term.onData(data => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(new TextEncoder().encode(data));
+        }
+      });
+
+      const ro = new ResizeObserver(() => {
+        fit.fit();
+        const { cols, rows } = term;
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
+        }
+      });
+      ro.observe(containerRef.current);
+    }
 
     // 2. Open WebSocket 
     const wsUrl = terminalWsUrl('container', containerName);
@@ -70,7 +105,8 @@ function ContainerTerminalPanel({ service }) {
 
     ws.onopen = () => {
       setStatus('open');
-      const { cols, rows } = term;
+      reconnectAttempts.current = 0;
+      const { cols, rows } = xtermRef.current;
       ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     };
 
@@ -78,37 +114,44 @@ function ContainerTerminalPanel({ service }) {
       const data = e.data instanceof ArrayBuffer
         ? new Uint8Array(e.data)
         : e.data;
-      term.write(data);
+      xtermRef.current?.write(data);
     };
 
     ws.onerror = () => setStatus('error');
-    ws.onclose = () => setStatus('closed');
 
-    term.onData(data => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data));
+    ws.onclose = () => {
+      setStatus('closed');
+      // Auto-reconnect with exponential backoff
+      if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts.current), 30000);
+        reconnectAttempts.current++;
+        reconnectTimer.current = setTimeout(() => connect(), delay);
       }
-    });
-
-    const ro = new ResizeObserver(() => {
-      fit.fit();
-      const { cols, rows } = term;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-      }
-    });
-    ro.observe(containerRef.current);
-
-    return () => {
-      ro.disconnect();
-      ws.close();
-      term.dispose();
     };
-  }, [containerName, reconnectCount]);
+  }, [containerName]);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
+      xtermRef.current?.dispose();
+      xtermRef.current = null;
+      fitRef.current = null;
+    };
+  }, [connect]);
 
   const reconnect = () => {
-    setStatus('connecting');
+    reconnectAttempts.current = 0;
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     setReconnectCount(c => c + 1);
+    connect();
   };
 
   const statusColor = { open: '#22c55e', connecting: '#eab308', closed: '#ef4444', error: '#ef4444' }[status];

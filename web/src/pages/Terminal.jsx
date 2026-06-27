@@ -1,5 +1,5 @@
 // Real xterm.js terminal connected to the Go PTY backend via WebSocket
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalWsUrl } from '../api/client';
@@ -7,17 +7,34 @@ import { Box, Maximize2, Minimize2, Server, TerminalSquare, Wifi, WifiOff } from
 import { Button, SelectRoot, SelectTrigger, SelectContent, SelectItem } from '../components/ui';
 import '@xterm/xterm/css/xterm.css';
 
+const MAX_RECONNECT_ATTEMPTS = 50;
+const BASE_RECONNECT_DELAY = 1000; // 1s
+
 export default function Terminal() {
   const containerRef = useRef(null);
   const xtermRef    = useRef(null);
   const fitRef      = useRef(null);
   const wsRef       = useRef(null);
+  const reconnectTimer = useRef(null);
+  const reconnectAttempts = useRef(0);
   const [status, setStatus]       = useState('connecting'); // connecting | open | closed | error
   const [fullscreen, setFullscreen] = useState(false);
   const [osInfo, setOsInfo]       = useState(null);
   const [target, setTarget]       = useState({ type: 'host', container: '' });
 
-  useEffect(() => {
+  const connect = useCallback(() => {
+    // Clean up previous connection
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    setStatus('connecting');
+
     // ── 1. Check terminal status from server ──────────────────────────────
     fetch('/api/v1/terminal/status', {
       headers: { Authorization: `Bearer ${localStorage.getItem('nanofly_token')}` }
@@ -27,45 +44,64 @@ export default function Terminal() {
       .catch(() => {});
 
     // ── 2. Create xterm instance ──────────────────────────────────────────
-    const term = new XTerm({
-      theme: {
-        background: '#0c0c0c',
-        foreground: '#cccccc',
-        cursor: '#ffffff',
-        selectionBackground: 'rgba(255, 255, 255, 0.2)',
-        black: '#000000',
-        red: '#ef4444',
-        green: '#4af626',
-        yellow: '#eab308',
-        blue: '#00d2ff',
-        magenta: '#d8b4fe',
-        cyan: '#00ffff',
-        white: '#cccccc',
-        brightBlack: '#64748b',
-        brightRed: '#ef4444',
-        brightGreen: '#4af626',
-        brightYellow: '#eab308',
-        brightBlue: '#00d2ff',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#00ffff',
-        brightWhite: '#ffffff',
-      },
-      fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
-      fontSize: 14,
-      lineHeight: 1.6,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 5000,
-      allowTransparency: true,
-    });
+    if (!xtermRef.current) {
+      const term = new XTerm({
+        theme: {
+          background: '#0c0c0c',
+          foreground: '#cccccc',
+          cursor: '#ffffff',
+          selectionBackground: 'rgba(255, 255, 255, 0.2)',
+          black: '#000000',
+          red: '#ef4444',
+          green: '#4af626',
+          yellow: '#eab308',
+          blue: '#00d2ff',
+          magenta: '#d8b4fe',
+          cyan: '#00ffff',
+          white: '#cccccc',
+          brightBlack: '#64748b',
+          brightRed: '#ef4444',
+          brightGreen: '#4af626',
+          brightYellow: '#eab308',
+          brightBlue: '#00d2ff',
+          brightMagenta: '#d8b4fe',
+          brightCyan: '#00ffff',
+          brightWhite: '#ffffff',
+        },
+        fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
+        fontSize: 14,
+        lineHeight: 1.6,
+        cursorBlink: true,
+        cursorStyle: 'block',
+        scrollback: 5000,
+        allowTransparency: true,
+      });
 
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(containerRef.current);
-    fit.fit();
+      const fit = new FitAddon();
+      term.loadAddon(fit);
+      term.open(containerRef.current);
+      fit.fit();
 
-    xtermRef.current = term;
-    fitRef.current   = fit;
+      xtermRef.current = term;
+      fitRef.current   = fit;
+
+      // Terminal → WS (stdin)
+      term.onData(data => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(new TextEncoder().encode(data));
+        }
+      });
+
+      // Resize observer → fit + send resize event
+      const ro = new ResizeObserver(() => {
+        fit.fit();
+        const { cols, rows } = term;
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
+        }
+      });
+      ro.observe(containerRef.current);
+    }
 
     // ── 3. Open WebSocket ─────────────────────────────────────────────────
     const wsUrl = terminalWsUrl(target.type, target.container);
@@ -75,8 +111,9 @@ export default function Terminal() {
 
     ws.onopen = () => {
       setStatus('open');
+      reconnectAttempts.current = 0; // reset on successful connect
       // Send initial resize
-      const { cols, rows } = term;
+      const { cols, rows } = xtermRef.current;
       ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     };
 
@@ -84,42 +121,50 @@ export default function Terminal() {
       const data = e.data instanceof ArrayBuffer
         ? new Uint8Array(e.data)
         : e.data;
-      term.write(data);
+      xtermRef.current?.write(data);
     };
 
     ws.onerror = () => setStatus('error');
-    ws.onclose = () => setStatus('closed');
 
-    // Terminal → WS (stdin)
-    term.onData(data => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data));
+    ws.onclose = () => {
+      setStatus('closed');
+      // Auto-reconnect with exponential backoff
+      if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts.current), 30000);
+        reconnectAttempts.current++;
+        reconnectTimer.current = setTimeout(() => connect(), delay);
       }
-    });
-
-    // Resize observer → fit + send resize event
-    const ro = new ResizeObserver(() => {
-      fit.fit();
-      const { cols, rows } = term;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-      }
-    });
-    ro.observe(containerRef.current);
-
-    return () => {
-      ro.disconnect();
-      ws.close();
-      term.dispose();
     };
   }, [target]);
+
+  // Initial connection
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
+      xtermRef.current?.dispose();
+      xtermRef.current = null;
+      fitRef.current = null;
+    };
+  }, [target]); // reconnect when target changes
 
   // Re-fit when fullscreen toggles
   useEffect(() => {
     setTimeout(() => fitRef.current?.fit(), 100);
   }, [fullscreen]);
 
-  const reconnect = () => window.location.reload();
+  const reconnect = () => {
+    reconnectAttempts.current = 0;
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    connect();
+  };
   const containers = osInfo?.containers || [];
   const activeContainer = containers.find(c => c.id === target.container);
 

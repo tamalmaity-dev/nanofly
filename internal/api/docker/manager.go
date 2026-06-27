@@ -448,6 +448,13 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 			CPUQuota:   tier.CPUQuota,
 			CPUPeriod:  tier.CPUPeriod,
 		},
+		LogConfig: container.LogConfig{
+			Type: "json-file",
+			Config: map[string]string{
+				"max-size": "10m",
+				"max-file": "3",
+			},
+		},
 		Init:       boolPtr(true),
 		CapDrop:    []string{"ALL"},
 		CapAdd:     []string{"CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "FOWNER"},
@@ -652,7 +659,7 @@ func streamPull(rc io.Reader, logFn func(string)) {
 
 // DeployApp deploys a Docker image as an app container.
 // logFn receives pull/deploy progress messages; pass nil to discard.
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, logFn func(string)) (string, error) {
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, bindMounts []string, logFn func(string)) (string, error) {
 	slog.Info("pulling image", "image", img)
 	if err := m.ensureImage(ctx, img, logFn); err != nil {
 		return "", err
@@ -725,11 +732,19 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		NetworkMode:   container.NetworkMode(nanoflyNetwork),
 		ExtraHosts:    []string{"host.docker.internal:host-gateway"},
 		RestartPolicy: container.RestartPolicy{Name: "on-failure", MaximumRetryCount: 5},
+		Binds:         bindMounts,
 		Resources: container.Resources{
 			Memory:     tier.Memory,
 			MemorySwap: tier.MemorySwap,
 			CPUQuota:   tier.CPUQuota,
 			CPUPeriod:  tier.CPUPeriod,
+		},
+		LogConfig: container.LogConfig{
+			Type: "json-file",
+			Config: map[string]string{
+				"max-size": "10m",
+				"max-file": "3",
+			},
 		},
 		Init:       boolPtr(true),
 		CapDrop:    []string{"ALL"},
@@ -868,6 +883,13 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 			Memory:   64 * 1024 * 1024,
 			CPUQuota: 50000,
 		},
+		LogConfig: container.LogConfig{
+			Type: "json-file",
+			Config: map[string]string{
+				"max-size": "10m",
+				"max-file": "3",
+			},
+		},
 	}, nil, nil, "nf-traefik")
 	if err != nil {
 		return fmt.Errorf("creating traefik container: %w", err)
@@ -886,7 +908,8 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 }
 
 
-// PruneSystem cleans up dangling images, stopped containers, unused volumes, and unused networks.
+// PruneSystem cleans up dangling images, stopped containers, unused volumes, unused networks,
+// and Docker build cache.
 func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages, pruneVolumes, pruneNetworks bool) (PruneResult, error) {
 	slog.Info("Running Docker system prune", "containers", pruneContainers, "images", pruneImages, "volumes", pruneVolumes, "networks", pruneNetworks)
 	var res PruneResult
@@ -926,6 +949,30 @@ func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages,
 		}
 	}
 
+	// Prune build cache
+	if _, err := m.cli.BuildCachePrune(ctx, dockertypes.BuildCachePruneOptions{All: true}); err != nil {
+		slog.Warn("Failed to prune build cache", "error", err)
+	}
+
 	res.ReclaimedHuman = FormatBytes(res.SpaceReclaimed)
 	return res, nil
+}
+
+// AutoPruneAfterDeploy silently cleans up dangling images and build cache
+// after a successful deployment. Best-effort: errors are logged, not returned.
+func (m *Manager) AutoPruneAfterDeploy(ctx context.Context) {
+	pruneCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	// Prune dangling images (old untagged layers from previous builds)
+	if iReport, err := m.cli.ImagesPrune(pruneCtx, filters.Args{}); err == nil {
+		slog.Info("Auto-pruned dangling images after deploy", "deleted", len(iReport.ImagesDeleted), "reclaimed", FormatBytes(iReport.SpaceReclaimed))
+	} else {
+		slog.Warn("Auto-prune images failed", "error", err)
+	}
+
+	// Prune build cache to prevent unbounded growth
+	if _, err := m.cli.BuildCachePrune(pruneCtx, dockertypes.BuildCachePruneOptions{All: true}); err != nil {
+		slog.Warn("Auto-prune build cache failed", "error", err)
+	}
 }

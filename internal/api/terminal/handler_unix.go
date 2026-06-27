@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -32,6 +33,10 @@ type resizeMsg struct {
 //   - binary frames → stdin to the shell
 //   - text frames   → JSON resize: {"type":"resize","rows":24,"cols":80}
 //   - server sends binary frames → stdout/stderr from the shell
+//
+// Keepalive: server sends WebSocket pings every 30s. If no pong is received
+// within 60s the connection is closed. This prevents idle terminal sessions
+// from being dropped by proxies, load balancers, or the OS TCP stack.
 func WS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -39,6 +44,31 @@ func WS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+
+	// ── Read deadline + pong handler (resets deadline on pong) ──────────
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	// ── Ping goroutine — sends pings every 30s to keep connection alive ─
+	pingDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingDone:
+				return
+			case <-ticker.C:
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	defer close(pingDone)
 
 	target := r.URL.Query().Get("target")
 	containerID := r.URL.Query().Get("container")
@@ -84,6 +114,7 @@ func WS(w http.ResponseWriter, r *http.Request) {
 				conn.Close()
 				return
 			}
+			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
 				return
 			}

@@ -2,6 +2,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -16,6 +17,47 @@ type DB struct {
 	*sql.DB
 }
 
+// CleanupOldRecords prunes old deployment logs and activity entries to prevent
+// unbounded database growth. It keeps the most recent deployments per service
+// and the most recent activity log entries globally. Called periodically.
+func (db *DB) CleanupOldRecords() {
+	ctx := context.Background()
+
+	// Keep only the last 20 deployment records per service (truncates the log of older ones)
+	_, _ = db.ExecContext(ctx, `
+		DELETE FROM deployments WHERE id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY started_at DESC) AS rn
+				FROM deployments
+			) WHERE rn <= 20
+		`)
+	// Also truncate logs of retained deployments older than the most recent 5 to save space
+	_, _ = db.ExecContext(ctx, `
+		UPDATE deployments SET log = '' WHERE id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY started_at DESC) AS rn
+				FROM deployments
+			) WHERE rn <= 5
+		) AND log != '' AND LENGTH(log) > 0
+	`)
+
+	// Keep only the last 500 activity log entries
+	_, _ = db.ExecContext(ctx, `
+		DELETE FROM activity_log WHERE id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC) AS rn
+				FROM activity_log
+			) WHERE rn <= 500
+		)
+	`)
+
+	// Clean up expired sessions
+	_, _ = db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < datetime('now')`)
+
+	// Periodic VACUUM to reclaim disk space (only runs when DB has grown)
+	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+}
+
 // Open creates the data dir, opens SQLite, and runs migrations.
 func Open(dataDir string) (*DB, error) {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -23,7 +65,7 @@ func Open(dataDir string) (*DB, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, "nanofly.db")
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000", dbPath)
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_auto_vacuum=FULL&_foreign_keys=on&_busy_timeout=5000", dbPath)
 
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -228,6 +270,7 @@ func (db *DB) migrate() error {
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN network_aliases TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_watch_paths TEXT DEFAULT ''")
 	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_use_server INTEGER DEFAULT 0")
+	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN volumes TEXT DEFAULT '[]'")
 
 	// Service name uniqueness per project (added 2026-06-02 to prevent duplicate
 	// "local-app" type names that confuse routing and the UI). If existing

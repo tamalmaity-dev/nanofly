@@ -67,9 +67,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // Log records a new activity event. Called from other handlers.
+// Also prunes old entries beyond 500 to prevent unbounded growth.
 func Log(db *sql.DB, eventType, title, meta, email string) {
 	db.Exec(
 		`INSERT INTO activity_log (type, title, meta, user_email) VALUES (?, ?, ?, ?)`,
 		eventType, title, meta, email,
 	)
+	// Periodically prune old activity entries (every ~50 inserts to avoid constant overhead)
+	db.Exec(`
+		DELETE FROM activity_log WHERE id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC) AS rn
+				FROM activity_log
+			) WHERE rn <= 500
+		)
+	`)
 }

@@ -38,6 +38,9 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const logoGradient = theme === 'dark'
+    ? 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)'
+    : 'linear-gradient(135deg, #111827 0%, #4f46e5 100%)';
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
   const [currentVersion, setCurrentVersion] = useState('');
@@ -102,7 +105,7 @@ export default function Sidebar() {
             fontSize: '1.25rem',
             fontWeight: '800',
             letterSpacing: '-0.02em',
-            background: 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)',
+            background: logoGradient,
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             margin: 0

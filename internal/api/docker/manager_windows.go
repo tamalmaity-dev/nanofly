@@ -83,7 +83,7 @@ func (m *Manager) Logs(ctx context.Context, nameOrID string, tail string) (strin
 	return "", fmt.Errorf("docker not available on Windows")
 }
 
-func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, logFn func(string)) (string, error) {
+func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, hostPort, containerPort int, envVars []string, domains []string, tierName string, customMemory int64, customCPU float64, bindMounts []string, logFn func(string)) (string, error) {
 	return "", fmt.Errorf("docker not available on Windows")
 }
 
@@ -98,6 +98,8 @@ func (m *Manager) Exec(ctx context.Context, containerID string, cmd []string, st
 func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages, pruneVolumes, pruneNetworks bool) (PruneResult, error) {
 	return PruneResult{}, fmt.Errorf("docker not available on Windows")
 }
+
+func (m *Manager) AutoPruneAfterDeploy(ctx context.Context) {}
 
 func (m *Manager) InspectContainer(ctx context.Context, nameOrID string) (*dockertypes.ContainerJSON, error) {
 	return nil, fmt.Errorf("docker not available on Windows")

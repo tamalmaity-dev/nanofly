@@ -735,7 +735,10 @@ export function AddServiceConfigFields({
                       <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
                     </Tooltip>
                   </label>
-                  <input className="form-input" value={form.port} onChange={set('port')} placeholder="80" />
+                  <input className="form-input" value={form.port} onChange={e => {
+                    const val = e.target.value;
+                    setForm(f => ({ ...f, port: val, portsExposes: val }));
+                  }} placeholder="80" />
                 </div>
               </>
             ) : (
@@ -748,7 +751,10 @@ export function AddServiceConfigFields({
                       <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
                     </Tooltip>
                   </label>
-                  <input className="form-input" value={form.port} onChange={set('port')} placeholder="8080" />
+                  <input className="form-input" value={form.port} onChange={e => {
+                    const val = e.target.value;
+                    setForm(f => ({ ...f, port: val, portsExposes: val }));
+                  }} placeholder="8080" />
                 </div>
                 {['node', 'python', 'go', 'php'].includes(builderType) && (
                   <LanguageFields builderType={builderType} form={form} setForm={setForm} />
@@ -853,7 +859,10 @@ export function AddServiceConfigFields({
           )}
           <div className="form-group">
             <label className="form-label">Container port</label>
-            <input className="form-input" value={form.port} onChange={set('port')} placeholder="3000" />
+            <input className="form-input" value={form.port} onChange={e => {
+              const val = e.target.value;
+              setForm(f => ({ ...f, port: val, portsExposes: val }));
+            }} placeholder="3000" />
           </div>
           <BuilderTypeSelect value={form.gitBuilder} onChange={val => setForm(f => ({ ...f, gitBuilder: val }))} />
           {['node', 'python', 'go', 'php'].includes(builderType) && (
@@ -1041,13 +1050,13 @@ export function AddServiceConfigFields({
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   Port Mappings
-                  <Tooltip content="Forward host ports to container. E.g. '80:3000' or '8080:8080'. Leave blank to use reverse proxy only.">
+                  <Tooltip content="Forward host ports to container. Format: 'host:container' e.g. '8080:3000' maps host port 8080 to container port 3000. Leave blank to use reverse proxy only.">
                     <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
                   </Tooltip>
                 </label>
                 <input
                   className="form-input"
-                  placeholder="3000:3000"
+                  placeholder={form.port ? `${form.port}:${form.port}` : '8080:3000'}
                   value={form.portMappings || ''}
                   onChange={set('portMappings')}
                 />
