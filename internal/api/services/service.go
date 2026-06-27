@@ -2395,6 +2395,10 @@ type UpdateServiceReq struct {
 }
 
 // Update updates the service's details in DB and optional git sources.
+// Only fields that are explicitly provided (non-zero) are updated; omitted
+// fields retain their existing values.  This allows individual panels
+// (e.g. Persistent Storage, Environment Variables) to save their own
+// slice without overwriting unrelated columns.
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
 	// Reject name collisions on rename (DB unique index would also enforce this,
 	// but a friendly pre-check beats a raw UNIQUE constraint error).
@@ -2409,19 +2413,77 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		}
 	}
 
-	_, err := m.db.ExecContext(ctx, `
-		UPDATE services
-		SET name = ?, description = ?, db_user = ?, db_password = ?, db_name = ?, image = ?, port = ?, start_command = ?, install_command = ?,
-		    app_directory = ?, run_file = ?, requirements_file = ?, use_venv = ?,
-		    docker_args = ?, dockerfile_content = ?, docker_compose_content = ?, resource_tier = ?, custom_memory = ?, custom_cpu = ?,
-		    dockerfile_location = ?, build_stage_target = ?, build_custom_options = ?, base_directory = ?, docker_registry_image = ?, docker_registry_tag = ?,
-		    ports_exposes = ?, port_mappings = ?, network_aliases = ?, build_watch_paths = ?, build_use_server = ?, volumes = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, req.Name, req.Description, req.DBUser, req.DBPassword, req.DBName, req.Image, req.Port, req.StartCommand, req.InstallCommand,
-		req.AppDirectory, req.RunFile, defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
-		req.DockerfileContent, req.DockerComposeContent, req.TierName, req.CustomMemory, req.CustomCPU,
-		req.DockerfileLocation, req.BuildStageTarget, req.BuildCustomOptions, req.BaseDirectory, req.DockerRegistryImage, req.DockerRegistryTag,
-		req.PortsExposes, req.PortMappings, req.NetworkAliases, req.BuildWatchPaths, req.BuildUseServer, req.Volumes, serviceID)
+	// Build dynamic SET clause — only include fields that were provided.
+	setClauses := []string{}
+	args := []any{}
+
+	addStr := func(col, val string) {
+		if val != "" {
+			setClauses = append(setClauses, col+" = ?")
+			args = append(args, val)
+		}
+	}
+	addInt := func(col string, val int) {
+		if val != 0 {
+			setClauses = append(setClauses, col+" = ?")
+			args = append(args, val)
+		}
+	}
+	addInt64 := func(col string, val int64) {
+		if val != 0 {
+			setClauses = append(setClauses, col+" = ?")
+			args = append(args, val)
+		}
+	}
+	addBool := func(col string, val bool) {
+		setClauses = append(setClauses, col+" = ?")
+		args = append(args, val)
+	}
+	addStr("name", req.Name)
+	addStr("description", req.Description)
+	addStr("db_user", req.DBUser)
+	addStr("db_password", req.DBPassword)
+	addStr("db_name", req.DBName)
+	addStr("image", req.Image)
+	addInt("port", req.Port)
+	addStr("start_command", req.StartCommand)
+	addStr("install_command", req.InstallCommand)
+	addStr("app_directory", req.AppDirectory)
+	addStr("run_file", req.RunFile)
+	if req.RequirementsFile != "" {
+		setClauses = append(setClauses, "requirements_file = ?")
+		args = append(args, defaultRequirementsFile(req.RequirementsFile))
+	}
+	addBool("use_venv", req.UseVenv)
+	addStr("docker_args", req.DockerArgs)
+	addStr("dockerfile_content", req.DockerfileContent)
+	addStr("docker_compose_content", req.DockerComposeContent)
+	addStr("resource_tier", req.TierName)
+	addInt64("custom_memory", req.CustomMemory)
+	addInt64("custom_cpu", req.CustomCPU)
+	addStr("dockerfile_location", req.DockerfileLocation)
+	addStr("build_stage_target", req.BuildStageTarget)
+	addStr("build_custom_options", req.BuildCustomOptions)
+	addStr("base_directory", req.BaseDirectory)
+	addStr("docker_registry_image", req.DockerRegistryImage)
+	addStr("docker_registry_tag", req.DockerRegistryTag)
+	addInt("ports_exposes", req.PortsExposes)
+	addStr("port_mappings", req.PortMappings)
+	addStr("network_aliases", req.NetworkAliases)
+	addStr("build_watch_paths", req.BuildWatchPaths)
+	addBool("build_use_server", req.BuildUseServer)
+	addStr("volumes", req.Volumes)
+
+	if len(setClauses) == 0 {
+		return m.Get(ctx, serviceID)
+	}
+
+	// Always touch updated_at.
+	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, serviceID)
+
+	query := "UPDATE services SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
+	_, err := m.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("updating service table: %w", err)
 	}
@@ -2431,24 +2493,26 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		builderVal = "auto"
 	}
 
-	// Update git sources if relevant
-	var exists bool
-	_ = m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM git_sources WHERE service_id = ?)`, serviceID).Scan(&exists)
-	if exists {
-		if req.GitRepoURL == "" {
-			_, _ = m.db.ExecContext(ctx, `DELETE FROM git_sources WHERE service_id = ?`, serviceID)
-		} else {
+	// Only touch git_sources if GitRepoURL was explicitly provided.
+	if req.GitRepoURL != "" || req.GitBranch != "" || req.GitToken != "" || req.SSHKey != "" {
+		var exists bool
+		_ = m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM git_sources WHERE service_id = ?)`, serviceID).Scan(&exists)
+		if exists {
+			if req.GitRepoURL == "" {
+				_, _ = m.db.ExecContext(ctx, `DELETE FROM git_sources WHERE service_id = ?`, serviceID)
+			} else {
+				_, _ = m.db.ExecContext(ctx, `
+					UPDATE git_sources
+					SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
+					WHERE service_id = ?
+				`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+			}
+		} else if req.GitRepoURL != "" {
 			_, _ = m.db.ExecContext(ctx, `
-				UPDATE git_sources
-				SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
-				WHERE service_id = ?
-			`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+				INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+			`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
 		}
-	} else if req.GitRepoURL != "" {
-		_, _ = m.db.ExecContext(ctx, `
-			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
 	}
 
 	return m.Get(ctx, serviceID)
