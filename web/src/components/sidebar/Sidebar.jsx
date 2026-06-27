@@ -40,7 +40,8 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const logoGradient = theme === 'dark'
     ? 'linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%)'
-    : 'linear-gradient(135deg, #111827 0%, #4f46e5 100%)';
+    : 'linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)';
+  const logoColor = theme === 'dark' ? '#e2e8f0' : '#1e293b';
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
   const [currentVersion, setCurrentVersion] = useState('');
@@ -105,9 +106,7 @@ export default function Sidebar() {
             fontSize: '1.25rem',
             fontWeight: '800',
             letterSpacing: '-0.02em',
-            background: logoGradient,
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
+            color: logoColor,
             margin: 0
           }}>NanoFly</span>
         </div>

@@ -2608,6 +2608,51 @@ func detectLocalBuilder(localPath, requestedBuilder string) string {
 	return "static"
 }
 
+// volumeRunArgs parses the service's volumes JSON and returns docker run
+// bind-mount arguments ("-v", "host:container", ...) for non-Dockerfile
+// local deployments.  The Dockerfile path (DeployApp) already handles
+// volumes via the Docker API, so this helper is only needed for CLI-based
+// `docker run` invocations in localDeploy.
+func volumeRunArgs(svc *Service, log func(string)) []string {
+	if svc.Volumes == "" || svc.Volumes == "[]" {
+		return nil
+	}
+	var mounts []VolumeMount
+	if err := json.Unmarshal([]byte(svc.Volumes), &mounts); err != nil {
+		return nil
+	}
+	var args []string
+	for _, vol := range mounts {
+		if vol.ContainerPath == "" {
+			continue
+		}
+		switch vol.Type {
+		case "volume":
+			volName := vol.Name
+			if volName == "" {
+				volName = "nf-vol-" + svc.ID[:8]
+			}
+			bind := volName + ":" + vol.ContainerPath
+			if vol.ReadOnly {
+				bind += ":ro"
+			}
+			args = append(args, "-v", bind)
+			log(fmt.Sprintf("Volume mount: %s -> %s (Docker volume)", volName, vol.ContainerPath))
+		case "file", "directory", "bind":
+			if vol.HostPath == "" {
+				continue
+			}
+			bind := vol.HostPath + ":" + vol.ContainerPath
+			if vol.ReadOnly {
+				bind += ":ro"
+			}
+			args = append(args, "-v", bind)
+			log(fmt.Sprintf("Bind mount: %s -> %s", vol.HostPath, vol.ContainerPath))
+		}
+	}
+	return args
+}
+
 func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath string, log func(string)) error {
 	log("📁 Starting local folder deployment: " + localPath)
 	if err := os.MkdirAll(localPath, 0755); err != nil {
@@ -2722,6 +2767,9 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 
 		// Join the shared nanofly network for container-to-container DNS
 		runArgs = append(runArgs, "--network", docker.NanoflyNetworkName())
+
+		// Append persistent storage bind mounts
+		runArgs = append(runArgs, volumeRunArgs(svc, log)...)
 
 		// Append custom docker run arguments
 		if svc.DockerArgs != "" {
@@ -2840,6 +2888,9 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		"-v", localPath + ":" + targetDir,
 		"-w", targetDir,
 	}
+
+	// Append persistent storage bind mounts
+	runArgs = append(runArgs, volumeRunArgs(svc, log)...)
 
 	var envSlice []string
 	rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=?`, svc.ID)

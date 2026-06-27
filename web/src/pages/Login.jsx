@@ -53,7 +53,7 @@ export default function Login() {
             <img src="/logo.png" alt="NanoFly" className="auth-logo-img" />
           </div>
           <h1 className="auth-brand">NanoFly</h1>
-          <p className="auth-tagline">Self-hosted server control panel</p>
+          <p className="auth-tagline">A self-hosted server control panel</p>
         </div>
 
         {/* Error */}

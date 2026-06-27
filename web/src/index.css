@@ -1342,8 +1342,9 @@ code, pre {
 
 /* Radix Tabs Support */
 .tabs-root { display: flex; flex-direction: column; }
-.tabs-list { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }
-.tab-trigger { padding: 0.625rem 1rem; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; }
+.tabs-list { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; overflow-x: auto; flex-wrap: nowrap; gap: 0; scrollbar-width: none; -ms-overflow-style: none; }
+.tabs-list::-webkit-scrollbar { display: none; }
+.tab-trigger { padding: 0.625rem 0.875rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; white-space: nowrap; flex-shrink: 0; }
 .tab-trigger:hover { color: var(--text-primary); }
 .tab-trigger[data-state='active'] { color: var(--accent); border-bottom-color: var(--accent); }
 .tabs-content { outline: none; }
