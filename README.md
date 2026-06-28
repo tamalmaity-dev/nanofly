@@ -22,6 +22,10 @@
 
 ---
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tamalmaity-dev/nanofly/main/web/public/nanofly-dashboard.png" alt="NanoFly Logo" width="auto" style="border-radius: 12px;" />
+</p>
+
 ## ⚡ About NanoFly Project
 
 * **Zero Heavy Dependencies**: Unlike other self-hosted PaaS solutions, NanoFly is compiled into a single lightweight Go binary with an embedded SQLite database. No JVM, no heavy footprint.
