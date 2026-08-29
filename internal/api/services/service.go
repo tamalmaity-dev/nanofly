@@ -690,6 +690,11 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 		`, id, ev.Key, ev.Value) //nolint:errcheck
 	}
 
+	// Start file watcher if watch paths are configured
+	if strings.TrimSpace(req.BuildWatchPaths) != "" && strings.HasPrefix(req.GitRepoURL, "file://") {
+		go m.SyncWatcher(context.Background(), id)
+	}
+
 	return m.Get(ctx, id)
 }
 
@@ -2288,6 +2293,10 @@ func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVo
 
 // Delete removes a service, its containers, images, volumes, and workspace from disk.
 func (m *Manager) Delete(ctx context.Context, serviceID string) error {
+	watcherMu.Lock()
+	m.stopWatcherLocked(serviceID)
+	watcherMu.Unlock()
+
 	svc, err := m.Get(ctx, serviceID)
 	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
@@ -2604,6 +2613,11 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 			`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
 		}
+	}
+
+	// Reconcile file watcher if watch paths or repo URL changed
+	if req.BuildWatchPaths != "" || req.BuildUseServer || req.GitRepoURL != "" {
+		go m.SyncWatcher(context.Background(), serviceID)
 	}
 
 	return m.Get(ctx, serviceID)

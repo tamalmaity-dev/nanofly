@@ -111,6 +111,9 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	go s.projectBackupScheduler()
 	go s.periodicCleanup()
 	go s.periodicDockerPrune()
+	if s.serviceMgr != nil {
+		go s.serviceMgr.StartWatchers(context.Background())
+	}
 
 	return s, nil
 }
@@ -707,6 +710,7 @@ func (s *Server) Start() error {
 // Stop gracefully shuts down the server.
 func (s *Server) Stop(ctx context.Context) error {
 	if s.serviceMgr != nil {
+		s.serviceMgr.StopAllWatchers()
 		slog.Info("Waiting for in-flight deployments to finish...")
 		waitCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		s.serviceMgr.WaitForDeploys(waitCtx)
