@@ -14,6 +14,7 @@ import { load as yamlLoad } from 'js-yaml';
 // Lazy-loaded terminal (xterm); monitoring imported eagerly for faster tab open
 import MonitoringPanel from '../components/panels/MonitoringPanel';
 import { EnvVarsPanel } from './ProjectDetail/EnvVarsPanel';
+import { ComposeEnvVarsPanel } from './ProjectDetail/ComposeEnvVarsPanel';
 import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
 
@@ -3656,55 +3657,7 @@ export default function ProjectDetail() {
                 {activeTab === 'backup' && <BackupRestorePanel service={selectedSvc} />}
                 {activeTab === 'envvars' && (
                   isCompose ? (
-                    <div>
-                      <div style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 'var(--radius)', padding: '10px 12px', fontSize: '0.82rem', color: '#facc15', marginBottom: 16 }}>
-                        Environment variables are read-only here. Edit the Docker Compose file to change them.
-                      </div>
-                      {(() => {
-                        try {
-                          const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
-                          const envEntries: { svc: string; key: string; value: string }[] = [];
-                          if (parsed?.services) {
-                            for (const [svcName, cfg] of Object.entries(parsed.services)) {
-                              const env = (cfg as { environment?: string[] | Record<string, string> }).environment;
-                              if (!env) continue;
-                              if (Array.isArray(env)) {
-                                for (const e of env) {
-                                  const s = String(e);
-                                  const eq = s.indexOf('=');
-                                  if (eq > 0) envEntries.push({ svc: svcName, key: s.slice(0, eq), value: s.slice(eq + 1) });
-                                }
-                              } else if (typeof env === 'object') {
-                                for (const [k, v] of Object.entries(env)) envEntries.push({ svc: svcName, key: k, value: String(v) });
-                              }
-                            }
-                          }
-                          if (envEntries.length === 0) return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)' }}>No environment variables in compose file.</div>;
-                          const bySvc: Record<string, typeof envEntries> = {};
-                          for (const e of envEntries) { (bySvc[e.svc] = bySvc[e.svc] || []).push(e); }
-                          return Object.entries(bySvc).map(([svcName, vars]) => (
-                            <div key={svcName} style={{ marginBottom: 16 }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><FileCode size={14} /> {svcName} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 8px', borderRadius: 999 }}>{vars.length} vars</span></div>
-                              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                  <thead><tr style={{ background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Key</th><th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Value</th></tr></thead>
-                                  <tbody>
-                                    {vars.map((ev, i) => (
-                                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                                        <td style={{ padding: '10px 12px', fontSize: '0.82rem', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{ev.key}</td>
-                                        <td style={{ padding: '10px 12px', fontSize: '0.82rem', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{ev.value}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          ));
-                        } catch {
-                          return <div style={{ padding: '1rem', color: 'var(--red)', fontSize: '0.85rem' }}>Invalid compose file</div>;
-                        }
-                      })()}
-                    </div>
+                    <ComposeEnvVarsPanel service={selectedSvc} onUpdate={load} />
                   ) : (
                     <EnvVarsPanel serviceId={activeSvc} />
                   )

@@ -15,6 +15,15 @@ func (m *Manager) BackupDatabase(ctx context.Context, serviceID string) (string,
 		return "", err
 	}
 	containerName := svc.ContainerName()
+	// For compose services, containers are named nf-<ID>_<svc>_1, not nf-app-... — find via label
+	if svc.Builder == "docker-compose" || svc.DockerComposeContent != "" {
+		if containers, err := m.docker.ListByLabel(ctx, serviceID); err == nil && len(containers) > 0 {
+			containerName = containers[0].Name
+			if containerName == "" {
+				containerName = containers[0].ID
+			}
+		}
+	}
 	stamp := time.Now().Format("20060102-150405")
 	backupFileName := fmt.Sprintf("backup_%s", stamp)
 
@@ -58,6 +67,14 @@ func (m *Manager) ImportDatabase(ctx context.Context, serviceID, backupFileName 
 		return err
 	}
 	containerName := svc.ContainerName()
+	if svc.Builder == "docker-compose" || svc.DockerComposeContent != "" {
+		if containers, err := m.docker.ListByLabel(ctx, serviceID); err == nil && len(containers) > 0 {
+			containerName = containers[0].Name
+			if containerName == "" {
+				containerName = containers[0].ID
+			}
+		}
+	}
 
 	var cmd []string
 	if svc.Type == "app" {
