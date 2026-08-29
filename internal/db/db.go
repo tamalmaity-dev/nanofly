@@ -227,62 +227,73 @@ func (db *DB) migrate() error {
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("applying schema: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing schema: %w", err)
+	}
 
-	// Dynamic migration for existing databases:
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN image TEXT")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN start_command TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN install_command TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN app_directory TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN run_file TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN requirements_file TEXT DEFAULT 'requirements.txt'")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN use_venv INTEGER DEFAULT 1")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_args TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN dockerfile_content TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_compose_content TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN builder TEXT DEFAULT 'auto'")
-	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN git_token TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN ssh_key TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN description TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN db_user TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN db_password TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN db_name TEXT DEFAULT ''")
-	
-	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_enabled INTEGER DEFAULT 0")
-	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_time TEXT DEFAULT '00:00'")
-	_, _ = tx.Exec("ALTER TABLE projects ADD COLUMN backup_retention INTEGER DEFAULT 7")
-	
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN resource_tier TEXT DEFAULT 'micro'")
-	
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN custom_memory INTEGER DEFAULT 0")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN custom_cpu INTEGER DEFAULT 0")
-	
-	_, _ = tx.Exec("ALTER TABLE git_sources ADD COLUMN github_app_id TEXT REFERENCES github_apps(id) ON DELETE SET NULL")
-	
-	// Advanced configuration settings
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN dockerfile_location TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_stage_target TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_custom_options TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN base_directory TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_registry_image TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN docker_registry_tag TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN ports_exposes INTEGER DEFAULT 0")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN port_mappings TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN network_aliases TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_watch_paths TEXT DEFAULT ''")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN build_use_server INTEGER DEFAULT 0")
-	_, _ = tx.Exec("ALTER TABLE services ADD COLUMN volumes TEXT DEFAULT '[]'")
+	// ── Schema migrations ──────────────────────────────────────────────────────
+	// Each ALTER TABLE runs outside a transaction so that a failure on one
+	// (column already exists) does not roll back every subsequent migration.
+	// This is safe because ADD COLUMN is idempotent — it errors if the column
+	// exists and we silently ignore that error with _, _.
+	migrate := func(stmt string) { _, _ = db.Exec(stmt) }
 
-	// Service name uniqueness per project (added 2026-06-02 to prevent duplicate
-	// "local-app" type names that confuse routing and the UI). If existing
-	// duplicates are present, the index creation will fail — we log it so the
-	// operator can clean them up, but we don't fail startup. The API layer
-	// pre-checks duplicate names and gives a clear error, so the runtime
-	// stays protected even when this index can't be created yet.
-	if _, idxErr := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_services_project_name ON services(project_id, name)"); idxErr != nil {
+	// Core service fields
+	migrate("ALTER TABLE services ADD COLUMN image TEXT")
+	migrate("ALTER TABLE services ADD COLUMN start_command TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN install_command TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN app_directory TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN run_file TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN requirements_file TEXT DEFAULT 'requirements.txt'")
+	migrate("ALTER TABLE services ADD COLUMN use_venv INTEGER DEFAULT 1")
+	migrate("ALTER TABLE services ADD COLUMN docker_args TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN dockerfile_content TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN docker_compose_content TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN description TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN db_user TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN db_password TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN db_name TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN resource_tier TEXT DEFAULT 'micro'")
+	migrate("ALTER TABLE services ADD COLUMN custom_memory INTEGER DEFAULT 0")
+	migrate("ALTER TABLE services ADD COLUMN custom_cpu INTEGER DEFAULT 0")
+
+	// Git source fields
+	migrate("ALTER TABLE git_sources ADD COLUMN builder TEXT DEFAULT 'auto'")
+	migrate("ALTER TABLE git_sources ADD COLUMN git_token TEXT DEFAULT ''")
+	migrate("ALTER TABLE git_sources ADD COLUMN ssh_key TEXT DEFAULT ''")
+	migrate("ALTER TABLE git_sources ADD COLUMN github_app_id TEXT REFERENCES github_apps(id) ON DELETE SET NULL")
+
+	// Project fields
+	migrate("ALTER TABLE projects ADD COLUMN backup_enabled INTEGER DEFAULT 0")
+	migrate("ALTER TABLE projects ADD COLUMN backup_time TEXT DEFAULT '00:00'")
+	migrate("ALTER TABLE projects ADD COLUMN backup_retention INTEGER DEFAULT 7")
+
+	// Advanced configuration
+	migrate("ALTER TABLE services ADD COLUMN dockerfile_location TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN build_stage_target TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN build_custom_options TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN base_directory TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN docker_registry_image TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN docker_registry_tag TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN ports_exposes INTEGER DEFAULT 0")
+	migrate("ALTER TABLE services ADD COLUMN port_mappings TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN network_aliases TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN build_watch_paths TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN build_use_server INTEGER DEFAULT 0")
+	migrate("ALTER TABLE services ADD COLUMN volumes TEXT DEFAULT '[]'")
+	migrate("ALTER TABLE deployments ADD COLUMN trigger TEXT DEFAULT 'manual'")
+
+	// Healthcheck
+	migrate("ALTER TABLE services ADD COLUMN healthcheck_enabled INTEGER DEFAULT 0")
+	migrate("ALTER TABLE services ADD COLUMN healthcheck_path TEXT DEFAULT ''")
+	migrate("ALTER TABLE services ADD COLUMN healthcheck_port INTEGER DEFAULT 0")
+
+	// Service name uniqueness per project
+	if _, idxErr := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_services_project_name ON services(project_id, name)"); idxErr != nil {
 		fmt.Printf("WARN: idx_services_project_name could not be created (likely existing duplicate names): %v\n", idxErr)
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // ─── User queries ────────────────────────────────────────────────────────────
