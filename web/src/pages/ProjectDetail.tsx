@@ -1195,50 +1195,48 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                   </div>
                 </div>
 
+                {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '0.5rem' }}>
                   <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
-                  <Button variant="primary" disabled={!composePreflight.valid} onClick={() => {
-                    // Parse compose YAML to auto-fill config fields (port, image, env vars)
+                  <Button variant="primary" disabled={!composePreflight.valid} loading={loading} onClick={async () => {
+                    // Coolify-style: create directly from compose file without config step
+                    setError('');
+                    setLoading(true);
                     try {
-                      const parsed = yamlLoad(form.dockerComposeContent);
-                      if (parsed?.services) {
-                        const svcNames = Object.keys(parsed.services);
-                        const firstSvc = svcNames.length > 0 ? parsed.services[svcNames[0]] : null;
+                      let envText = form.envText;
+                      let port = form.port;
+                      try {
+                        const parsed = yamlLoad(form.dockerComposeContent);
+                        const firstSvc = parsed?.services ? parsed.services[Object.keys(parsed.services)[0]] : null;
                         if (firstSvc) {
-                          setForm(f => {
-                            const updates = { ...f };
-                            // Auto-detect port from first service
-                            if (firstSvc.ports?.length > 0) {
-                              const portStr = String(firstSvc.ports[0]);
-                              const hostPort = portStr.split(':')[0]?.replace(/[^0-9]/g, '');
-                              if (hostPort) {
-                                updates.port = hostPort;
-                                updates.portsExposes = hostPort;
-                              }
-                            }
-                            // Auto-detect image
-                            if (firstSvc.image) {
-                              updates.image = firstSvc.image;
-                            }
-                            // Auto-detect env vars (array of "KEY=VAL" or mapping)
-                            if (firstSvc.environment) {
-                              let envText = '';
-                              if (Array.isArray(firstSvc.environment)) {
-                                envText = firstSvc.environment.join('\n');
-                              } else if (typeof firstSvc.environment === 'object') {
-                                envText = Object.entries(firstSvc.environment).map(([k, v]) => `${k}=${v}`).join('\n');
-                              }
-                              if (envText) updates.envText = envText;
-                            }
-                            return updates;
-                          });
+                          if (!port && firstSvc.ports?.length > 0) {
+                            const hp = String(firstSvc.ports[0]).split(':')[0]?.replace(/[^0-9]/g, '');
+                            if (hp) port = hp;
+                          }
+                          if (firstSvc.environment && !envText) {
+                            if (Array.isArray(firstSvc.environment)) envText = firstSvc.environment.join('\n');
+                            else if (typeof firstSvc.environment === 'object') envText = Object.entries(firstSvc.environment).map(([k, v]) => `${k}=${v}`).join('\n');
+                          }
                         }
-                      }
-                    } catch { /* invalid YAML — skip auto-fill */ }
-                    setStep('config');
+                      } catch {}
+                      const envVars = envText ? envText.split('\n').filter(l => l.includes('=')).map(l => { const i = l.indexOf('='); return { key: l.slice(0, i).trim(), value: l.slice(i + 1).trim() }; }) : [];
+                      const svc = await servicesApi.createApp(projectId, {
+                        name: form.name.trim(),
+                        local_path: form.localPath?.trim() || `/opt/nanofly/apps/${form.name.trim()}`,
+                        git_builder: 'docker-compose',
+                        docker_compose_content: form.dockerComposeContent,
+                        port: Number(port) || 0,
+                        env_vars: envVars,
+                        tier_name: form.resourceTier || 'micro',
+                      });
+                      onCreated(svc);
+                    } catch (e) {
+                      setError(e.message || 'Failed to create service');
+                    }
+                    setLoading(false);
                   }}>
-                    Next: Configuration
-                    <ChevronRight size={16} />
+                    Create service
                   </Button>
                 </div>
               </div>
@@ -3445,57 +3443,95 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* Service Details — left nav + content */}
+        {/* Service Details — left nav + content (Coolify-style grouped) */}
         {(() => {
-          const navItems = [
-            ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
-            ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
-            { id: 'deployments', label: 'Deployments', icon: Package },
-            { id: 'logs', label: 'Logs', icon: FileText },
-            ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
-            { id: 'monitoring', label: 'Monitoring', icon: Cpu },
-            { id: 'resources', label: 'Resource Limits', icon: Sliders },
-            { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
-            ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks', icon: Globe }] : []),
-            ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
-            ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
-            { id: 'backup', label: 'Backup & Restore', icon: Database },
-            ...(selectedSvc.type === 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
+          const isCompose = selectedSvc.git_builder === 'docker-compose' || selectedSvc.docker_compose_content;
+          const groups = [
+            {
+              title: 'Settings',
+              items: [
+                ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'General', icon: Settings }] : []),
+                ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
+                { id: 'domains', label: 'Domains', icon: Globe },
+                ...(selectedSvc.type !== 'database' && !isCompose ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
+                ...(isCompose ? [] : [{ id: 'volumes', label: 'Persistent Storage', icon: HardDrive }]),
+                ...(isCompose ? [{ id: 'compose', label: 'Compose', icon: FileCode }] : []),
+              ].filter(Boolean),
+            },
+            {
+              title: 'Observe & troubleshoot',
+              items: [
+                { id: 'deployments', label: 'Deployments', icon: Package },
+                { id: 'logs', label: 'Runtime Logs', icon: FileText },
+                ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
+                { id: 'monitoring', label: 'Monitoring', icon: Cpu },
+              ],
+            },
+            {
+              title: 'Automation',
+              items: [
+                ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks', icon: Globe }] : []),
+                ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
+                { id: 'backup', label: 'Backups', icon: Database },
+              ].filter(Boolean),
+            },
+            {
+              title: 'Operations',
+              items: [
+                { id: 'resources', label: 'Resource Limits', icon: Sliders },
+              ],
+            },
           ];
+          // Fallback to legacy flat list if no group matches (should not happen)
+          const flatItems = groups.flatMap(g => g.items);
+          const activeGroup = groups.find(g => g.items.some(i => i.id === activeTab));
+          if (!activeGroup && flatItems.length > 0 && !flatItems.some(i => i.id === activeTab)) {
+            // invalid tab for this service type — reset to first available
+            setTimeout(() => setActiveTab(flatItems[0].id), 0);
+          }
           return (
             <div style={{ display: 'flex', gap: '1.25rem', minHeight: 500, alignItems: 'flex-start' }}>
-              {/* Left nav */}
-              <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4, position: 'sticky', top: 16 }}>
-                {navItems.map(item => {
-                  const Icon = item.icon;
-                  const active = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '9px 12px',
-                        borderRadius: 'var(--radius)',
-                        border: '1px solid',
-                        borderColor: active ? 'rgba(79,110,247,0.25)' : 'transparent',
-                        background: active ? 'rgba(79,110,247,0.10)' : 'transparent',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        fontSize: '0.84rem',
-                        fontWeight: active ? 600 : 400,
-                        textAlign: 'left',
-                        width: '100%',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {Icon ? <Icon size={14} style={{ flexShrink: 0 }} /> : <span style={{ width: 14 }} />}
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
-                    </button>
-                  );
-                })}
+              {/* Left nav — grouped like Coolify */}
+              <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 16 }}>
+                {groups.map(group => (
+                  group.items.length === 0 ? null : (
+                    <div key={group.title}>
+                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, paddingLeft: 8 }}>{group.title}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {group.items.map(item => {
+                          const Icon = item.icon;
+                          const active = activeTab === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => setActiveTab(item.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                padding: '8px 10px',
+                                borderRadius: 'var(--radius)',
+                                border: '1px solid',
+                                borderColor: active ? 'rgba(79,110,247,0.25)' : 'transparent',
+                                background: active ? 'rgba(79,110,247,0.10)' : 'transparent',
+                                color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                                cursor: 'pointer',
+                                fontSize: '0.84rem',
+                                fontWeight: active ? 600 : 400,
+                                textAlign: 'left',
+                                width: '100%',
+                                transition: 'all 0.15s',
+                              }}
+                            >
+                              {Icon ? <Icon size={14} style={{ flexShrink: 0 }} /> : <span style={{ width: 14 }} />}
+                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )
+                ))}
               </div>
 
               {/* Right content */}
@@ -3526,6 +3562,70 @@ export default function ProjectDetail() {
                 {activeTab === 'configuration' && <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />}
                 {activeTab === 'backup' && <BackupRestorePanel service={selectedSvc} />}
                 {activeTab === 'envvars' && <EnvVarsPanel serviceId={activeSvc} />}
+                {activeTab === 'domains' && (
+                  <div>
+                    <h3 style={{ margin: '0 0 12px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Domains</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>Domains routed to this service via Traefik.</p>
+                    {domains.filter(d => d.service === selectedSvc.name && d.project === project?.name).length === 0 ? (
+                      <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)' }}>No domains assigned. Add one in the project Domains page.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {domains.filter(d => d.service === selectedSvc.name && d.project === project?.name).map(d => (
+                          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                            <Globe size={14} style={{ color: 'var(--accent)' }} />
+                            <a href={`https://${d.domain}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.85rem' }}>{d.domain}</a>
+                            <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.type || 'auto'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeTab === 'compose' && isCompose && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Docker Compose file</h3>
+                      <Button variant="outline" size="sm" onClick={() => setActiveTab('configuration')}>Edit Compose file</Button>
+                    </div>
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                      <CodeEditor value={selectedSvc.docker_compose_content || ''} onChange={() => {}} language="yaml" style={{ height: 260 }} readOnly />
+                    </div>
+
+                    <div>
+                      <h3 style={{ margin: '16px 0 6px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Compose resources</h3>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 12px' }}>Applications and databases defined in this service.</p>
+                      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Resource</th>
+                              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Image</th>
+                              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(() => {
+                              try {
+                                const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
+                                const svcs = parsed?.services ? Object.entries(parsed.services) : [];
+                                if (svcs.length === 0) return <tr><td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No services defined</td></tr>;
+                                return svcs.map(([name, cfg]) => (
+                                  <tr key={name} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '10px 14px', fontSize: '0.85rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}><Package size={14} /> {name}</td>
+                                    <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{(cfg as { image?: string }).image || '—'}</td>
+                                    <td style={{ padding: '10px 14px' }}><span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: 999, background: selectedSvc.status === 'running' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: selectedSvc.status === 'running' ? '#22c55e' : '#ef4444' }}>{selectedSvc.status}</span></td>
+                                  </tr>
+                                ));
+                              } catch {
+                                return <tr><td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: 'var(--red)' }}>Invalid compose file</td></tr>;
+                              }
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
