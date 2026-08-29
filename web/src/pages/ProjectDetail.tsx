@@ -3268,6 +3268,19 @@ export default function ProjectDetail() {
       if (!cleanDomain.includes('.sslip.io')) {
         httpsUrl = `https://${cleanDomain}`;
       }
+    } else if ((selectedSvc.git_builder === 'docker-compose' || selectedSvc.docker_compose_content) && selectedSvc.type === 'app') {
+      try {
+        const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
+        if (parsed?.services) {
+          for (const cfg of Object.values(parsed.services as Record<string, { ports?: string[] }>)) {
+            if (cfg.ports && cfg.ports.length > 0) {
+              const hp = String(cfg.ports[0]).split(':')[0].replace(/[^0-9]/g, '');
+              if (hp) { httpUrl = `http://${window.location.hostname}:${hp}`; break; }
+            }
+          }
+        }
+      } catch {}
+      if (!httpUrl && selectedSvc.port > 0) httpUrl = `http://${window.location.hostname}:${selectedSvc.port}`;
     } else if (selectedSvc.port > 0 && selectedSvc.type === 'app') {
       httpUrl = `http://${window.location.hostname}:${selectedSvc.port}`;
     }
@@ -3319,11 +3332,36 @@ export default function ProjectDetail() {
                   <GitBranch size={14} color="var(--blue)" /> {selectedSvc.git_repo_url.replace('https://github.com/', '')} ({selectedSvc.git_branch})
                 </span>
               )}
-              {selectedSvc.port > 0 && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
-                  <Globe size={14} color="var(--green)" /> :{selectedSvc.port}
-                </span>
-              )}
+              {(() => {
+                const isComposePort = selectedSvc.git_builder === 'docker-compose' || selectedSvc.docker_compose_content;
+                if (isComposePort) {
+                  try {
+                    const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
+                    const ports: string[] = [];
+                    if (parsed?.services) {
+                      for (const cfg of Object.values(parsed.services as Record<string, { ports?: string[] }>)) {
+                        if (cfg.ports) ports.push(...cfg.ports.map(p => String(p).split(':')[0].replace(/[^0-9]/g, '')).filter(Boolean));
+                      }
+                    }
+                    const uniq = [...new Set(ports)].slice(0, 3);
+                    if (uniq.length > 0) {
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                          <Globe size={14} color="var(--green)" /> :{uniq.join(', :')}
+                        </span>
+                      );
+                    }
+                  } catch {}
+                }
+                if (selectedSvc.port > 0) {
+                  return (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                      <Globe size={14} color="var(--green)" /> :{selectedSvc.port}
+                    </span>
+                  );
+                }
+                return null;
+              })()}
               {httpUrl && (
                 <a href={httpUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', padding: '3px 10px', borderRadius: '20px', textDecoration: 'none', fontWeight: 500, border: '1px solid rgba(79,110,247,0.2)' }}>
                   <ExternalLink size={13} /> {httpUrl}
@@ -3453,8 +3491,8 @@ export default function ProjectDetail() {
                 ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'General', icon: Settings }] : []),
                 ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
                 { id: 'domains', label: 'Domains', icon: Globe },
-                ...(selectedSvc.type !== 'database' && !isCompose ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
-                ...(isCompose ? [] : [{ id: 'volumes', label: 'Persistent Storage', icon: HardDrive }]),
+                ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
+                { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
                 ...(isCompose ? [{ id: 'compose', label: 'Compose', icon: FileCode }] : []),
               ].filter(Boolean),
             },
@@ -3554,14 +3592,123 @@ export default function ProjectDetail() {
                   />
                 )}
                 {activeTab === 'resources' && <ResourceLimitsPanel service={selectedSvc} onUpdate={load} />}
-                {activeTab === 'volumes' && <VolumesPanel service={selectedSvc} onUpdate={load} />}
+                {activeTab === 'volumes' && (
+                  isCompose ? (
+                    <div>
+                      <div style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 'var(--radius)', padding: '10px 12px', fontSize: '0.82rem', color: '#facc15', marginBottom: 16 }}>
+                        Service volume mounts are read-only here. Edit the Docker Compose file and reload it to change volumes.
+                      </div>
+                      {(() => {
+                        try {
+                          const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
+                          const entries = [];
+                          if (parsed?.services) {
+                            for (const [svcName, cfg] of Object.entries(parsed.services)) {
+                              const vols = (cfg as { volumes?: string[] }).volumes || [];
+                              for (const v of vols) {
+                                const str = String(v);
+                                const parts = str.split(':');
+                                const src = parts.length >= 2 ? parts[0] : '';
+                                const dst = parts.length >= 2 ? parts[1].split(':')[0] : parts[0];
+                                entries.push({ svcName, src: src || '—', dst });
+                              }
+                            }
+                          }
+                          if (entries.length === 0) return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)' }}>No volumes defined in compose file.</div>;
+                          // Group by service like Coolify
+                          const bySvc: Record<string, typeof entries> = {};
+                          for (const e of entries) { (bySvc[e.svcName] = bySvc[e.svcName] || []).push(e); }
+                          return Object.entries(bySvc).map(([svcName, vols]) => (
+                            <div key={svcName} style={{ marginBottom: 16 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                                <span style={{ fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 8 }}><HardDrive size={14} /> {svcName}</span>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'var(--bg-base)', padding: '2px 8px', borderRadius: 999 }}>Volumes ({vols.length})</span>
+                              </div>
+                              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                  <thead><tr style={{ background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Source Path</th><th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Destination Path</th></tr></thead>
+                                  <tbody>
+                                    {vols.map((v, i) => (
+                                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '10px 12px', fontSize: '0.82rem', fontFamily: 'JetBrains Mono, monospace' }}>{v.src}</td>
+                                        <td style={{ padding: '10px 12px', fontSize: '0.82rem', fontFamily: 'JetBrains Mono, monospace' }}>{v.dst}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ));
+                        } catch {
+                          return <div style={{ padding: '1rem', color: 'var(--red)', fontSize: '0.85rem' }}>Invalid compose file</div>;
+                        }
+                      })()}
+                    </div>
+                  ) : (
+                    <VolumesPanel service={selectedSvc} onUpdate={load} />
+                  )
+                )}
                 {activeTab === 'webhooks' && (selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) && (
                   <WebhookPanel serviceId={activeSvc} githubAppId={selectedSvc.github_app_id} gitRepoUrl={selectedSvc.git_repo_url} />
                 )}
                 {activeTab === 'files' && selectedSvc.git_repo_url?.startsWith('file://') && <SourceFilesPanel service={selectedSvc} />}
                 {activeTab === 'configuration' && <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />}
                 {activeTab === 'backup' && <BackupRestorePanel service={selectedSvc} />}
-                {activeTab === 'envvars' && <EnvVarsPanel serviceId={activeSvc} />}
+                {activeTab === 'envvars' && (
+                  isCompose ? (
+                    <div>
+                      <div style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 'var(--radius)', padding: '10px 12px', fontSize: '0.82rem', color: '#facc15', marginBottom: 16 }}>
+                        Environment variables are read-only here. Edit the Docker Compose file to change them.
+                      </div>
+                      {(() => {
+                        try {
+                          const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
+                          const envEntries: { svc: string; key: string; value: string }[] = [];
+                          if (parsed?.services) {
+                            for (const [svcName, cfg] of Object.entries(parsed.services)) {
+                              const env = (cfg as { environment?: string[] | Record<string, string> }).environment;
+                              if (!env) continue;
+                              if (Array.isArray(env)) {
+                                for (const e of env) {
+                                  const s = String(e);
+                                  const eq = s.indexOf('=');
+                                  if (eq > 0) envEntries.push({ svc: svcName, key: s.slice(0, eq), value: s.slice(eq + 1) });
+                                }
+                              } else if (typeof env === 'object') {
+                                for (const [k, v] of Object.entries(env)) envEntries.push({ svc: svcName, key: k, value: String(v) });
+                              }
+                            }
+                          }
+                          if (envEntries.length === 0) return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)' }}>No environment variables in compose file.</div>;
+                          const bySvc: Record<string, typeof envEntries> = {};
+                          for (const e of envEntries) { (bySvc[e.svc] = bySvc[e.svc] || []).push(e); }
+                          return Object.entries(bySvc).map(([svcName, vars]) => (
+                            <div key={svcName} style={{ marginBottom: 16 }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><FileCode size={14} /> {svcName} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 8px', borderRadius: 999 }}>{vars.length} vars</span></div>
+                              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                  <thead><tr style={{ background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Key</th><th style={{ textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Value</th></tr></thead>
+                                  <tbody>
+                                    {vars.map((ev, i) => (
+                                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '10px 12px', fontSize: '0.82rem', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{ev.key}</td>
+                                        <td style={{ padding: '10px 12px', fontSize: '0.82rem', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-secondary)' }}>{ev.value}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ));
+                        } catch {
+                          return <div style={{ padding: '1rem', color: 'var(--red)', fontSize: '0.85rem' }}>Invalid compose file</div>;
+                        }
+                      })()}
+                    </div>
+                  ) : (
+                    <EnvVarsPanel serviceId={activeSvc} />
+                  )
+                )}
                 {activeTab === 'domains' && (
                   <div>
                     <h3 style={{ margin: '0 0 12px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Domains</h3>
