@@ -1617,6 +1617,12 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 	}
 	m.recordDeploymentCommit(ctx, deployID, repoDir)
 
+	// Remove .git directory after clone — reduces build context dramatically
+	// (Coolify does this: .git can be 50-200MB of history never needed in image)
+	if err := os.RemoveAll(filepath.Join(repoDir, ".git")); err == nil {
+		log("🧹 Removed .git directory from build context")
+	}
+
 	// Handle Docker Compose
 	if svc.Builder == "docker-compose" {
 		log("ℹ️ Docker Compose builder selected. Writing docker-compose.yml…")
@@ -1663,42 +1669,99 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 	if svc.Builder == "nixpacks" {
 		log("📦 Building with Nixpacks…")
 		buildCmd := exec.CommandContext(ctx, "nixpacks", "build", contextDir, "--name", imageTag)
+		buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 		if err := runCommandStreaming(buildCmd, log); err != nil {
 			return fmt.Errorf("nixpacks build: %w", err)
 		}
 	} else {
-		// Generate .dockerignore to reduce build context size
+		// Merge entries into existing .dockerignore (or create if missing)
 		diPath := filepath.Join(contextDir, ".dockerignore")
-		if _, diErr := os.Stat(diPath); diErr != nil {
-			_ = os.WriteFile(diPath, []byte(`.git
-node_modules
-.next
-.nuxt
-dist
-build
-__pycache__
-*.pyc
-.venv
-venv
-.env
-.env.*
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-coverage
-.nyc_output
-.DS_Store
-Thumbs.db
-docker-compose*.yml
-Dockerfile*
-`), 0644)
-			log("📄 Generated .dockerignore to reduce build context")
+		diEntries := map[string]bool{
+			// Dependencies (installed inside Docker)
+			"node_modules": true, ".pnpm-store": true,
+			".venv": true, "venv": true, ".env": true, "env": true,
+			// Build outputs (generated during build inside Docker)
+			".next": true, ".nuxt": true, "out": true, "dist": true, "build": true, ".vercel": true,
+			// Tests
+			"coverage": true, ".nyc_output": true, "__tests__": true, "__mocks__": true,
+			"jest": true, "cypress": true, "playwright-report": true, "test-results": true,
+			".vitest": true, "vitest.config.*": true, "jest.config.*": true,
+			// IDE / Editor
+			".vscode": true, ".idea": true, "*.swp": true, "*.swo": true, "*~": true,
+			".fleet": true, ".dev": true,
+			// Git
+			".git": true, ".gitignore": true, ".gitattributes": true,
+			// Docker (not needed inside build context)
+			"Dockerfile*": true, ".dockerignore": true,
+			"docker-compose*.yml": true, "docker-compose*.yaml": true,
+			"compose.yaml": true, "compose.yml": true,
+			// Environment / secrets
+			".env.*": true, ".env*.local": true, ".env.development": true,
+			".env.test": true, ".env.production.local": true,
+			".env.backup": true, ".env.secrets": true,
+			// Logs
+			"*.log": true, "npm-debug.log*": true, "yarn-debug.log*": true,
+			"yarn-error.log*": true, "pnpm-debug.log*": true, "lerna-debug.log*": true,
+			// TypeScript / Build cache
+			"*.tsbuildinfo": true, ".swc": true, ".turbo": true, ".cache": true,
+			".parcel-cache": true, ".eslintcache": true, ".stylelintcache": true,
+			// Documentation
+			"*.md": true, "docs": true, "LICENSE": true,
+			// CI/CD
+			".github": true, ".gitlab-ci.yml": true, ".travis.yml": true,
+			".circleci": true, "Jenkinsfile": true,
+			// Config files (not needed at runtime)
+			"*.pem": true, ".editorconfig": true, ".prettierrc*": true,
+			"prettier.config.*": true, ".eslintrc*": true, "eslint.config.*": true,
+			".stylelintrc*": true, "stylelint.config.*": true, ".babelrc*": true,
+			// OS
+			".DS_Store": true, "._*": true, "Thumbs.db": true, "ehthumbs.db": true,
+			"Desktop.ini": true, ".Spotlight-V100": true, ".Trashes": true,
+			// Python
+			"__pycache__": true, "*.pyc": true, "*.pyo": true, ".Python": true,
+			"*.egg-info": true, ".eggs": true,
+			// Go
+			"vendor": true,
+			// Rust
+			"target": true,
+			// Misc
+			"tmp": true, "temp": true, ".tmp": true, ".temp": true,
+			"*.zip": true, "*.tar.gz": true, "*.rar": true,
+			// AI tools
+			".cursor": true, ".cursorrules": true, ".copilot": true,
+			".gemini": true, ".anthropic": true, ".claude": true, "AGENTS.md": true,
+		}
+		var existing string
+		if data, err := os.ReadFile(diPath); err == nil {
+			existing = string(data)
+		}
+		var missing []string
+		for entry := range diEntries {
+			if !strings.Contains(existing, entry) {
+				missing = append(missing, entry)
+			}
+		}
+		if len(missing) > 0 {
+			merged := strings.TrimRight(existing, "\n\r") + "\n# === NanoFly auto-generated entries ===\n" + strings.Join(missing, "\n") + "\n"
+			_ = os.WriteFile(diPath, []byte(merged), 0644)
+			log(fmt.Sprintf("📄 Updated .dockerignore (+%d entries)", len(missing)))
+		}
+
+		// Log build context size (helps diagnose slow builds)
+		if info, err := os.Stat(contextDir); err == nil && info.IsDir() {
+			var totalSize int64
+			filepath.Walk(contextDir, func(_ string, info os.FileInfo, err error) error {
+				if err == nil && !info.IsDir() {
+					totalSize += info.Size()
+				}
+				return nil
+			})
+			sizeMB := float64(totalSize) / 1024 / 1024
+			log(fmt.Sprintf("📁 Build context: %.1f MB", sizeMB))
 		}
 
 		log("🔨 Building Docker image…")
-		buildArgs := []string{"build", "-t", imageTag}
+		buildArgs := []string{"build", "--progress=plain", "--pull", "-t", imageTag}
 		if svc.DockerfileLocation != "" {
 			buildArgs = append(buildArgs, "-f", filepath.Join(repoDir, svc.DockerfileLocation))
 		}
@@ -1710,7 +1773,9 @@ Dockerfile*
 		}
 		buildArgs = append(buildArgs, contextDir)
 
+		// DOCKER_BUILDKIT=1 enables BuildKit features (cache mounts, secrets, etc.)
 		buildCmd := exec.CommandContext(ctx, "docker", buildArgs...)
+		buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 		if err := runCommandStreaming(buildCmd, log); err != nil {
 			return fmt.Errorf("docker build: %w", err)
 		}
