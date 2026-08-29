@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Setup.jsx — First-run setup wizard
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';

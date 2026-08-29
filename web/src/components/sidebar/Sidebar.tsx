@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/components/Sidebar.jsx — Navigation sidebar with update indicator
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';

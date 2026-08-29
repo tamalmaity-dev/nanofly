@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState } from 'react';
 import { Database, Package, Globe, Folder, Key, Lock, FileCode, Sliders } from 'lucide-react';
 

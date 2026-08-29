@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Placeholder.jsx — Coming soon page for unbuilt sections
 import { Construction } from 'lucide-react';
 

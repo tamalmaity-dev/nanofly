@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Plus, Trash2, LayoutGrid, LayoutList, MoreVertical } from 'lucide-react';

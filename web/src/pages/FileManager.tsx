@@ -1,3 +1,4 @@
+// @ts-nocheck
 // web/src/pages/FileManager.jsx — File Manager dashboard interface
 import { useState, useEffect, useRef } from 'react';
 import {

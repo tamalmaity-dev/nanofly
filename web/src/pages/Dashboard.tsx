@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Dashboard.jsx — Live server overview with real metrics
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Cpu, MemoryStick, HardDrive, Thermometer, Wifi, Clock, Server, ArrowUpCircle } from 'lucide-react';

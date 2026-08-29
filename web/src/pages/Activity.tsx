@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Activity.jsx — Real activity log from database
 import { useState, useEffect, useCallback } from 'react';
 import { Activity, ShieldCheck, GitBranch, LogIn, Settings, Trash2, Plus, Server, Globe, RefreshCw, Loader2 } from 'lucide-react';

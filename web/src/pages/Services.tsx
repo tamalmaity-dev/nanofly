@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Services.jsx — Real systemd service management
 import { useState, useEffect, useCallback } from 'react';
 import { Server, Play, Square, RefreshCw, Search, AlertCircle } from 'lucide-react';

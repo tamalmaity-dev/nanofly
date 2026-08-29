@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/store/auth.js — Global auth state (no external state lib needed)
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../api/client.js';

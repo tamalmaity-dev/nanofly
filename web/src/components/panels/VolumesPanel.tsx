@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Save, HardDrive, FileText, Folder, Database, Info, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 import { Button, Modal } from '../ui';

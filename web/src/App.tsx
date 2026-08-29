@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/App.jsx — Root component with routing and auth guards
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';

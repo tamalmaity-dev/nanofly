@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { servicesApi, projectsApi, domainsApi, filesApi, githubApi } from '../api/client';

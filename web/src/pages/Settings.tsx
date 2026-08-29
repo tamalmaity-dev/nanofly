@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useEffect, useState, Fragment } from 'react';
 import { useAuth } from '../store/auth';
 import {

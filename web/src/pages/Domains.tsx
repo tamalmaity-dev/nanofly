@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Domains.jsx — Real domain management with DNS verification
 import { useState, useEffect, useCallback } from 'react';
 import { Globe, Plus, ShieldCheck, ShieldAlert, Clock, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';

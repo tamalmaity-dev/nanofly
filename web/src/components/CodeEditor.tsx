@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';

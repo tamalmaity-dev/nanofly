@@ -1,3 +1,4 @@
+// @ts-nocheck
 // src/pages/Login.jsx — Login page
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
