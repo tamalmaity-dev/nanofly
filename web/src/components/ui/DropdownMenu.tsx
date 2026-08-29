@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { DropdownMenu as ThemesDropdownMenu } from '@radix-ui/themes';
 

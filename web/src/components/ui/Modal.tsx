@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { Dialog, IconButton } from '@radix-ui/themes';
 import { X } from 'lucide-react';

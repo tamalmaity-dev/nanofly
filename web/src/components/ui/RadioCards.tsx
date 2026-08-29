@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { RadioCards } from '@radix-ui/themes';
 

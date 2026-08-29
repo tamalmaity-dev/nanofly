@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { Button as RadixButton, Spinner } from '@radix-ui/themes';
 

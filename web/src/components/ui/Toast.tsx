@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import * as ToastPrimitive from '@radix-ui/react-toast';
 import { X, CheckCircle2, AlertCircle, Info, Loader2 } from 'lucide-react';

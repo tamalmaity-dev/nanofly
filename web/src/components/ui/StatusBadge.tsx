@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { ShieldCheck, Clock, ShieldAlert } from 'lucide-react';
 

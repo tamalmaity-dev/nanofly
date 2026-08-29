@@ -862,9 +862,13 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
         domain: generatedDomain,
       }));
 
-      // Docker Compose goes to compose editor first, then config
+      // Docker Compose / Dockerfile go to their editor first, then config
       if (resource.id === 'docker-compose') {
         setStep('compose-editor');
+        return;
+      }
+      if (resource.id === 'dockerfile') {
+        setStep('dockerfile-editor');
         return;
       }
     } else {
@@ -1138,10 +1142,12 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                 else if (step === 'select-repo') setStep('select-app');
                 else if (step === 'configure-app') setStep('select-repo');
                 else setStep('type');
-              } else if (step === 'compose-editor') {
+              } else if (step === 'compose-editor' || step === 'dockerfile-editor') {
                 setStep('type');
               } else if (step === 'config' && selectedResourceId === 'docker-compose') {
                 setStep('compose-editor');
+              } else if (step === 'config' && selectedResourceId === 'dockerfile') {
+                setStep('dockerfile-editor');
               } else {
                 setStep('type');
               }
@@ -1217,6 +1223,59 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                         }
                       }
                     } catch { /* invalid YAML — skip auto-fill */ }
+                    setStep('config');
+                  }}>
+                    Next: Configuration
+                    <ChevronRight size={16} />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Dockerfile editor step */}
+            {step === 'dockerfile-editor' && selectedResourceId === 'dockerfile' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Dockerfile
+                    <span className="badge badge-blue" style={{ fontSize: '0.65rem', fontWeight: 500 }}>Step 1 of 2</span>
+                  </h3>
+                  <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Define your <code style={{ background: 'var(--bg-base)', padding: '1px 5px', borderRadius: 4, fontSize: '0.8rem' }}>Dockerfile</code> — pick a template or write your own. NanoFly will <code style={{ background: 'var(--bg-base)', padding: '1px 5px', borderRadius: 4, fontSize: '0.8rem' }}>docker build</code> this context.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'node', label: 'Node 20', tpl: 'FROM node:20-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --omit=dev\nCOPY . .\nEXPOSE 3000\nCMD ["node", "index.js"]' },
+                    { id: 'python', label: 'Python 3.11', tpl: 'FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt ./\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD ["python", "app.py"]' },
+                    { id: 'go', label: 'Go 1.22', tpl: 'FROM golang:1.22-alpine AS builder\nWORKDIR /src\nCOPY go.mod go.sum ./\nRUN go mod download\nCOPY . .\nRUN go build -o /app/main .\nFROM alpine:3.19\nCOPY --from=builder /app/main /app/main\nEXPOSE 8080\nCMD ["/app/main"]' },
+                    { id: 'static', label: 'Static / Nginx', tpl: 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80' },
+                  ].map(t => (
+                    <button key={t.id} type="button" onClick={() => setForm(f => ({ ...f, dockerfileContent: t.tpl }))} style={{ padding: '6px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-base)', color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer' }}>{t.label}</button>
+                  ))}
+                </div>
+
+                <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                  <CodeEditor
+                    value={form.dockerfileContent}
+                    onChange={val => setForm(f => ({ ...f, dockerfileContent: val }))}
+                    language="dockerfile"
+                    style={{ height: 380 }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '0.5rem' }}>
+                  <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
+                  <Button variant="primary" onClick={() => {
+                    // Auto-detect EXPOSE port
+                    try {
+                      const m = form.dockerfileContent.match(/EXPOSE\s+(\d+)/i);
+                      if (m && m[1]) {
+                        const p = m[1].trim();
+                        setForm(f => ({ ...f, port: p, portsExposes: p }));
+                      }
+                    } catch { /* ignore */ }
                     setStep('config');
                   }}>
                     Next: Configuration

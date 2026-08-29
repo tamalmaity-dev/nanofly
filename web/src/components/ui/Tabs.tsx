@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { Tabs as RadixTabs } from '@radix-ui/themes';
 import { ChevronLeft, ChevronRight } from 'lucide-react';

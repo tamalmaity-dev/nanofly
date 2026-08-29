@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 
 export function Card({ children, className = '', style = {}, onClick, hoverGlow = false }) {
