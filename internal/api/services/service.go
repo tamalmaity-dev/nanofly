@@ -2622,63 +2622,111 @@ func ensureComposeVolumes(ctx context.Context, composeDir, svcID string, log fun
 		return
 	}
 	content := string(data)
+	lines := strings.Split(content, "\n")
 
-	// Collect volume names declared in the top-level "volumes:" section.
+	// 1. Collect volume names declared in the top-level "volumes:" section.
 	declared := map[string]bool{}
 	inTopVolumes := false
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		// Top-level volumes: section starts with "volumes:" at indent 0
-		if strings.TrimSpace(line) == "volumes:" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+		isIndented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+
+		if !isIndented && trimmed == "volumes:" {
 			inTopVolumes = true
 			continue
 		}
 		if inTopVolumes {
-			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-				// indented line under volumes — extract name
+			if isIndented && trimmed != "" {
 				name := strings.SplitN(trimmed, ":", 2)[0]
 				name = strings.TrimSpace(name)
 				if name != "" {
 					declared[name] = true
 				}
-			} else {
+			} else if !isIndented {
 				inTopVolumes = false
 			}
 		}
 	}
 
-	// Scan for volume references in "volumes:" under each service (indented).
-	inSvcVolumes := false
+	// 2. Find "volumes:" sections ONLY under services (indented under a service block).
+	// Track YAML indent level to know which section we're in.
 	seen := map[string]bool{}
-	for _, line := range strings.Split(content, "\n") {
+	inServiceBlock := false
+	inSvcVolumes := false
+	volumesIndent := 0
+
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "volumes:" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
-			inSvcVolumes = true
+		if trimmed == "" {
 			continue
 		}
-		if inSvcVolumes {
-			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-				// Extract volume name from "- name:/path" or "- name:/path:opts"
-				entry := strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "- ")
-				parts := strings.Split(entry, ":")
-				if len(parts) >= 2 {
-					volName := parts[0]
-					// Skip if it looks like a host path (starts with / or .)
-					if strings.HasPrefix(volName, "/") || strings.HasPrefix(volName, ".") || volName == "" {
-						continue
-					}
-					if !declared[volName] && !seen[volName] {
-						seen[volName] = true
-						log(fmt.Sprintf("Pre-creating undefined compose volume: %s", volName))
-						createCmd := exec.CommandContext(ctx, "docker", "volume", "create", volName)
-						if out, err := createCmd.CombinedOutput(); err != nil {
-							log(fmt.Sprintf("Warning: could not create volume %s: %s", volName, strings.TrimSpace(string(out))))
-						}
+
+		// Count leading spaces/tabs
+		indent := 0
+		for _, ch := range line {
+			if ch == ' ' || ch == '\t' {
+				indent++
+			} else {
+				break
+			}
+		}
+
+		// Top-level keys (indent 0): "services:", "volumes:", "networks:", etc.
+		if indent == 0 && strings.HasSuffix(trimmed, ":") {
+			section := strings.TrimSuffix(trimmed, ":")
+			inServiceBlock = section == "services"
+			inSvcVolumes = false
+			continue
+		}
+
+		// Inside services block: a key at indent ~2 is a service name
+		if inServiceBlock && indent == 2 && strings.HasSuffix(trimmed, ":") {
+			inSvcVolumes = false
+			continue
+		}
+
+		// Inside a service: "volumes:" key
+		if inServiceBlock && trimmed == "volumes:" {
+			inSvcVolumes = true
+			volumesIndent = indent
+			continue
+		}
+
+		// Inside a service volumes section: entries like "- name:/path" or "- /path"
+		if inSvcVolumes && indent > volumesIndent && strings.HasPrefix(trimmed, "- ") {
+			entry := strings.TrimPrefix(trimmed, "- ")
+			parts := strings.Split(entry, ":")
+			if len(parts) >= 2 {
+				volName := strings.TrimSpace(parts[0])
+				// Skip host paths (start with / or .), empty names, or quoted numbers
+				if volName == "" || strings.HasPrefix(volName, "/") || strings.HasPrefix(volName, ".") {
+					continue
+				}
+				// Skip if it looks like a port mapping (all digits)
+				if _, err := strconv.Atoi(volName); err == nil {
+					continue
+				}
+				// Strip surrounding quotes
+				volName = strings.Trim(volName, `"'`)
+				if volName != "" && !declared[volName] && !seen[volName] {
+					seen[volName] = true
+					log(fmt.Sprintf("Pre-creating undefined compose volume: %s", volName))
+					createCmd := exec.CommandContext(ctx, "docker", "volume", "create", volName)
+					if out, err := createCmd.CombinedOutput(); err != nil {
+						log(fmt.Sprintf("Warning: could not create volume %s: %s", volName, strings.TrimSpace(string(out))))
 					}
 				}
-			} else {
+			}
+			// If line doesn't contain ":", we hit a non-volume line — end the volumes section
+			if !strings.Contains(entry, ":") {
 				inSvcVolumes = false
 			}
+			continue
+		}
+
+		// If we encounter a non-indented line or a different key, exit volumes section
+		if inSvcVolumes && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			inSvcVolumes = false
 		}
 	}
 }
