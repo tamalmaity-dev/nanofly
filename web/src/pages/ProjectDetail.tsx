@@ -1243,9 +1243,9 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {[
-                    { id: 'node', label: 'Node 20', tpl: 'FROM node:20-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --omit=dev\nCOPY . .\nEXPOSE 3000\nCMD ["node", "index.js"]' },
-                    { id: 'python', label: 'Python 3.11', tpl: 'FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt ./\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD ["python", "app.py"]' },
-                    { id: 'go', label: 'Go 1.22', tpl: 'FROM golang:1.22-alpine AS builder\nWORKDIR /src\nCOPY go.mod go.sum ./\nRUN go mod download\nCOPY . .\nRUN go build -o /app/main .\nFROM alpine:3.19\nCOPY --from=builder /app/main /app/main\nEXPOSE 8080\nCMD ["/app/main"]' },
+                    { id: 'node', label: 'Node 20', tpl: '# syntax=docker/dockerfile:1\nFROM node:20-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN --mount=type=cache,target=/root/.npm npm ci --omit=dev\nCOPY . .\nEXPOSE 3000\nCMD ["node", "index.js"]' },
+                    { id: 'python', label: 'Python 3.11', tpl: '# syntax=docker/dockerfile:1\nFROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt ./\nRUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD ["python", "app.py"]' },
+                    { id: 'go', label: 'Go 1.22', tpl: '# syntax=docker/dockerfile:1\nFROM golang:1.22-alpine AS builder\nWORKDIR /src\nCOPY go.mod go.sum ./\nRUN --mount=type=cache,target=/go/pkg/mod go mod download\nCOPY . .\nRUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -o /app/main .\nFROM alpine:3.19\nCOPY --from=builder /app/main /app/main\nEXPOSE 8080\nCMD ["/app/main"]' },
                     { id: 'static', label: 'Static / Nginx', tpl: 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80' },
                   ].map(t => (
                     <button key={t.id} type="button" onClick={() => setForm(f => ({ ...f, dockerfileContent: t.tpl }))} style={{ padding: '6px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-base)', color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer' }}>{t.label}</button>

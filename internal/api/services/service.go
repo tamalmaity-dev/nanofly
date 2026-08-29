@@ -1585,30 +1585,35 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 
 	log("Cloning repository: " + svc.GitRepoURL + " (branch: " + svc.GitBranch + ")")
 
-	// Clone: if branch is set, try with --branch first; if it fails, retry without (fallback to default branch)
-	var cloneArgs []string
-	cloneArgs = append(cloneArgs, "clone")
-	if svc.GitBranch != "" {
-		cloneArgs = append(cloneArgs, "--branch", svc.GitBranch)
-	}
-	cloneArgs = append(cloneArgs, cloneURL, repoDir)
-
-	cmd := exec.CommandContext(ctx, "git", cloneArgs...)
-	if len(gitEnv) > 0 {
-		cmd.Env = gitEnv
-	}
-	if err := runCommandStreaming(cmd, log); err != nil && svc.GitBranch != "" {
-		// Branch not found — retry without --branch to clone the default branch
-		log("⚠️ Branch '" + svc.GitBranch + "' not found, cloning default branch…")
-		cmd = exec.CommandContext(ctx, "git", "clone", cloneURL, repoDir)
+	// Clone: try shallow (--depth=1) first for speed; fall back to full clone
+	// if the server's git doesn't support --depth (e.g. busybox).
+	tryClone := func(args ...string) error {
+		fullArgs := append([]string{"clone"}, args...)
+		cmd := exec.CommandContext(ctx, "git", fullArgs...)
 		if len(gitEnv) > 0 {
 			cmd.Env = gitEnv
 		}
-		if err2 := runCommandStreaming(cmd, log); err2 != nil {
-			return fmt.Errorf("git clone: %w", err2)
+		return runCommandStreaming(cmd, log)
+	}
+
+	if svc.GitBranch != "" {
+		if err := tryClone("--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir); err != nil {
+			log("⚠️ Shallow clone failed, trying full clone…")
+			if err2 := tryClone("--branch", svc.GitBranch, cloneURL, repoDir); err2 != nil {
+				// Branch still not found — try without --branch
+				log("⚠️ Branch '" + svc.GitBranch + "' not found, cloning default branch…")
+				if err3 := tryClone(cloneURL, repoDir); err3 != nil {
+					return fmt.Errorf("git clone: %w", err3)
+				}
+			}
 		}
-	} else if err != nil {
-		return fmt.Errorf("git clone: %w", err)
+	} else {
+		if err := tryClone("--depth=1", cloneURL, repoDir); err != nil {
+			log("⚠️ Shallow clone failed, trying full clone…")
+			if err2 := tryClone(cloneURL, repoDir); err2 != nil {
+				return fmt.Errorf("git clone: %w", err2)
+			}
+		}
 	}
 	m.recordDeploymentCommit(ctx, deployID, repoDir)
 
@@ -1662,6 +1667,36 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 			return fmt.Errorf("nixpacks build: %w", err)
 		}
 	} else {
+		// Generate .dockerignore to reduce build context size
+		diPath := filepath.Join(contextDir, ".dockerignore")
+		if _, diErr := os.Stat(diPath); diErr != nil {
+			_ = os.WriteFile(diPath, []byte(`.git
+node_modules
+.next
+.nuxt
+dist
+build
+__pycache__
+*.pyc
+.venv
+venv
+.env
+.env.*
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage
+.nyc_output
+.DS_Store
+Thumbs.db
+docker-compose*.yml
+Dockerfile*
+`), 0644)
+			log("📄 Generated .dockerignore to reduce build context")
+		}
+
 		log("🔨 Building Docker image…")
 		buildArgs := []string{"build", "-t", imageTag}
 		if svc.DockerfileLocation != "" {
@@ -1926,11 +1961,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 `
 	}
 
-	return fmt.Sprintf(`FROM %s
+	return fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM %s
 WORKDIR /app
 COPY . .
 WORKDIR %s
-%sRUN %s
+%sRUN --mount=type=cache,target=/root/.cache/pip %s
 ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
@@ -1989,10 +2025,11 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand
 		if cmd == "" {
 			cmd = "npm start"
 		}
-		content := fmt.Sprintf(`FROM %s
+		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM %s
 WORKDIR /app
 COPY package*.json ./
-RUN %s
+RUN --mount=type=cache,target=/root/.npm %s
 COPY . .
 ENV PORT=%s
 EXPOSE %s
@@ -2007,12 +2044,13 @@ CMD ["sh", "-c", "%s"]
 		if cmd == "" {
 			cmd = "./main"
 		}
-		content := fmt.Sprintf(`FROM %s AS builder
+		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM %s AS builder
 WORKDIR /app
 COPY go.mod* go.sum* ./
-RUN if [ -f go.mod ]; then go mod download; fi
+RUN --mount=type=cache,target=/go/pkg/mod if [ -f go.mod ]; then go mod download; fi
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -o main .
 
 FROM alpine:latest
 WORKDIR /app
@@ -2068,10 +2106,11 @@ EXPOSE %s
 		if cmd == "" {
 			cmd = "npm start"
 		}
-		content := fmt.Sprintf(`FROM node:20-alpine
+		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN %s
+RUN --mount=type=cache,target=/root/.npm %s
 COPY . .
 ENV PORT=%s
 EXPOSE %s
@@ -2088,12 +2127,13 @@ CMD ["sh", "-c", "%s"]
 	// Go
 	if _, err := os.Stat(filepath.Join(repoDir, "go.mod")); err == nil {
 		log("ℹ️ Detected Go runtime. Generating optimized Dockerfile…")
-		content := fmt.Sprintf(`FROM golang:1.22-alpine AS builder
+		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY go.mod* go.sum* ./
-RUN if [ -f go.mod ]; then go mod download; fi
+RUN --mount=type=cache,target=/go/pkg/mod if [ -f go.mod ]; then go mod download; fi
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -o main .
 
 FROM alpine:latest
 WORKDIR /app

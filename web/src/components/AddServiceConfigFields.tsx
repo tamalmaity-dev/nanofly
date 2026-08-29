@@ -52,26 +52,29 @@ export const WORDPRESS_ENV_TEMPLATE = buildWordPressEnvTemplate();
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const DOCKERFILE_TEMPLATES = {
-  node: `FROM node:22-alpine
+  node: `# syntax=docker/dockerfile:1
+FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+RUN --mount=type=cache,target=/root/.npm if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 COPY . .
 EXPOSE 3000
 CMD ["npm", "start"]`,
-  python: `FROM python:3.11-slim
+  python: `# syntax=docker/dockerfile:1
+FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip pip install --no-cache-dir -r requirements.txt
 COPY . .
 EXPOSE 8000
 CMD ["python", "app.py"]`,
-  go: `FROM golang:1.22-alpine AS builder
+  go: `# syntax=docker/dockerfile:1
+FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
-RUN go build -o main .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -o main .
 FROM alpine:3.19
 WORKDIR /app
 COPY --from=builder /app/main .
