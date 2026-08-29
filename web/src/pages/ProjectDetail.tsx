@@ -590,6 +590,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
   const [dbType, setDbType] = useState('postgres:18');
   const [isPrivate, setIsPrivate] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState('');
+  const [wizardDone, setWizardDone] = useState(false);
   const [githubApps, setGithubApps] = useState([]);
 
   const handleGithubWizardComplete = ({ githubAppId, gitUrl, repoFullName, defaultBranch }) => {
@@ -601,6 +602,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
       name: repoName,
       branch: defaultBranch || 'main',
     }));
+    setWizardDone(true);
     setStep('config');
   };
 
@@ -817,6 +819,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
 
   const handleSelectResource = (resource) => {
     setSelectedResourceId(resource.id || '');
+    setWizardDone(false);
     if (resource.type === 'app') {
       setType('app');
       let sub = resource.subType;
@@ -1278,10 +1281,10 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
               </div>
             )}
 
-            {selectedResourceId === 'git-private-app' ? (
+            {selectedResourceId === 'git-private-app' && !wizardDone ? (
               <GitHubAppWizard
                 onComplete={handleGithubWizardComplete}
-                onCancel={() => { setSelectedResourceId(''); setStep('type'); }}
+                onCancel={() => { setSelectedResourceId(''); setWizardDone(false); setStep('type'); }}
               />
             ) : (
               <>
@@ -1367,7 +1370,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                 {error && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {error}</p>}
 
                 <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-                  <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
+                  <Button variant="soft" color="gray" onClick={() => { setWizardDone(false); setStep('type'); }}>Back</Button>
                   <Button variant="solid" onClick={submit} loading={loading}>
                     Deploy Now
                   </Button>
