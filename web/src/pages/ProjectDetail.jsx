@@ -810,15 +810,26 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
       const randomStr = Math.random().toString(36).substring(2, 10);
       const generatedDomain = `http://${randomStr}.${cleanHost}.sslip.io`;
 
+      // Auto-generate service name: project-name + short random suffix
+      const shortUuid = Math.random().toString(36).substring(2, 8);
+      const slug = (projectName || resource.defaultName || 'app').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const autoName = `${slug}-${shortUuid}`;
+
       setForm(f => ({
         ...f,
-        name: resource.defaultName || '',
+        name: autoName,
         image: resource.defaultImage || f.image,
         port: resource.defaultPort || defaults.port || '',
         ...defaults,
         envText: defaults.envText !== undefined ? defaults.envText : f.envText,
         domain: generatedDomain,
       }));
+
+      // Docker Compose goes to compose editor first, then config
+      if (resource.id === 'docker-compose') {
+        setStep('compose-editor');
+        return;
+      }
     } else {
       setType('database');
       const defaultVer = getDbVersions(resource.dbType)?.[0] || resource.dbType;
@@ -1090,10 +1101,46 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                 else if (step === 'select-repo') setStep('select-app');
                 else if (step === 'configure-app') setStep('select-repo');
                 else setStep('type');
+              } else if (step === 'compose-editor') {
+                setStep('type');
+              } else if (step === 'config' && selectedResourceId === 'docker-compose') {
+                setStep('compose-editor');
               } else {
                 setStep('type');
               }
             }} />
+
+            {/* Docker Compose editor step */}
+            {step === 'compose-editor' && selectedResourceId === 'docker-compose' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Docker Compose
+                    <span className="badge badge-blue" style={{ fontSize: '0.65rem', fontWeight: 500 }}>Step 1 of 2</span>
+                  </h3>
+                  <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Define your services in docker-compose.yml. NanoFly will run <code style={{ background: 'var(--bg-base)', padding: '1px 5px', borderRadius: 4, fontSize: '0.8rem' }}>docker compose up</code> for this stack.
+                  </p>
+                </div>
+
+                <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                  <CodeEditor
+                    value={form.dockerComposeContent}
+                    onChange={val => setForm(f => ({ ...f, dockerComposeContent: val }))}
+                    language="yaml"
+                    style={{ height: 380 }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '0.5rem' }}>
+                  <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
+                  <Button variant="primary" onClick={() => setStep('config')}>
+                    Next: Configuration
+                    <ChevronRight size={16} />
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {selectedResourceId === 'git-private-app' ? (
               <>
@@ -1291,6 +1338,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                     selectedResourceId={selectedResourceId}
                     githubApps={githubApps}
                     existingServices={services}
+                    hideComposeEditor={selectedResourceId === 'docker-compose' && step === 'config'}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
