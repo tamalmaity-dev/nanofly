@@ -16,6 +16,7 @@ import MonitoringPanel from '../components/panels/MonitoringPanel';
 import { EnvVarsPanel } from './ProjectDetail/EnvVarsPanel';
 import { ComposeEnvVarsPanel } from './ProjectDetail/ComposeEnvVarsPanel';
 import { ServiceSidebar } from './ProjectDetail/ServiceSidebar';
+import { GitHubAppWizard } from './ProjectDetail/github-app/GitHubAppWizard';
 import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
 
@@ -590,37 +591,16 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
   const [isPrivate, setIsPrivate] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState('');
   const [githubApps, setGithubApps] = useState([]);
-  const [repos, setRepos] = useState([]);
-  const [loadingRepos, setLoadingRepos] = useState(false);
-  const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
 
-  const handleSelectApp = (app) => {
-    if (app.installation_id === 0) {
-      alert('This GitHub App installation has not been finished yet. Please configure it in Sources first.');
-      return;
-    }
-    setForm(f => ({ ...f, githubAppId: String(app.id) }));
-    setLoadingRepos(true);
-    setError('');
-    githubApi.listRepos(app.id)
-      .then(res => {
-        setRepos(res || []);
-        setSelectedRepoUrl('');
-        setStep('select-repo');
-      })
-      .catch(err => {
-        setError(err.message || 'Failed to load repositories');
-      })
-      .finally(() => setLoadingRepos(false));
-  };
-
-  const refreshRepos = () => {
-    if (!form.githubAppId) return;
-    setLoadingRepos(true);
-    githubApi.listRepos(form.githubAppId)
-      .then(res => setRepos(res || []))
-      .catch(err => setError(err.message || 'Failed to load repositories'))
-      .finally(() => setLoadingRepos(false));
+  const handleGithubWizardComplete = ({ githubAppId, gitUrl, repoFullName }) => {
+    const repoName = (repoFullName || '').split('/')[1] || (repoFullName || 'app');
+    setForm(f => ({
+      ...f,
+      githubAppId,
+      gitUrl,
+      name: repoName,
+    }));
+    setStep('config');
   };
 
   useEffect(() => {
@@ -736,7 +716,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
         });
       } else if (selectedResourceId === 'wordpress') {
         let finalEnvVars = [...envVars];
-        
+
         if (form.dbSetupType === 'create-mysql' || form.dbSetupType === 'create-mariadb') {
           const isMariaDB = form.dbSetupType === 'create-mariadb';
           const dbContainerName = `${form.name.trim()}-${isMariaDB ? 'mariadb' : 'mysql'}`;
@@ -763,7 +743,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
             tier_name: 'micro'
           });
           const dbData = dbSvc.data || dbSvc;
-          
+
           finalEnvVars = finalEnvVars.filter(ev => !['WORDPRESS_DB_HOST', 'WORDPRESS_DB_USER', 'WORDPRESS_DB_PASSWORD', 'WORDPRESS_DB_NAME'].includes(ev.key));
           finalEnvVars.push({ key: 'WORDPRESS_DB_HOST', value: `host.docker.internal:${dbData.port}` });
           finalEnvVars.push({ key: 'WORDPRESS_DB_USER', value: dbUser });
@@ -773,14 +753,14 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
           const dbId = form.dbSetupType.split('link-')[1];
           const dbSvc = await servicesApi.get(dbId);
           const dbData = dbSvc.data || dbSvc;
-          
+
           finalEnvVars = finalEnvVars.filter(ev => !['WORDPRESS_DB_HOST', 'WORDPRESS_DB_USER', 'WORDPRESS_DB_PASSWORD', 'WORDPRESS_DB_NAME'].includes(ev.key));
           finalEnvVars.push({ key: 'WORDPRESS_DB_HOST', value: `host.docker.internal:${dbData.port}` });
           finalEnvVars.push({ key: 'WORDPRESS_DB_USER', value: dbData.db_user || 'root' });
           finalEnvVars.push({ key: 'WORDPRESS_DB_PASSWORD', value: dbData.db_password || '' });
           finalEnvVars.push({ key: 'WORDPRESS_DB_NAME', value: dbData.db_name || '' });
         }
-        
+
         svc = await servicesApi.createApp(projectId, {
           name: form.name.trim(),
           image: form.image.trim() || 'wordpress:php8.3-apache',
@@ -1221,7 +1201,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                             else if (typeof firstSvc.environment === 'object') envText = Object.entries(firstSvc.environment).map(([k, v]) => `${k}=${v}`).join('\n');
                           }
                         }
-                      } catch {}
+                      } catch { }
                       const envVars = envText ? envText.split('\n').filter(l => l.includes('=')).map(l => { const i = l.indexOf('='); return { key: l.slice(0, i).trim(), value: l.slice(i + 1).trim() }; }) : [];
                       const svc = await servicesApi.createApp(projectId, {
                         name: form.name.trim(),
@@ -1298,188 +1278,10 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
             )}
 
             {selectedResourceId === 'git-private-app' ? (
-              <>
-                {step === 'select-app' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Create a new Application</h3>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          Deploy any public or private Git repositories through a GitHub App.
-                        </p>
-                      </div>
-                      <Link to="/sources" className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 'var(--radius)', color: 'var(--text-primary)', textDecoration: 'none' }}>
-                        + Add GitHub App
-                      </Link>
-                    </div>
-
-                    <div style={{ marginTop: '1rem' }}>
-                      <h4 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Select a Github App</h4>
-                      {githubApps.length === 0 ? (
-                        <div className="card" style={{ padding: '2rem', textAlign: 'center', border: '1px solid var(--border)' }}>
-                          <p style={{ color: 'var(--text-muted)', margin: '0 0 12px' }}>No GitHub Apps configured yet.</p>
-                          <Link to="/sources" className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>Configure GitHub App</Link>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                          {githubApps.map(app => (
-                            <div
-                              key={app.id}
-                              className="card hover-glow"
-                              style={{ cursor: 'pointer', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border)' }}
-                              onClick={() => handleSelectApp(app)}
-                            >
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{app.name}</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>https://github.com</div>
-                              </div>
-                              <span style={{ fontSize: '0.8rem', color: app.installation_id === 0 ? 'var(--red)' : 'var(--green)', fontWeight: 500 }}>
-                                {app.installation_id === 0 ? 'Not Configured' : 'Installed'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {step === 'select-repo' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Create a new Application</h3>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          Deploy any public or private Git repositories through a GitHub App.
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <Link to="/sources" className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 'var(--radius)', color: 'var(--text-primary)', textDecoration: 'none', fontSize: '0.8rem' }}>
-                          + Add GitHub App
-                        </Link>
-                        <button type="button" onClick={refreshRepos} className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', fontSize: '0.8rem', padding: '4px 10px' }}>
-                          Refresh Repository List
-                        </button>
-                        <a href="https://github.com/settings/installations" target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border)', fontSize: '0.8rem', padding: '4px 10px', textDecoration: 'none', color: 'var(--text-primary)' }}>
-                          Change Repositories on GitHub ↗
-                        </a>
-                      </div>
-                    </div>
-
-                    <div className="form-group" style={{ marginTop: '1rem' }}>
-                      <label className="form-label">Repository</label>
-                      {loadingRepos ? (
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, padding: '12px', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-                          <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Loading repositories...
-                        </div>
-                      ) : repos.length === 0 ? (
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '12px', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-                          No repositories found. Make sure the app is installed on your repositories.
-                        </div>
-                      ) : (
-                        <SelectRoot value={selectedRepoUrl} onValueChange={setSelectedRepoUrl}>
-                          <SelectTrigger style={{ width: '100%' }} placeholder="Select repository..." />
-                          <SelectContent>
-                            {repos.map(r => (
-                              <SelectItem key={r.full_name} value={r.clone_url}>{r.full_name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </SelectRoot>
-                      )}
-                    </div>
-
-                    {error && <p style={{ color: 'var(--red)', fontSize: '0.85rem', margin: 0 }}>⚠️ {error}</p>}
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-                      <Button variant="primary" disabled={!selectedRepoUrl} onClick={() => {
-                        const matched = repos.find(r => r.clone_url === selectedRepoUrl);
-                        if (matched) {
-                          const repoName = matched.full_name.split('/')[1] || matched.full_name;
-                          setForm(f => ({
-                            ...f,
-                            gitUrl: matched.clone_url,
-                            name: repoName,
-                          }));
-                          setStep('configure-app');
-                        }
-                      }}>
-                        Load Repository
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {step === 'configure-app' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                    <div>
-                      <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>Create a new Application</h3>
-                      <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        Deploy any public or private Git repositories through a GitHub App.
-                      </p>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-label">Repository</label>
-                      <input className="form-input" value={repos.find(r => r.clone_url === form.gitUrl)?.full_name || form.gitUrl} disabled style={{ opacity: 0.7 }} />
-                    </div>
-
-                    <h4 style={{ margin: '10px 0 0', fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>Configuration</h4>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                      <div className="form-group">
-                        <label className="form-label">Branch</label>
-                        <input className="form-input" value={form.branch} onChange={set('branch')} placeholder="main" />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Build Pack *</label>
-                        <select className="form-input" value={form.gitBuilder} onChange={e => {
-                          const val = e.target.value;
-                          setForm(f => ({ ...f, gitBuilder: val }));
-                        }}>
-                          <option value="nixpacks">Nixpacks</option>
-                          <option value="dockerfile">Dockerfile</option>
-                          <option value="docker-compose">Docker Compose</option>
-                          <option value="node:22-alpine">Node.js</option>
-                          <option value="python:3.11-slim">Python</option>
-                          <option value="golang:1.22-alpine">Go (Golang)</option>
-                          <option value="php:8.2-apache">PHP</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                      <div className="form-group">
-                        <label className="form-label">Base Directory ⓘ</label>
-                        <input className="form-input" value={form.appDirectory} onChange={set('appDirectory')} placeholder="/" />
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Port ⓘ</label>
-                        <input className="form-input" value={form.port} onChange={e => {
-                          const val = e.target.value;
-                          setForm(f => ({ ...f, port: val, portsExposes: val }));
-                        }} placeholder="3000" />
-                      </div>
-                    </div>
-
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={form.gitBuilder === 'static'} onChange={e => {
-                        const checked = e.target.checked;
-                        setForm(f => ({ ...f, gitBuilder: checked ? 'static' : 'nixpacks' }));
-                      }} />
-                      Is it a static site? ⓘ
-                    </label>
-
-                    {error && <p style={{ color: 'var(--red)', fontSize: '0.85rem', margin: 0 }}>⚠️ {error}</p>}
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '1rem' }}>
-                      <Button variant="outline" onClick={() => setStep('select-repo')}>Back</Button>
-                      <Button variant="primary" onClick={submit} loading={loading}>
-                        Continue
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
+              <GitHubAppWizard
+                onComplete={handleGithubWizardComplete}
+                onCancel={() => { setSelectedResourceId(''); setStep('type'); }}
+              />
             ) : (
               <>
                 {type === 'app' ? (
@@ -1848,19 +1650,19 @@ function StackCard({ stack, setActiveSvc, setActiveTab }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {/* App Item */}
-        <div 
+        <div
           onClick={(e) => {
             e.stopPropagation();
             setActiveSvc(app.id);
             setActiveTab('deployments');
           }}
-          style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
-            padding: '8px 12px', 
-            background: 'var(--bg-elevated)', 
-            borderRadius: 6, 
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '8px 12px',
+            background: 'var(--bg-elevated)',
+            borderRadius: 6,
             cursor: 'pointer',
             border: '1px solid var(--border)',
             transition: 'all 0.2s'
@@ -1886,20 +1688,20 @@ function StackCard({ stack, setActiveSvc, setActiveTab }) {
 
         {/* Database Items */}
         {databases.map((db) => (
-          <div 
+          <div
             key={db.id}
             onClick={(e) => {
               e.stopPropagation();
               setActiveSvc(db.id);
               setActiveTab('connection');
             }}
-            style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              padding: '8px 12px', 
-              background: 'var(--bg-elevated)', 
-              borderRadius: 6, 
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 12px',
+              background: 'var(--bg-elevated)',
+              borderRadius: 6,
               cursor: 'pointer',
               border: '1px solid var(--border)',
               transition: 'all 0.2s'
@@ -3153,7 +2955,7 @@ export default function ProjectDetail() {
     loadingStates.stopping === svcId ||
     loadingStates.deleting === svcId;
 
-  
+
   useEffect(() => {
     load();
     if (activeTab !== 'configuration' && activeTab !== 'resources' && activeTab !== 'envvars') {
@@ -3362,7 +3164,7 @@ export default function ProjectDetail() {
             }
           }
         }
-      } catch {}
+      } catch { }
       if (!httpUrl && selectedSvc.port > 0) httpUrl = `http://${window.location.hostname}:${selectedSvc.port}`;
     } else if (selectedSvc.port > 0 && selectedSvc.type === 'app') {
       httpUrl = `http://${window.location.hostname}:${selectedSvc.port}`;
@@ -3434,7 +3236,7 @@ export default function ProjectDetail() {
                         </span>
                       );
                     }
-                  } catch {}
+                  } catch { }
                 }
                 if (selectedSvc.port > 0) {
                   return (
@@ -3686,7 +3488,7 @@ export default function ProjectDetail() {
                       <Button variant="outline" size="sm" onClick={() => setActiveTab('configuration')}>Edit Compose file</Button>
                     </div>
                     <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-                      <CodeEditor value={selectedSvc.docker_compose_content || ''} onChange={() => {}} language="yaml" style={{ height: 260 }} readOnly />
+                      <CodeEditor value={selectedSvc.docker_compose_content || ''} onChange={() => { }} language="yaml" style={{ height: 260 }} readOnly />
                     </div>
 
                     <div>
@@ -3948,9 +3750,9 @@ export default function ProjectDetail() {
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Service Stacks</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                     {stacks.map(st => (
-                      <StackCard 
-                        key={st.id} 
-                        stack={st} 
+                      <StackCard
+                        key={st.id}
+                        stack={st}
                         setActiveSvc={setActiveSvc}
                         setActiveTab={setActiveTab}
                       />

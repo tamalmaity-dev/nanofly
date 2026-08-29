@@ -834,10 +834,10 @@ export function AddServiceConfigFields({
                       No repositories found. Make sure the app is installed on your repositories.
                     </div>
                   ) : (
-                    <SelectRoot value={form.gitUrl || ""} onValueChange={val => setForm(f => ({ ...f, gitUrl: val }))}>
+                    <SelectRoot value={form.gitUrl || "__auto-link__"} onValueChange={val => setForm(f => ({ ...f, gitUrl: val === '__auto-link__' ? '' : val }))}>
                       <SelectTrigger style={{ width: '100%' }} placeholder="Select repository..." />
                       <SelectContent>
-                        <SelectItem value="">-- Webhook push to deploy (Auto-link) --</SelectItem>
+                        <SelectItem value="__auto-link__">-- Webhook push to deploy (Auto-link) --</SelectItem>
                         {repos.map(r => (
                           <SelectItem key={r.full_name} value={r.clone_url}>{r.full_name}</SelectItem>
                         ))}
