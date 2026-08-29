@@ -35,6 +35,61 @@ func backupComposeFile(composePath string) {
 	}
 }
 
+func ensureExternalNetworks(ctx context.Context, composePath string, log func(string)) {
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return
+	}
+	networks := mappingValue(root, "networks")
+	if networks == nil || networks.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(networks.Content); i += 2 {
+		name := networks.Content[i].Value
+		cfg := networks.Content[i+1]
+		if cfg == nil {
+			continue
+		}
+		isExternal := false
+		if cfg.Kind == yaml.MappingNode {
+			if ext := mappingValue(cfg, "external"); ext != nil {
+				if ext.Kind == yaml.ScalarNode && (ext.Value == "true" || ext.Value == "True" || ext.Value == "TRUE") {
+					isExternal = true
+				} else if ext.Kind == yaml.MappingNode {
+					isExternal = true
+				}
+			}
+		} else if cfg.Kind == yaml.ScalarNode && cfg.Value == "true" {
+			isExternal = true
+		}
+		if !isExternal {
+			continue
+		}
+		// Check if network already exists
+		check := exec.CommandContext(ctx, "docker", "network", "inspect", name)
+		if err := check.Run(); err == nil {
+			continue
+		}
+		log("[INFO] Creating external network: " + name)
+		create := exec.CommandContext(ctx, "docker", "network", "create", name)
+		if out, err := create.CombinedOutput(); err != nil {
+			msg := strings.TrimSpace(string(out))
+			if strings.Contains(msg, "already exists") {
+				continue
+			}
+			log("[WARN] Could not create network " + name + ": " + msg)
+		}
+	}
+}
+
 // deployCompose validates and starts a Compose stack without first taking down
 // the running stack. This keeps a healthy deployment online if a new build or
 // Compose configuration is invalid.
@@ -45,6 +100,8 @@ func deployCompose(ctx context.Context, composeDir, serviceID string, log func(s
 	}
 
 	backupComposeFile(composePath)
+
+	ensureExternalNetworks(ctx, composePath, log)
 
 	addedVolumes, err := normalizeComposeVolumes(composePath)
 	if err != nil {
