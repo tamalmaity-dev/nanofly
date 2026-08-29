@@ -546,6 +546,37 @@ const generatePassword = () => {
   return pass;
 };
 
+const getComposePreflight = (content) => {
+  try {
+    const parsed = yamlLoad(content);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !parsed.services || typeof parsed.services !== 'object' || Array.isArray(parsed.services)) {
+      return { valid: false, error: 'Compose files need a top-level services: mapping.', serviceCount: 0, missingVolumes: [] };
+    }
+
+    const declared = new Set(Object.keys(parsed.volumes || {}));
+    const referenced = new Set();
+    Object.values(parsed.services).forEach(service => {
+      if (!service || !Array.isArray(service.volumes)) return;
+      service.volumes.forEach(mount => {
+        let source = '';
+        if (typeof mount === 'string' && mount.includes(':')) source = mount.split(':', 1)[0].trim();
+        if (mount && typeof mount === 'object' && (mount.type || 'volume') === 'volume') source = String(mount.source || '').trim();
+        if (!source || source.includes('$') || source.startsWith('/') || source.startsWith('~') || source.startsWith('./') || source.startsWith('../')) return;
+        referenced.add(source);
+      });
+    });
+
+    return {
+      valid: true,
+      error: '',
+      serviceCount: Object.keys(parsed.services).length,
+      missingVolumes: [...referenced].filter(name => !declared.has(name)).sort(),
+    };
+  } catch (err) {
+    return { valid: false, error: `Invalid YAML: ${err.message}`, serviceCount: 0, missingVolumes: [] };
+  }
+};
+
 //  Add Service Form 
 function AddServiceForm({ projectId, projectName, domains = [], services = [], onCancel, onCreated }) {
   const [step, setStep] = useState('type'); // type | config
@@ -625,6 +656,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
   const [error, setError] = useState('');
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  const composePreflight = getComposePreflight(form.dockerComposeContent);
 
   const submit = async () => {
     if (!form.name.trim()) { setError('Name is required'); return; }
@@ -639,6 +671,10 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
       return;
     }
     if (subType === 'local' && !form.localPath.trim()) { setError('Server folder path is required'); return; }
+    if (selectedResourceId === 'docker-compose' && !composePreflight.valid) {
+      setError(composePreflight.error);
+      return;
+    }
     if (subType === 'github' && selectedResourceId !== 'git-private-app' && !form.gitUrl.trim()) {
       setError('Repository URL is required');
       return;
@@ -1133,9 +1169,27 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                   />
                 </div>
 
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  padding: '0.75rem 0.9rem', borderRadius: 8,
+                  border: `1px solid ${composePreflight.valid ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.35)'}`,
+                  background: composePreflight.valid ? 'rgba(34, 197, 94, 0.06)' : 'rgba(239, 68, 68, 0.07)',
+                  fontSize: '0.82rem', lineHeight: 1.45,
+                }}>
+                  {composePreflight.valid ? <Check size={17} color="var(--green)" style={{ flexShrink: 0, marginTop: 1 }} /> : <AlertCircle size={17} color="var(--red)" style={{ flexShrink: 0, marginTop: 1 }} />}
+                  <div style={{ color: composePreflight.valid ? 'var(--text-secondary)' : 'var(--red)' }}>
+                    {composePreflight.valid ? (
+                      <>
+                        <strong style={{ color: 'var(--text-primary)' }}>Compose preflight ready</strong> · {composePreflight.serviceCount} service{composePreflight.serviceCount === 1 ? '' : 's'} detected.
+                        {composePreflight.missingVolumes.length > 0 && <span> NanoFly will add the required top-level volume declaration{composePreflight.missingVolumes.length === 1 ? '' : 's'} for: <code>{composePreflight.missingVolumes.join(', ')}</code>.</span>}
+                      </>
+                    ) : composePreflight.error}
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '0.5rem' }}>
                   <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
-                  <Button variant="primary" onClick={() => {
+                  <Button variant="primary" disabled={!composePreflight.valid} onClick={() => {
                     // Parse compose YAML to auto-fill config fields
                     try {
                       const parsed = yamlLoad(form.dockerComposeContent);

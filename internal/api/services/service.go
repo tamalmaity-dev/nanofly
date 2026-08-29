@@ -153,13 +153,24 @@ type Deployment struct {
 
 // Manager handles service operations.
 type Manager struct {
-	db     *db.DB
-	docker *docker.Manager
+	db       *db.DB
+	docker   *docker.Manager
+	deployWg sync.WaitGroup
 }
 
 // New creates a Manager. docker may be nil if Docker is unavailable.
 func New(database *db.DB, dockerMgr *docker.Manager) *Manager {
 	return &Manager{db: database, docker: dockerMgr}
+}
+
+// WaitForDeploys blocks until in-flight deployments finish or ctx is done.
+func (m *Manager) WaitForDeploys(ctx context.Context) {
+	done := make(chan struct{})
+	go func() { m.deployWg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 type ContainerStats struct {
@@ -831,20 +842,31 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 	// Update service status
 	m.db.ExecContext(ctx, `UPDATE services SET status='deploying' WHERE id=?`, serviceID) //nolint:errcheck
 
-	// Run deployment in background
+	// Run deployment in background — tracked for graceful shutdown.
+	m.deployWg.Add(1)
 	go func() {
+		defer m.deployWg.Done()
 		bgCtx := context.Background()
 		var logBuf strings.Builder
 		var finalStatus string
 		var logMu sync.Mutex
 		lastWrite := time.Now()
+		const maxLogBytes = 2 * 1024 * 1024
 
 		log := func(line string) {
 			slog.Info("[deploy]", "svc", svc.Name, "line", line)
 			logMu.Lock()
 			logBuf.WriteString(line + "\n")
+			if logBuf.Len() > maxLogBytes {
+				s := logBuf.String()
+				keep := 1536 * 1024
+				truncated := "[... truncated " + strconv.Itoa(logBuf.Len()-keep) + " bytes — showing tail ...]\n" + s[len(s)-keep:]
+				logBuf.Reset()
+				logBuf.WriteString(truncated)
+			}
 			now := time.Now()
-			if now.Sub(lastWrite) > 1*time.Second {
+			shouldFlush := now.Sub(lastWrite) > 1*time.Second || logBuf.Len() >= 64*1024
+			if shouldFlush {
 				lastWrite = now
 				logContent := logBuf.String()
 				logMu.Unlock()
@@ -1368,8 +1390,6 @@ func mysqlFamilyLogsFailed(logs string) bool {
 	}
 	return false
 }
-
-
 // waitForMySQLFamilyReady polls the container until MySQL/MariaDB is fully initialized
 // and listening on port 3306. It handles the two-phase MySQL startup (temp server on
 // port 0, then the production server on port 3306) correctly.
@@ -1550,24 +1570,10 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 			if err := os.WriteFile(dockerComposePath, []byte(svc.DockerComposeContent), 0644); err != nil {
 				return fmt.Errorf("writing docker-compose.yml: %w", err)
 			}
-		} else {
-			if _, err := os.Stat(dockerComposePath); err != nil {
-				return fmt.Errorf("no docker-compose.yml content in service config and none found in repository root")
-			}
 		}
 
-		// Pre-create any named volumes referenced in the compose file
-		ensureComposeVolumes(ctx, repoDir, svc.ID, log)
-
-		log("🐳 Running docker compose up…")
-		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
-		downCmd.Dir = repoDir
-		runCommandStreaming(downCmd, log) //nolint:errcheck
-
-		upCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "up", "-d", "--build")
-		upCmd.Dir = repoDir
-		if err := runCommandStreaming(upCmd, log); err != nil {
-			return fmt.Errorf("docker compose up: %w", err)
+		if err := deployCompose(ctx, repoDir, svc.ID, log); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -2226,11 +2232,18 @@ func (m *Manager) teardownContainers(ctx context.Context, svc *Service, removeVo
 	var errs []string
 
 	if svc.Builder == "docker-compose" {
-		args := []string{"compose", "-p", "nf-" + svc.ID, "down", "-t", "5"}
-		if removeVolumes {
-			args = append(args, "-v")
+		composeDir := composeDirectory(svc)
+		args := []string{"compose", "--project-name", "nf-" + svc.ID}
+		if composePath, err := findComposeFile(composeDir); err == nil {
+			args = append(args, "--file", composePath)
 		}
-		if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
+		args = append(args, "down", "--timeout", "5", "--remove-orphans")
+		if removeVolumes {
+			args = append(args, "--volumes", "--rmi", "local")
+		}
+		cmd := exec.CommandContext(ctx, "docker", args...)
+		cmd.Dir = composeDir
+		if out, err := cmd.CombinedOutput(); err != nil {
 			errs = append(errs, strings.TrimSpace(string(out)))
 		}
 	}
@@ -2299,8 +2312,17 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 	repoDir := filepath.Join(os.TempDir(), "nanofly-"+svc.ID)
 	os.RemoveAll(repoDir) //nolint:errcheck
 
+	// Clean up .nanofly.bak left by compose normalization for file:// services.
 	if svc.GitRepoURL != "" && strings.HasPrefix(svc.GitRepoURL, "file://") {
 		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
+		for _, bak := range []string{
+			filepath.Join(localPath, "docker-compose.yml.nanofly.bak"),
+			filepath.Join(localPath, "docker-compose.yaml.nanofly.bak"),
+			filepath.Join(localPath, "compose.yml.nanofly.bak"),
+			filepath.Join(localPath, "compose.yaml.nanofly.bak"),
+		} {
+			os.Remove(bak) //nolint:errcheck
+		}
 		if localPath != "" && strings.Contains(localPath, "nanofly") {
 			// Only remove paths explicitly under NanoFly-managed directories
 			os.RemoveAll(localPath) //nolint:errcheck
@@ -2331,18 +2353,54 @@ func (m *Manager) HandleWebhook(ctx context.Context, serviceID string, body io.R
 }
 
 // DockerStatus queries Docker for the real status of a service's container.
+// For compose stacks it falls back to name-prefix discovery so label-less
+// legacy stacks are still reported correctly.
 func (m *Manager) DockerStatus(ctx context.Context, serviceID string) string {
 	if m.docker == nil {
 		return "unknown"
 	}
 	containers, err := m.docker.ListByLabel(ctx, serviceID)
-	if err != nil || len(containers) == 0 {
+	if err == nil && len(containers) > 0 {
+		return containers[0].State
+	}
+	// Fallback for compose stacks (label-less legacy or file-deleted cases)
+	svc, svcErr := m.Get(ctx, serviceID)
+	if svcErr == nil && svc.Builder == "docker-compose" {
+		// Name-prefix scan via docker stats is handled in GetServiceMetrics;
+		// for status we do a direct ListByLabel empty + filter by name prefix
+		// using the docker client's List with no filter then prefix check.
+		if m.docker != nil {
+			// Try to find any container whose name has the compose project prefix
+			prefix := "nf-" + serviceID
+			// Use ListByLabel with empty to get all, then filter — ListByLabel with "" returns all
+			// Instead, shell out to `docker ps` filtered by name prefix
+			out, _ := exec.CommandContext(ctx, "docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}", "--filter", "name="+prefix).CombinedOutput()
+			for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				parts := strings.SplitN(line, "\t", 2)
+				if len(parts) == 2 && strings.HasPrefix(parts[0], prefix) {
+					state := strings.ToLower(strings.TrimSpace(parts[1]))
+					if strings.Contains(state, "up") || strings.Contains(state, "running") {
+						return "running"
+					}
+					return state
+				}
+			}
+		}
+	}
+	if err != nil {
+		return "stopped"
+	}
+	if len(containers) == 0 {
 		return "stopped"
 	}
 	return containers[0].State
 }
 
 // GetContainerLogs returns live container logs for the service.
+// For compose stacks it aggregates logs from all containers in the stack.
 func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (string, error) {
 	if m.docker == nil {
 		return "", fmt.Errorf("docker not available")
@@ -2351,10 +2409,40 @@ func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (strin
 	if err != nil {
 		return "", err
 	}
-	if len(containers) == 0 {
-		return "No active container found for this resource. It might be stopped, erroring, or deleted.", nil
+	if len(containers) > 0 {
+		// For compose stacks with multiple containers, aggregate logs
+		if len(containers) > 1 {
+			var sb strings.Builder
+			for _, c := range containers {
+				logs, _ := m.docker.Logs(ctx, c.ID, "100")
+				if logs != "" {
+					sb.WriteString(fmt.Sprintf("── %s ──\n", c.Name))
+					sb.WriteString(logs)
+					sb.WriteString("\n")
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String(), nil
+			}
+		}
+		return m.docker.Logs(ctx, containers[0].ID, "100")
 	}
-	return m.docker.Logs(ctx, containers[0].ID, "100")
+	// Fallback for compose: try name-prefix discovery
+	svc, svcErr := m.Get(ctx, serviceID)
+	if svcErr == nil && svc.Builder == "docker-compose" {
+		prefix := "nf-" + serviceID
+		out, _ := exec.CommandContext(ctx, "docker", "ps", "-a", "--format", "{{.ID}}\t{{.Names}}", "--filter", "name="+prefix).CombinedOutput()
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			parts := strings.SplitN(line, "\t", 2)
+			if len(parts) >= 1 && parts[0] != "" {
+				return m.docker.Logs(ctx, parts[0], "100")
+			}
+		}
+	}
+	return "No active container found for this resource. It might be stopped, erroring, or deleted.", nil
 }
 
 // UpdateServiceReq defines request parameters to edit service settings.
@@ -2575,11 +2663,10 @@ func detectLocalBuilder(localPath, requestedBuilder string) string {
 	if requestedBuilder != "" && requestedBuilder != "auto" {
 		return requestedBuilder
 	}
-	if _, err := os.Stat(filepath.Join(localPath, "docker-compose.yml")); err == nil {
-		return "docker-compose"
-	}
-	if _, err := os.Stat(filepath.Join(localPath, "docker-compose.yaml")); err == nil {
-		return "docker-compose"
+	for _, composeFile := range composeFileNames {
+		if info, err := os.Stat(filepath.Join(localPath, composeFile)); err == nil && !info.IsDir() {
+			return "docker-compose"
+		}
 	}
 	if _, err := os.Stat(filepath.Join(localPath, "Dockerfile")); err == nil {
 		return "dockerfile"
@@ -2609,126 +2696,6 @@ func detectLocalBuilder(localPath, requestedBuilder string) string {
 		return "static"
 	}
 	return "static"
-}
-
-// ensureComposeVolumes reads a docker-compose.yml, finds named volumes
-// referenced in service volume mounts that are not declared in the top-level
-// volumes: section, and pre-creates them via `docker volume create`.
-// This prevents "refers to undefined volume" errors from docker compose up.
-func ensureComposeVolumes(ctx context.Context, composeDir, svcID string, log func(string)) {
-	composePath := filepath.Join(composeDir, "docker-compose.yml")
-	data, err := os.ReadFile(composePath)
-	if err != nil {
-		return
-	}
-	content := string(data)
-	lines := strings.Split(content, "\n")
-
-	// 1. Collect volume names declared in the top-level "volumes:" section.
-	declared := map[string]bool{}
-	inTopVolumes := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		isIndented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
-
-		if !isIndented && trimmed == "volumes:" {
-			inTopVolumes = true
-			continue
-		}
-		if inTopVolumes {
-			if isIndented && trimmed != "" {
-				name := strings.SplitN(trimmed, ":", 2)[0]
-				name = strings.TrimSpace(name)
-				if name != "" {
-					declared[name] = true
-				}
-			} else if !isIndented {
-				inTopVolumes = false
-			}
-		}
-	}
-
-	// 2. Find "volumes:" sections ONLY under services (indented under a service block).
-	// Track YAML indent level to know which section we're in.
-	seen := map[string]bool{}
-	inServiceBlock := false
-	inSvcVolumes := false
-	volumesIndent := 0
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-
-		// Count leading spaces/tabs
-		indent := 0
-		for _, ch := range line {
-			if ch == ' ' || ch == '\t' {
-				indent++
-			} else {
-				break
-			}
-		}
-
-		// Top-level keys (indent 0): "services:", "volumes:", "networks:", etc.
-		if indent == 0 && strings.HasSuffix(trimmed, ":") {
-			section := strings.TrimSuffix(trimmed, ":")
-			inServiceBlock = section == "services"
-			inSvcVolumes = false
-			continue
-		}
-
-		// Inside services block: a key at indent ~2 is a service name
-		if inServiceBlock && indent == 2 && strings.HasSuffix(trimmed, ":") {
-			inSvcVolumes = false
-			continue
-		}
-
-		// Inside a service: "volumes:" key
-		if inServiceBlock && trimmed == "volumes:" {
-			inSvcVolumes = true
-			volumesIndent = indent
-			continue
-		}
-
-		// Inside a service volumes section: entries like "- name:/path" or "- /path"
-		if inSvcVolumes && indent > volumesIndent && strings.HasPrefix(trimmed, "- ") {
-			entry := strings.TrimPrefix(trimmed, "- ")
-			parts := strings.Split(entry, ":")
-			if len(parts) >= 2 {
-				volName := strings.TrimSpace(parts[0])
-				// Skip host paths (start with / or .), empty names, or quoted numbers
-				if volName == "" || strings.HasPrefix(volName, "/") || strings.HasPrefix(volName, ".") {
-					continue
-				}
-				// Skip if it looks like a port mapping (all digits)
-				if _, err := strconv.Atoi(volName); err == nil {
-					continue
-				}
-				// Strip surrounding quotes
-				volName = strings.Trim(volName, `"'`)
-				if volName != "" && !declared[volName] && !seen[volName] {
-					seen[volName] = true
-					log(fmt.Sprintf("Pre-creating undefined compose volume: %s", volName))
-					createCmd := exec.CommandContext(ctx, "docker", "volume", "create", volName)
-					if out, err := createCmd.CombinedOutput(); err != nil {
-						log(fmt.Sprintf("Warning: could not create volume %s: %s", volName, strings.TrimSpace(string(out))))
-					}
-				}
-			}
-			// If line doesn't contain ":", we hit a non-volume line — end the volumes section
-			if !strings.Contains(entry, ":") {
-				inSvcVolumes = false
-			}
-			continue
-		}
-
-		// If we encounter a non-indented line or a different key, exit volumes section
-		if inSvcVolumes && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-			inSvcVolumes = false
-		}
-	}
 }
 
 // volumeRunArgs parses the service's volumes JSON and returns docker run
@@ -2802,24 +2769,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	log("🔍 Detected local build type: " + bType)
 
 	if bType == "docker-compose" {
-		// Pre-create any named volumes referenced in the compose file
-		// but not declared in the top-level volumes: section.
-		// This prevents "refers to undefined volume" errors.
-		ensureComposeVolumes(ctx, localPath, svc.ID, log)
-
-		log("🐳 Running docker compose up…")
-		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
-		downCmd.Dir = localPath
-		downCmd.Run()
-
-		upCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "up", "-d", "--build")
-		upCmd.Dir = localPath
-		upOut, err := upCmd.CombinedOutput()
-		log(string(upOut))
-		if err != nil {
-			return fmt.Errorf("docker compose up: %w", err)
-		}
-		return nil
+		return deployCompose(ctx, localPath, svc.ID, log)
 	}
 
 	if bType == "dockerfile" {
@@ -3427,4 +3377,3 @@ func runCommandStreaming(cmd *exec.Cmd, log func(string)) error {
 	writer.Flush()
 	return err
 }
-

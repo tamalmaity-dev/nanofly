@@ -110,6 +110,7 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	go s.backupScheduler()
 	go s.projectBackupScheduler()
 	go s.periodicCleanup()
+	go s.periodicDockerPrune()
 
 	return s, nil
 }
@@ -705,6 +706,12 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the server.
 func (s *Server) Stop(ctx context.Context) error {
+	if s.serviceMgr != nil {
+		slog.Info("Waiting for in-flight deployments to finish...")
+		waitCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		s.serviceMgr.WaitForDeploys(waitCtx)
+		cancel()
+	}
 	return s.httpSrv.Shutdown(ctx)
 }
 
@@ -1408,6 +1415,32 @@ func (s *Server) periodicCleanup() {
 		slog.Info("Running periodic database cleanup...")
 		s.db.CleanupOldRecords()
 		slog.Info("Periodic database cleanup complete.")
+	}
+}
+
+// periodicDockerPrune reclaims dangling images and build cache weekly.
+// Controlled by NANOFLY_AUTO_PRUNE (default "1"); set to "0" to disable.
+// Volumes/networks/containers are never auto-pruned without explicit opt-in.
+func (s *Server) periodicDockerPrune() {
+	if os.Getenv("NANOFLY_AUTO_PRUNE") == "0" {
+		slog.Info("Automatic Docker prune disabled via NANOFLY_AUTO_PRUNE=0")
+		return
+	}
+	ticker := time.NewTicker(7 * 24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if s.dockerMgr == nil || s.serviceMgr == nil {
+			continue
+		}
+		slog.Info("Running periodic Docker prune (dangling images + build cache)...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		res, err := s.dockerMgr.PruneSystem(ctx, false, true, false, false)
+		cancel()
+		if err != nil {
+			slog.Warn("Periodic Docker prune failed", "error", err)
+			continue
+		}
+		slog.Info("Periodic Docker prune complete", "imagesDeleted", res.ImagesDeleted, "reclaimed", res.ReclaimedHuman)
 	}
 }
 

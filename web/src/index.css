@@ -1355,8 +1355,15 @@ code, pre {
 
 /* Radix Tabs Support */
 .tabs-root { display: flex; flex-direction: column; }
-.tabs-list { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; overflow-x: auto; flex-wrap: nowrap; gap: 0; scrollbar-width: none; -ms-overflow-style: none; }
+.tabs-list-wrap { position: relative; display: flex; align-items: stretch; }
+.tabs-list { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; overflow-x: auto; flex-wrap: nowrap; gap: 0; scrollbar-width: none; -ms-overflow-style: none; scroll-behavior: smooth; flex: 1; min-width: 0; }
 .tabs-list::-webkit-scrollbar { display: none; }
+.tabs-scroll-btn { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 24px; height: 24px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-secondary); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: var(--shadow-sm); }
+.tabs-scroll-left { left: 4px; }
+.tabs-scroll-right { right: 4px; }
+.tabs-list-wrap::before, .tabs-list-wrap::after { content: ""; position: absolute; top: 0; bottom: 1.5rem; width: 16px; pointer-events: none; z-index: 1; opacity: 0; transition: opacity var(--transition); }
+.tabs-list-wrap:has(.tabs-scroll-left)::before { left: 0; background: linear-gradient(to right, var(--bg-surface), transparent); opacity: 1; }
+.tabs-list-wrap:has(.tabs-scroll-right)::after { right: 0; background: linear-gradient(to left, var(--bg-surface), transparent); opacity: 1; }
 .tab-trigger { padding: 0.625rem 0.875rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all var(--transition); font-family: inherit; display: inline-flex; align-items: center; white-space: nowrap; flex-shrink: 0; }
 .tab-trigger:hover { color: var(--text-primary); }
 .tab-trigger[data-state='active'] { color: var(--accent); border-bottom-color: var(--accent); }
