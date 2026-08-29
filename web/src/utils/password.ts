@@ -1,5 +1,5 @@
 /** Cryptographically strong password for DB / WordPress env vars. */
-export function generateSecurePassword(length = 24) {
+export function generateSecurePassword(length = 24): string {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
@@ -7,7 +7,7 @@ export function generateSecurePassword(length = 24) {
 }
 
 /** Cryptographically strong random identifier (lowercase letters & numbers, starts with a letter) */
-export function generateRandomIdent(prefix = '', length = 6) {
+export function generateRandomIdent(prefix = '', length = 6): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
@@ -21,7 +21,7 @@ export function generateRandomIdent(prefix = '', length = 6) {
 }
 
 /** Build WordPress environment template with secure password. */
-export function buildWordPressEnvTemplate(dbUser = 'wordpress', dbPassword = '', dbName = 'wordpress') {
+export function buildWordPressEnvTemplate(dbUser = 'wordpress', dbPassword = '', dbName = 'wordpress'): string {
   const password = dbPassword || generateSecurePassword(24);
   return `WORDPRESS_DB_HOST=host.docker.internal:3306
 WORDPRESS_DB_USER=${dbUser}

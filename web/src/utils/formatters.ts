@@ -1,20 +1,20 @@
 // Shared date and time formatting utilities
 
-export function timeAgo(dateStr) {
+export function timeAgo(dateStr: string): string {
   try {
     const date = new Date(dateStr);
     const now = new Date();
-    const diff = Math.floor((now - date) / 1000);
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
     if (diff < 60) return 'just now';
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
-  } catch (e) {
+  } catch {
     return dateStr;
   }
 }
 
-export function fmtUptime(seconds) {
+export function fmtUptime(seconds: number): string {
   if (!seconds) return '—';
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
