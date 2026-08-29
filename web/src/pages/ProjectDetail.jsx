@@ -8,6 +8,7 @@ import { ServiceLogo, ResourceIcon } from '../components/ServiceLogo';
 import { AddServiceConfigFields, ConfigStepBackBar, getResourceFormDefaults } from '../components/AddServiceConfigFields';
 import { markPendingRedeploy, clearPendingRedeploy, hasPendingRedeploy } from '../utils/servicePending';
 import { generateSecurePassword, generateRandomIdent } from '../utils/password';
+import { load as yamlLoad } from 'js-yaml';
 
 // Lazy-loaded terminal (xterm); monitoring imported eagerly for faster tab open
 import MonitoringPanel from '../components/panels/MonitoringPanel';
@@ -1134,7 +1135,36 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '0.5rem' }}>
                   <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
-                  <Button variant="primary" onClick={() => setStep('config')}>
+                  <Button variant="primary" onClick={() => {
+                    // Parse compose YAML to auto-fill config fields
+                    try {
+                      const parsed = yamlLoad(form.dockerComposeContent);
+                      if (parsed?.services) {
+                        const svcNames = Object.keys(parsed.services);
+                        const firstSvc = svcNames.length > 0 ? parsed.services[svcNames[0]] : null;
+                        if (firstSvc) {
+                          setForm(f => {
+                            const updates = { ...f };
+                            // Auto-detect port from first service
+                            if (firstSvc.ports?.length > 0) {
+                              const portStr = String(firstSvc.ports[0]);
+                              const hostPort = portStr.split(':')[0]?.replace(/[^0-9]/g, '');
+                              if (hostPort) {
+                                updates.port = hostPort;
+                                updates.portsExposes = hostPort;
+                              }
+                            }
+                            // Auto-detect image for naming hint
+                            if (firstSvc.image) {
+                              updates.image = firstSvc.image;
+                            }
+                            return updates;
+                          });
+                        }
+                      }
+                    } catch { /* invalid YAML — skip auto-fill */ }
+                    setStep('config');
+                  }}>
                     Next: Configuration
                     <ChevronRight size={16} />
                   </Button>
@@ -1338,7 +1368,6 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                     selectedResourceId={selectedResourceId}
                     githubApps={githubApps}
                     existingServices={services}
-                    hideComposeEditor={selectedResourceId === 'docker-compose' && step === 'config'}
                   />
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

@@ -1556,6 +1556,9 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 			}
 		}
 
+		// Pre-create any named volumes referenced in the compose file
+		ensureComposeVolumes(ctx, repoDir, svc.ID, log)
+
 		log("🐳 Running docker compose up…")
 		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
 		downCmd.Dir = repoDir
@@ -2608,6 +2611,78 @@ func detectLocalBuilder(localPath, requestedBuilder string) string {
 	return "static"
 }
 
+// ensureComposeVolumes reads a docker-compose.yml, finds named volumes
+// referenced in service volume mounts that are not declared in the top-level
+// volumes: section, and pre-creates them via `docker volume create`.
+// This prevents "refers to undefined volume" errors from docker compose up.
+func ensureComposeVolumes(ctx context.Context, composeDir, svcID string, log func(string)) {
+	composePath := filepath.Join(composeDir, "docker-compose.yml")
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return
+	}
+	content := string(data)
+
+	// Collect volume names declared in the top-level "volumes:" section.
+	declared := map[string]bool{}
+	inTopVolumes := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Top-level volumes: section starts with "volumes:" at indent 0
+		if strings.TrimSpace(line) == "volumes:" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			inTopVolumes = true
+			continue
+		}
+		if inTopVolumes {
+			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+				// indented line under volumes — extract name
+				name := strings.SplitN(trimmed, ":", 2)[0]
+				name = strings.TrimSpace(name)
+				if name != "" {
+					declared[name] = true
+				}
+			} else {
+				inTopVolumes = false
+			}
+		}
+	}
+
+	// Scan for volume references in "volumes:" under each service (indented).
+	inSvcVolumes := false
+	seen := map[string]bool{}
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "volumes:" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+			inSvcVolumes = true
+			continue
+		}
+		if inSvcVolumes {
+			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+				// Extract volume name from "- name:/path" or "- name:/path:opts"
+				entry := strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "- ")
+				parts := strings.Split(entry, ":")
+				if len(parts) >= 2 {
+					volName := parts[0]
+					// Skip if it looks like a host path (starts with / or .)
+					if strings.HasPrefix(volName, "/") || strings.HasPrefix(volName, ".") || volName == "" {
+						continue
+					}
+					if !declared[volName] && !seen[volName] {
+						seen[volName] = true
+						log(fmt.Sprintf("Pre-creating undefined compose volume: %s", volName))
+						createCmd := exec.CommandContext(ctx, "docker", "volume", "create", volName)
+						if out, err := createCmd.CombinedOutput(); err != nil {
+							log(fmt.Sprintf("Warning: could not create volume %s: %s", volName, strings.TrimSpace(string(out))))
+						}
+					}
+				}
+			} else {
+				inSvcVolumes = false
+			}
+		}
+	}
+}
+
 // volumeRunArgs parses the service's volumes JSON and returns docker run
 // bind-mount arguments ("-v", "host:container", ...) for non-Dockerfile
 // local deployments.  The Dockerfile path (DeployApp) already handles
@@ -2679,6 +2754,11 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	log("🔍 Detected local build type: " + bType)
 
 	if bType == "docker-compose" {
+		// Pre-create any named volumes referenced in the compose file
+		// but not declared in the top-level volumes: section.
+		// This prevents "refers to undefined volume" errors.
+		ensureComposeVolumes(ctx, localPath, svc.ID, log)
+
 		log("🐳 Running docker compose up…")
 		downCmd := exec.CommandContext(ctx, "docker", "compose", "-p", "nf-"+svc.ID, "down")
 		downCmd.Dir = localPath
