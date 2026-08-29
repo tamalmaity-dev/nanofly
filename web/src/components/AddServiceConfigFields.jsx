@@ -437,6 +437,7 @@ export function AddServiceConfigFields({
   selectedResourceId,
   githubApps,
   hideEnvVars,
+  hideComposeEditor,
   existingServices = [],
 }) {
   const [repos, setRepos] = useState([]);
@@ -763,7 +764,7 @@ export function AddServiceConfigFields({
             )}
           </ConfigSection>
           {builderType === 'dockerfile' && <DockerfileEditor form={form} setForm={setForm} showTemplatePicker />}
-          {builderType === 'docker-compose' && <ComposeEditor form={form} setForm={setForm} />}
+          {builderType === 'docker-compose' && !hideComposeEditor && <ComposeEditor form={form} setForm={setForm} />}
           {builderType === 'nixpacks' && (
             <div style={{ padding: '0.85rem', background: 'rgba(34,197,94,0.08)', borderRadius: 8, fontSize: '0.85rem' }}>
               <strong>Nixpacks</strong> analyzes the folder and builds automatically — no manual Dockerfile needed.
@@ -869,7 +870,7 @@ export function AddServiceConfigFields({
             <LanguageFields builderType={builderType} form={form} setForm={setForm} />
           )}
           {builderType === 'dockerfile' && <DockerfileEditor form={form} setForm={setForm} showTemplatePicker />}
-          {builderType === 'docker-compose' && <ComposeEditor form={form} setForm={setForm} />}
+          {builderType === 'docker-compose' && !hideComposeEditor && <ComposeEditor form={form} setForm={setForm} />}
           {builderType === 'nixpacks' && (
             <div style={{ padding: '0.85rem', background: 'rgba(34,197,94,0.08)', borderRadius: 8, fontSize: '0.85rem' }}>
               <strong>Nixpacks</strong> builds from the cloned repo automatically.

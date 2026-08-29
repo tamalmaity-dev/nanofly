@@ -822,9 +822,11 @@ code, pre {
   box-shadow: 0 0 40px rgba(79,110,247,0.15);
 }
 .auth-logo-img {
-  width: 48px; height: 48px;
+  width: 60px; height: 60px;
   object-fit: cover;
+  border-radius: 12px;
 }
+
 .auth-brand {
   font-size: 1.625rem;
   font-weight: 800;
