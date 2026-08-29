@@ -190,7 +190,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, map[string]string{"status": "deleted"})
 }
 
-// VerifyDNS checks if the domain's A record points to this server.
+// VerifyDNS checks if the domain's A record points to this server or Cloudflare proxy.
 func (h *Handler) VerifyDNS(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -215,12 +215,19 @@ func (h *Handler) VerifyDNS(w http.ResponseWriter, r *http.Request) {
 	// Get this server's IPs
 	serverIPs := getServerIPs()
 	verified := false
+	cloudflareProxied := false
 	for _, ip := range ips {
+		// Check direct server match
 		for _, sip := range serverIPs {
 			if ip == sip {
 				verified = true
 				break
 			}
+		}
+		// Check if resolved via Cloudflare proxy (Coolify pattern)
+		if isCloudflareIp(ip) {
+			cloudflareProxied = true
+			verified = true
 		}
 	}
 
@@ -228,11 +235,20 @@ func (h *Handler) VerifyDNS(w http.ResponseWriter, r *http.Request) {
 		h.db.Exec(`UPDATE domains_v2 SET tls_status = 'active' WHERE id = ?`, id)
 	}
 
+	msg := "DNS does not point to this server."
+	if verified && cloudflareProxied {
+		msg = fmt.Sprintf("DNS points to Cloudflare proxy (%s). SSL will be handled by Traefik + Cloudflare.", ips[0])
+	} else if verified {
+		msg = fmt.Sprintf("DNS points to this server (%s).", ips[0])
+	}
+
 	response.Success(w, map[string]any{
-		"domain":     domain,
-		"verified":   verified,
-		"domain_ips": ips,
-		"server_ips": serverIPs,
+		"domain":            domain,
+		"verified":          verified,
+		"cloudflare_proxy":  cloudflareProxied,
+		"domain_ips":        ips,
+		"server_ips":        serverIPs,
+		"message":           msg,
 	})
 }
 
@@ -266,4 +282,34 @@ func cleanDomain(d string) string {
 		d = d[:idx]
 	}
 	return d
+}
+
+// cloudflareIPs contains Cloudflare's published IP CIDR ranges.
+// Source: https://www.cloudflare.com/ips/
+var cloudflareIPs = []string{
+	"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+	"141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+	"197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+	"172.64.0.0/13", "131.0.72.0/22",
+	"2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+	"2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+}
+
+// isCloudflareIp checks if an IP address belongs to Cloudflare's CIDR ranges.
+// This is used to detect Cloudflare-proxied domains (Coolify pattern).
+func isCloudflareIp(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range cloudflareIPs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }

@@ -98,6 +98,8 @@ export default function Domains() {
       const domainIPs = res?.domain_ips ?? res?.data?.domain_ips;
       const serverIPs = res?.server_ips ?? res?.data?.server_ips;
       const errorMsg = res?.error ?? res?.data?.error;
+      const cloudflareProxy = res?.cloudflare_proxy ?? res?.data?.cloudflare_proxy;
+      const message = res?.message ?? res?.data?.message;
 
       setVerificationResults(prev => ({
         ...prev,
@@ -105,12 +107,16 @@ export default function Domains() {
           verified,
           domainIPs,
           serverIPs,
-          error: errorMsg
+          error: errorMsg,
+          cloudflareProxy,
+          message
         }
       }));
 
       if (!silent) {
-        if (verified) {
+        if (verified && cloudflareProxy) {
+          toast.success('DNS verified! Domain is behind Cloudflare proxy. SSL handled by Traefik + Cloudflare.');
+        } else if (verified) {
           toast.success('DNS verified! Domain is correctly pointing to this server.');
         } else if (errorMsg) {
           toast.error(`DNS lookup failed: ${errorMsg}`);
@@ -381,7 +387,10 @@ export default function Domains() {
                         <CheckCircle2 size={16} /> DNS Routing Verified
                       </div>
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', paddingLeft: '24px' }}>
-                        This domain's A-record is correctly pointed to your server IP ({v.serverIPs?.join(', ')}). Traefik has provisioned and is serving the Let's Encrypt SSL certificate.
+                        {v?.cloudflareProxy
+                          ? `Domain is behind Cloudflare proxy (${v.domainIPs?.[0]}). SSL handled by Traefik + Cloudflare.`
+                          : `This domain's A-record is correctly pointed to your server IP (${v.serverIPs?.join(', ')}). Traefik has provisioned and is serving the Let's Encrypt SSL certificate.`
+                        }
                       </div>
                     </div>
                   ) : (
@@ -424,7 +433,8 @@ export default function Domains() {
                               Type: A | Name: {d.domain.split('.')[0] === '@' ? '@' : d.domain.split('.')[0]} | Value: {v?.serverIPs?.[0] || 'your_server_ip'}
                             </div>
                           </li>
-                          <li>If you are using Cloudflare, turn <strong>OFF</strong> the proxy (Grey Cloud icon) to allow Traefik to obtain the SSL certificate.</li>
+                          <li><strong>Cloudflare users:</strong> You can keep the proxy <strong>ON</strong> (Orange Cloud) — NanoFly detects Cloudflare-proxied domains automatically. SSL is handled by both Traefik and Cloudflare.</li>
+                          <li><strong>Other registrars:</strong> Point the A record directly to your server IP shown above.</li>
                           <li>Once updated, click the <strong>Refresh/Verify DNS</strong> button above to re-verify.</li>
                         </ol>
                       </div>
