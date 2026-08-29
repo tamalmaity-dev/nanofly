@@ -1587,7 +1587,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 
 	// Clone: if branch is set, try with --branch first; if it fails, retry without (fallback to default branch)
 	var cloneArgs []string
-	cloneArgs = append(cloneArgs, "--depth=1")
+	cloneArgs = append(cloneArgs, "clone")
 	if svc.GitBranch != "" {
 		cloneArgs = append(cloneArgs, "--branch", svc.GitBranch)
 	}
@@ -1600,7 +1600,7 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 	if err := runCommandStreaming(cmd, log); err != nil && svc.GitBranch != "" {
 		// Branch not found — retry without --branch to clone the default branch
 		log("⚠️ Branch '" + svc.GitBranch + "' not found, cloning default branch…")
-		cmd = exec.CommandContext(ctx, "git", "clone", "--depth=1", cloneURL, repoDir)
+		cmd = exec.CommandContext(ctx, "git", "clone", cloneURL, repoDir)
 		if len(gitEnv) > 0 {
 			cmd.Env = gitEnv
 		}
@@ -3475,7 +3475,13 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 		if b == '\n' {
 			w.logFunc(w.buffer.String())
 			w.buffer.Reset()
-		} else if b != '\r' {
+		} else if b == '\r' {
+			// Flush on carriage return — Docker uses \r for in-place progress
+			if w.buffer.Len() > 0 {
+				w.logFunc(w.buffer.String())
+				w.buffer.Reset()
+			}
+		} else {
 			w.buffer.WriteByte(b)
 		}
 	}
