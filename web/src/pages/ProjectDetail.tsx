@@ -1198,7 +1198,7 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: '0.5rem' }}>
                   <Button variant="soft" color="gray" onClick={() => setStep('type')}>Back</Button>
                   <Button variant="primary" disabled={!composePreflight.valid} onClick={() => {
-                    // Parse compose YAML to auto-fill config fields
+                    // Parse compose YAML to auto-fill config fields (port, image, env vars)
                     try {
                       const parsed = yamlLoad(form.dockerComposeContent);
                       if (parsed?.services) {
@@ -1216,9 +1216,19 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
                                 updates.portsExposes = hostPort;
                               }
                             }
-                            // Auto-detect image for naming hint
+                            // Auto-detect image
                             if (firstSvc.image) {
                               updates.image = firstSvc.image;
+                            }
+                            // Auto-detect env vars (array of "KEY=VAL" or mapping)
+                            if (firstSvc.environment) {
+                              let envText = '';
+                              if (Array.isArray(firstSvc.environment)) {
+                                envText = firstSvc.environment.join('\n');
+                              } else if (typeof firstSvc.environment === 'object') {
+                                envText = Object.entries(firstSvc.environment).map(([k, v]) => `${k}=${v}`).join('\n');
+                              }
+                              if (envText) updates.envText = envText;
                             }
                             return updates;
                           });
@@ -3435,82 +3445,91 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* Full-width Details Panel */}
-        <div className="card hover-glow" style={{ padding: '1.5rem', minHeight: '400px' }}>
-          <Tabs
-            value={activeTab}
-            onValueChange={setActiveTab}
-            items={[
-              ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
-              ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
-              { id: 'deployments', label: 'Deployments' },
-              { id: 'logs', label: 'Logs' },
-              ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
-              { id: 'monitoring', label: 'Monitoring', icon: Cpu },
-              { id: 'resources', label: 'Resource Limits', icon: Sliders },
-              { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
-              ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks' }] : []),
-              ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
-              ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables' }] : []),
-              { id: 'backup', label: 'Backup & Restore', icon: Database },
-              ...(selectedSvc.type === 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
-            ]}
-          >
-            <TabsContent value="connection">
-              <ConnectionDetailsPanel service={selectedSvc} />
-            </TabsContent>
-            <TabsContent value="deployments">
-              <DeploymentsPanel serviceId={activeSvc} />
-            </TabsContent>
-            <TabsContent value="logs">
-              <ContainerLogsPanel serviceId={activeSvc} services={services} selectedSvc={selectedSvc} />
-            </TabsContent>
-            <TabsContent value="terminal">
-              <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading terminal...</div>}>
-                <ContainerTerminalPanel service={selectedSvc} />
-              </Suspense>
-            </TabsContent>
-            <TabsContent value="monitoring">
-              {/* Monitoring Panel */}
-              <MonitoringPanel
-                serviceId={activeSvc}
-                initialMetrics={{
-                  cpu_percent: selectedSvc.cpu_percent ?? 0,
-                  memory_usage: selectedSvc.memory_usage || '0 B',
-                }}
-              />
-            </TabsContent>
-            <TabsContent value="resources">
-              <ResourceLimitsPanel service={selectedSvc} onUpdate={load} />
-            </TabsContent>
-            <TabsContent value="volumes">
-              <VolumesPanel service={selectedSvc} onUpdate={load} />
-            </TabsContent>
-            {(selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) && (
-              <TabsContent value="webhooks">
-                <WebhookPanel
-                  serviceId={activeSvc}
-                  githubAppId={selectedSvc.github_app_id}
-                  gitRepoUrl={selectedSvc.git_repo_url}
-                />
-              </TabsContent>
-            )}
-            {selectedSvc.git_repo_url?.startsWith('file://') && (
-              <TabsContent value="files">
-                <SourceFilesPanel service={selectedSvc} />
-              </TabsContent>
-            )}
-            <TabsContent value="configuration">
-              <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />
-            </TabsContent>
-            <TabsContent value="backup">
-              <BackupRestorePanel service={selectedSvc} />
-            </TabsContent>
-            <TabsContent value="envvars">
-              <EnvVarsPanel serviceId={activeSvc} />
-            </TabsContent>
-          </Tabs>
-        </div>
+        {/* Service Details — left nav + content */}
+        {(() => {
+          const navItems = [
+            ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
+            ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
+            { id: 'deployments', label: 'Deployments', icon: Package },
+            { id: 'logs', label: 'Logs', icon: FileText },
+            ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
+            { id: 'monitoring', label: 'Monitoring', icon: Cpu },
+            { id: 'resources', label: 'Resource Limits', icon: Sliders },
+            { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
+            ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks', icon: Globe }] : []),
+            ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
+            ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
+            { id: 'backup', label: 'Backup & Restore', icon: Database },
+            ...(selectedSvc.type === 'database' ? [{ id: 'configuration', label: 'Configuration', icon: Settings }] : []),
+          ];
+          return (
+            <div style={{ display: 'flex', gap: '1.25rem', minHeight: 500, alignItems: 'flex-start' }}>
+              {/* Left nav */}
+              <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4, position: 'sticky', top: 16 }}>
+                {navItems.map(item => {
+                  const Icon = item.icon;
+                  const active = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '9px 12px',
+                        borderRadius: 'var(--radius)',
+                        border: '1px solid',
+                        borderColor: active ? 'rgba(79,110,247,0.25)' : 'transparent',
+                        background: active ? 'rgba(79,110,247,0.10)' : 'transparent',
+                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        fontSize: '0.84rem',
+                        fontWeight: active ? 600 : 400,
+                        textAlign: 'left',
+                        width: '100%',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {Icon ? <Icon size={14} style={{ flexShrink: 0 }} /> : <span style={{ width: 14 }} />}
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Right content */}
+              <div className="card hover-glow" style={{ flex: 1, minWidth: 0, padding: '1.5rem' }}>
+                {activeTab === 'connection' && <ConnectionDetailsPanel service={selectedSvc} />}
+                {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
+                {activeTab === 'logs' && <ContainerLogsPanel serviceId={activeSvc} services={services} selectedSvc={selectedSvc} />}
+                {activeTab === 'terminal' && (
+                  <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading terminal...</div>}>
+                    <ContainerTerminalPanel service={selectedSvc} />
+                  </Suspense>
+                )}
+                {activeTab === 'monitoring' && (
+                  <MonitoringPanel
+                    serviceId={activeSvc}
+                    initialMetrics={{
+                      cpu_percent: selectedSvc.cpu_percent ?? 0,
+                      memory_usage: selectedSvc.memory_usage || '0 B',
+                    }}
+                  />
+                )}
+                {activeTab === 'resources' && <ResourceLimitsPanel service={selectedSvc} onUpdate={load} />}
+                {activeTab === 'volumes' && <VolumesPanel service={selectedSvc} onUpdate={load} />}
+                {activeTab === 'webhooks' && (selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) && (
+                  <WebhookPanel serviceId={activeSvc} githubAppId={selectedSvc.github_app_id} gitRepoUrl={selectedSvc.git_repo_url} />
+                )}
+                {activeTab === 'files' && selectedSvc.git_repo_url?.startsWith('file://') && <SourceFilesPanel service={selectedSvc} />}
+                {activeTab === 'configuration' && <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />}
+                {activeTab === 'backup' && <BackupRestorePanel service={selectedSvc} />}
+                {activeTab === 'envvars' && <EnvVarsPanel serviceId={activeSvc} />}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Delete Service Modal */}
         <Modal open={!!deletingSvc} onClose={() => setDeletingSvc(null)} title="Delete Service">
