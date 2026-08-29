@@ -176,6 +176,7 @@ export function GitHubAppWizard({ onComplete, onCancel }) {
       githubAppId: String(selectedApp.id),
       gitUrl: selectedRepo.clone_url,
       repoFullName: selectedRepo.full_name,
+      defaultBranch: selectedRepo.default_branch || 'main',
     });
   };
 
@@ -477,6 +478,7 @@ export function GitHubAppWizard({ onComplete, onCancel }) {
           <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>Repository Info</span>
         </div>
         <InfoRow label="Repository" value={selectedRepo?.full_name || '—'} />
+        <InfoRow label="Default Branch" value={selectedRepo?.default_branch || 'main'} />
         <InfoRow label="Clone URL" value={selectedRepo?.clone_url || '—'} mono />
       </div>
 

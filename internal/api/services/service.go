@@ -100,6 +100,9 @@ type Service struct {
 	BuildWatchPaths      string  `json:"build_watch_paths,omitempty"`
 	BuildUseServer       bool    `json:"build_use_server"`
 	Volumes              string  `json:"volumes,omitempty"` // JSON array of volume mounts
+	HealthcheckEnabled   bool    `json:"healthcheck_enabled"`
+	HealthcheckPath      string  `json:"healthcheck_path,omitempty"`
+	HealthcheckPort      int     `json:"healthcheck_port,omitempty"`
 	ConnString           string  `json:"conn_string,omitempty"` // databases only (encrypted stub)
 
 	// Real-time resource metrics (populated in memory)
@@ -144,11 +147,19 @@ type Deployment struct {
 	ID         string     `json:"id"`
 	ServiceID  string     `json:"service_id"`
 	Status     string     `json:"status"`
+	Trigger    string     `json:"trigger"`
 	CommitSHA  string     `json:"commit_sha"`
 	CommitMsg  string     `json:"commit_msg"`
 	Log        string     `json:"log"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
+// DeployOptions carries optional metadata for a deployment trigger.
+type DeployOptions struct {
+	Trigger   string // "manual" or "webhook"
+	CommitSHA string
+	CommitMsg string
 }
 
 // Manager handles service operations.
@@ -429,7 +440,8 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 		       COALESCE(s.docker_registry_image,''), COALESCE(s.docker_registry_tag,''), COALESCE(s.ports_exposes,0), COALESCE(s.port_mappings,''),
 		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0),
 		       COALESCE(g.builder,'auto'),
-		       COALESCE(s.volumes,'[]')
+		       COALESCE(s.volumes,'[]'),
+		       COALESCE(s.healthcheck_enabled,0), COALESCE(s.healthcheck_path,''), COALESCE(s.healthcheck_port,0)
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.project_id = ?
@@ -462,6 +474,7 @@ func (m *Manager) List(ctx context.Context, projectID string) ([]Service, error)
 			&s.NetworkAliases, &s.BuildWatchPaths, &s.BuildUseServer,
 			&s.Builder,
 			&s.Volumes,
+			&s.HealthcheckEnabled, &s.HealthcheckPath, &s.HealthcheckPort,
 		); err != nil {
 			return nil, err
 		}
@@ -525,7 +538,8 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		       COALESCE(s.dockerfile_location,''), COALESCE(s.build_stage_target,''), COALESCE(s.build_custom_options,''), COALESCE(s.base_directory,''),
 		       COALESCE(s.docker_registry_image,''), COALESCE(s.docker_registry_tag,''), COALESCE(s.ports_exposes,0), COALESCE(s.port_mappings,''),
 		       COALESCE(s.network_aliases,''), COALESCE(s.build_watch_paths,''), COALESCE(s.build_use_server,0),
-		       COALESCE(s.volumes,'[]')
+		       COALESCE(s.volumes,'[]'),
+		       COALESCE(s.healthcheck_enabled,0), COALESCE(s.healthcheck_path,''), COALESCE(s.healthcheck_port,0)
 		FROM services s
 		LEFT JOIN git_sources g ON g.service_id = s.id
 		WHERE s.id = ?
@@ -540,6 +554,7 @@ func (m *Manager) Get(ctx context.Context, id string) (*Service, error) {
 		&s.DockerRegistryImage, &s.DockerRegistryTag, &s.PortsExposes, &s.PortMappings,
 		&s.NetworkAliases, &s.BuildWatchPaths, &s.BuildUseServer,
 		&s.Volumes,
+		&s.HealthcheckEnabled, &s.HealthcheckPath, &s.HealthcheckPort,
 	)
 	if err != nil {
 		return nil, err
@@ -829,17 +844,27 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 
 // Deploy triggers a new deployment for an app or database service.
 // For apps, it clones and builds or pulls. For databases, it restarts/re-creates the container.
-func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, error) {
+func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOptions) (*Deployment, error) {
 	svc, err := m.Get(ctx, serviceID)
 	if err != nil {
 		return nil, err
 	}
 
+	var opt DeployOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	trigger := opt.Trigger
+	if trigger == "" {
+		trigger = "manual"
+	}
+
 	// Create deployment record
 	var deployID string
 	err = m.db.QueryRowContext(ctx, `
-		INSERT INTO deployments (service_id, status) VALUES (?, 'building') RETURNING id
-	`, serviceID).Scan(&deployID)
+		INSERT INTO deployments (service_id, status, trigger, commit_sha, commit_msg)
+		VALUES (?, 'building', ?, ?, ?) RETURNING id
+	`, serviceID, trigger, opt.CommitSHA, opt.CommitMsg).Scan(&deployID)
 	if err != nil {
 		return nil, err
 	}
@@ -1014,7 +1039,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string) (*Deployment, er
 
 		if svc.GitRepoURL != "" && svc.GitRepoURL != GitHubAppPendingRepo {
 			// Git-based deploy
-			if err := m.gitDeploy(bgCtx, svc, log); err != nil {
+			if err := m.gitDeploy(bgCtx, svc, deployID, log); err != nil {
 				log("[ERROR] Deploy failed: " + err.Error())
 				finalStatus = "error"
 				return
@@ -1515,7 +1540,7 @@ func (m *Manager) logServiceDomains(ctx context.Context, svc *Service, log func(
 }
 
 // gitDeploy clones a repo and runs the app inside Docker.
-func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string)) error {
+func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, log func(string)) error {
 	if strings.HasPrefix(svc.GitRepoURL, "file://") {
 		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
 		return m.localDeploy(ctx, svc, localPath, log)
@@ -1558,14 +1583,34 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, log func(string))
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", svc.GitBranch, cloneURL, repoDir)
+	log("Cloning repository: " + svc.GitRepoURL + " (branch: " + svc.GitBranch + ")")
+
+	// Clone: if branch is set, try with --branch first; if it fails, retry without (fallback to default branch)
+	var cloneArgs []string
+	cloneArgs = append(cloneArgs, "--depth=1")
+	if svc.GitBranch != "" {
+		cloneArgs = append(cloneArgs, "--branch", svc.GitBranch)
+	}
+	cloneArgs = append(cloneArgs, cloneURL, repoDir)
+
+	cmd := exec.CommandContext(ctx, "git", cloneArgs...)
 	if len(gitEnv) > 0 {
 		cmd.Env = gitEnv
 	}
-	log("Cloning repository: " + svc.GitRepoURL + " (branch: " + svc.GitBranch + ")")
-	if err := runCommandStreaming(cmd, log); err != nil {
+	if err := runCommandStreaming(cmd, log); err != nil && svc.GitBranch != "" {
+		// Branch not found — retry without --branch to clone the default branch
+		log("⚠️ Branch '" + svc.GitBranch + "' not found, cloning default branch…")
+		cmd = exec.CommandContext(ctx, "git", "clone", "--depth=1", cloneURL, repoDir)
+		if len(gitEnv) > 0 {
+			cmd.Env = gitEnv
+		}
+		if err2 := runCommandStreaming(cmd, log); err2 != nil {
+			return fmt.Errorf("git clone: %w", err2)
+		}
+	} else if err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
+	m.recordDeploymentCommit(ctx, deployID, repoDir)
 
 	// Handle Docker Compose
 	if svc.Builder == "docker-compose" {
@@ -2118,31 +2163,66 @@ func fileExistsWithExtension(dir, ext string) bool {
 	return false
 }
 
+// recordDeploymentCommit fills commit_sha/commit_msg from the cloned repo when not already set by webhook.
+func (m *Manager) recordDeploymentCommit(ctx context.Context, deployID, repoDir string) {
+	var existingSHA, existingMsg string
+	_ = m.db.QueryRowContext(ctx, `SELECT COALESCE(commit_sha,''), COALESCE(commit_msg,'') FROM deployments WHERE id=?`, deployID).Scan(&existingSHA, &existingMsg)
+
+	sha := existingSHA
+	if sha == "" {
+		if out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "HEAD").Output(); err == nil {
+			sha = strings.TrimSpace(string(out))
+		}
+	}
+
+	msg := existingMsg
+	if msg == "" {
+		if out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "log", "-1", "--pretty=%s").Output(); err == nil {
+			msg = strings.TrimSpace(string(out))
+		}
+	}
+
+	if sha == "" && msg == "" {
+		return
+	}
+
+	_, _ = m.db.ExecContext(ctx, `
+		UPDATE deployments SET
+			commit_sha = CASE WHEN commit_sha = '' OR commit_sha IS NULL THEN ? ELSE commit_sha END,
+			commit_msg = CASE WHEN commit_msg = '' OR commit_msg IS NULL THEN ? ELSE commit_msg END
+		WHERE id = ?
+	`, sha, msg, deployID)
+}
+
 // GetDeployment fetches a single deployment.
 func (m *Manager) GetDeployment(ctx context.Context, deployID string) (*Deployment, error) {
 	var d Deployment
 	var startedAt string
 	var finishedAt sql.NullString
 	err := m.db.QueryRowContext(ctx, `
-		SELECT id, service_id, status, COALESCE(commit_sha,''), COALESCE(commit_msg,''),
+		SELECT id, service_id, status, COALESCE(trigger,'manual'), COALESCE(commit_sha,''), COALESCE(commit_msg,''),
 		       COALESCE(log,''), started_at, finished_at
 		FROM deployments WHERE id=?
 	`, deployID).Scan(
-		&d.ID, &d.ServiceID, &d.Status, &d.CommitSHA, &d.CommitMsg,
+		&d.ID, &d.ServiceID, &d.Status, &d.Trigger, &d.CommitSHA, &d.CommitMsg,
 		&d.Log, &startedAt, &finishedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	d.StartedAt = parseSqliteTime(startedAt)
+	if finishedAt.Valid {
+		t := parseSqliteTime(finishedAt.String)
+		d.FinishedAt = &t
+	}
 	return &d, nil
 }
 
 // ListDeployments returns deployments for a service, newest first.
 func (m *Manager) ListDeployments(ctx context.Context, serviceID string, limit int) ([]Deployment, error) {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, service_id, status, COALESCE(commit_sha,''), COALESCE(commit_msg,''),
-		       COALESCE(log,''), started_at
+		SELECT id, service_id, status, COALESCE(trigger,'manual'), COALESCE(commit_sha,''), COALESCE(commit_msg,''),
+		       COALESCE(log,''), started_at, finished_at
 		FROM deployments WHERE service_id=?
 		ORDER BY started_at DESC LIMIT ?
 	`, serviceID, limit)
@@ -2155,8 +2235,13 @@ func (m *Manager) ListDeployments(ctx context.Context, serviceID string, limit i
 	for rows.Next() {
 		var d Deployment
 		var startedAt string
-		rows.Scan(&d.ID, &d.ServiceID, &d.Status, &d.CommitSHA, &d.CommitMsg, &d.Log, &startedAt) //nolint:errcheck
+		var finishedAt sql.NullString
+		rows.Scan(&d.ID, &d.ServiceID, &d.Status, &d.Trigger, &d.CommitSHA, &d.CommitMsg, &d.Log, &startedAt, &finishedAt) //nolint:errcheck
 		d.StartedAt = parseSqliteTime(startedAt)
+		if finishedAt.Valid {
+			t := parseSqliteTime(finishedAt.String)
+			d.FinishedAt = &t
+		}
 		deps = append(deps, d)
 	}
 	if deps == nil {
@@ -2357,7 +2442,7 @@ func (m *Manager) HandleWebhook(ctx context.Context, serviceID string, body io.R
 	if svc.GitRepoURL == "" {
 		return fmt.Errorf("service has no git source")
 	}
-	_, err = m.Deploy(ctx, serviceID)
+	_, err = m.Deploy(ctx, serviceID, DeployOptions{Trigger: "webhook"})
 	return err
 }
 
@@ -2490,8 +2575,12 @@ type UpdateServiceReq struct {
 	PortMappings         string `json:"port_mappings"`
 	NetworkAliases       string `json:"network_aliases"`
 	BuildWatchPaths      string `json:"build_watch_paths"`
-	BuildUseServer       bool   `json:"build_use_server"`
-	Volumes              string `json:"volumes"` // JSON array of volume mounts
+	BuildUseServer       bool    `json:"build_use_server"`
+	Volumes              string  `json:"volumes"` // JSON array of volume mounts
+	GitHubAppID          *string `json:"github_app_id"`
+	HealthcheckEnabled   bool    `json:"healthcheck_enabled"`
+	HealthcheckPath      string  `json:"healthcheck_path"`
+	HealthcheckPort      int     `json:"healthcheck_port"`
 }
 
 // Update updates the service's details in DB and optional git sources.
@@ -2573,6 +2662,9 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 	addStr("build_watch_paths", req.BuildWatchPaths)
 	addBool("build_use_server", req.BuildUseServer)
 	addStr("volumes", req.Volumes)
+	addBool("healthcheck_enabled", req.HealthcheckEnabled)
+	addStr("healthcheck_path", req.HealthcheckPath)
+	addInt("healthcheck_port", req.HealthcheckPort)
 
 	if len(setClauses) == 0 {
 		return m.Get(ctx, serviceID)
@@ -2594,25 +2686,39 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 	}
 
 	// Only touch git_sources if GitRepoURL was explicitly provided.
-	if req.GitRepoURL != "" || req.GitBranch != "" || req.GitToken != "" || req.SSHKey != "" {
+	if req.GitRepoURL != "" || req.GitBranch != "" || req.GitToken != "" || req.SSHKey != "" || req.GitHubAppID != nil {
 		var exists bool
 		_ = m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM git_sources WHERE service_id = ?)`, serviceID).Scan(&exists)
 		if exists {
 			if req.GitRepoURL == "" {
 				_, _ = m.db.ExecContext(ctx, `DELETE FROM git_sources WHERE service_id = ?`, serviceID)
 			} else {
-				_, _ = m.db.ExecContext(ctx, `
-					UPDATE git_sources
-					SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
-					WHERE service_id = ?
-				`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+				if req.GitHubAppID != nil {
+					_, _ = m.db.ExecContext(ctx, `
+						UPDATE git_sources
+						SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?, github_app_id = ?
+						WHERE service_id = ?
+					`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
+				} else {
+					_, _ = m.db.ExecContext(ctx, `
+						UPDATE git_sources
+						SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
+						WHERE service_id = ?
+					`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+				}
 			}
 		} else if req.GitRepoURL != "" {
+			var appID interface{}
+			if req.GitHubAppID != nil {
+				appID = *req.GitHubAppID
+			}
 			_, _ = m.db.ExecContext(ctx, `
-				INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
-			`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey)
+				INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key, github_app_id)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, appID)
 		}
+	} else if req.GitHubAppID != nil {
+		_, _ = m.db.ExecContext(ctx, `UPDATE git_sources SET github_app_id = ? WHERE service_id = ?`, req.GitHubAppID, serviceID)
 	}
 
 	// Reconcile file watcher if watch paths or repo URL changed

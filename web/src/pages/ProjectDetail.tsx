@@ -592,13 +592,14 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
   const [selectedResourceId, setSelectedResourceId] = useState('');
   const [githubApps, setGithubApps] = useState([]);
 
-  const handleGithubWizardComplete = ({ githubAppId, gitUrl, repoFullName }) => {
+  const handleGithubWizardComplete = ({ githubAppId, gitUrl, repoFullName, defaultBranch }) => {
     const repoName = (repoFullName || '').split('/')[1] || (repoFullName || 'app');
     setForm(f => ({
       ...f,
       githubAppId,
       gitUrl,
       name: repoName,
+      branch: defaultBranch || 'main',
     }));
     setStep('config');
   };

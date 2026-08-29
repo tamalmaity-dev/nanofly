@@ -162,8 +162,11 @@ func (s *Service) GenerateInstallationToken(ctx context.Context, appID string) (
 
 // ListRepositories lists all repositories for a GitHub App
 type RepoInfo struct {
-	FullName string `json:"full_name"`
-	CloneURL string `json:"clone_url"`
+	FullName      string `json:"full_name"`
+	CloneURL      string `json:"clone_url"`
+	DefaultBranch string `json:"default_branch"`
+	Description   string `json:"description"`
+	Private       bool   `json:"private"`
 }
 
 func (s *Service) ListRepositories(ctx context.Context, appID string) ([]RepoInfo, error) {
