@@ -73,6 +73,40 @@ func WS(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	containerID := r.URL.Query().Get("container")
 
+	// For compose services the frontend passes the service ID; resolve to the
+	// actual container via label (nf-<ID>_<svc>_1). Mirrors backup.go fix.
+	if target == "container" && containerID != "" {
+		// If it looks like a service ID (UUID without the nf-app- prefix), try label lookup
+		if !strings.HasPrefix(containerID, "nf-") || len(containerID) == 36 || len(containerID) > 20 && strings.Contains(containerID, "-") {
+			if out, err := exec.Command("docker", "ps", "--filter", "label=nanofly.service="+containerID, "--format", "{{.ID}}").CombinedOutput(); err == nil {
+				if id := strings.TrimSpace(strings.Split(string(out), "\n")[0]); id != "" {
+					containerID = id
+				}
+			}
+		} else {
+			// For non-compose, verify container exists; if not, try label fallback
+			if err := exec.Command("docker", "inspect", containerID).Run(); err != nil {
+				// Try to extract service ID from container name like nf-app-name-abcdefgh
+				// and use label fallback (best-effort)
+				if out, e := exec.Command("docker", "ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Label \"nanofly.service\"}}").CombinedOutput(); e == nil {
+					for _, line := range strings.Split(string(out), "\n") {
+						parts := strings.SplitN(line, "\t", 3)
+						if len(parts) == 3 && strings.TrimSpace(parts[1]) == containerID {
+							if label := strings.TrimSpace(parts[2]); label != "" {
+								if out2, e2 := exec.Command("docker", "ps", "--filter", "label=nanofly.service="+label, "--format", "{{.ID}}").CombinedOutput(); e2 == nil {
+									if id := strings.TrimSpace(strings.Split(string(out2), "\n")[0]); id != "" {
+										containerID = id
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	shell := "/bin/bash"
 	if _, err := os.Stat(shell); os.IsNotExist(err) {
 		shell = "/bin/sh"

@@ -21,11 +21,15 @@ function ContainerTerminalPanel({ service }) {
   const [status, setStatus] = useState('connecting'); // connecting | open | closed | error
   const [reconnectCount, setReconnectCount] = useState(0);
 
-  // 
+  const isCompose = service.git_builder === 'docker-compose' || !!service.docker_compose_content;
+  // For compose, the actual container is nf-<ID>_<svc>_1; let the backend resolve via label.
+  // We pass the service ID as container hint so the backend can find it.
   const suffix = service.id && service.id.length >= 8 ? `-${service.id.substring(0, 8)}` : '';
-  const containerName = service.type === 'database'
-    ? `nf-db-${service.name}${suffix}`
-    : `nf-app-${service.name}${suffix}`;
+  const containerName = isCompose
+    ? service.id
+    : service.type === 'database'
+      ? `nf-db-${service.name}${suffix}`
+      : `nf-app-${service.name}${suffix}`;
 
   const connect = useCallback(() => {
     // Clean up previous connection
