@@ -15,6 +15,7 @@ import { load as yamlLoad } from 'js-yaml';
 import MonitoringPanel from '../components/panels/MonitoringPanel';
 import { EnvVarsPanel } from './ProjectDetail/EnvVarsPanel';
 import { ComposeEnvVarsPanel } from './ProjectDetail/ComposeEnvVarsPanel';
+import { ServiceSidebar } from './ProjectDetail/ServiceSidebar';
 import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
 
@@ -1932,6 +1933,8 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
   const [logs, setLogs] = useState('Fetching container logs...');
   const [copied, setCopied] = useState(false);
   const [selectedLogSvcId, setSelectedLogSvcId] = useState(serviceId);
+  const [search, setSearch] = useState('');
+  const [lines, setLines] = useState(100);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1960,7 +1963,21 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleDownload = () => {
+    const blob = new Blob([logs], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedSvc?.name || 'service'}-logs.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const projectDbs = selectedSvc?.type === 'app' ? getLinkedDatabaseCandidates(selectedSvc, services) : [];
+  const filteredLogs = search
+    ? logs.split('\n').filter(l => l.toLowerCase().includes(search.toLowerCase())).join('\n')
+    : logs;
+  const displayedLogs = filteredLogs.split('\n').slice(-lines).join('\n');
 
   return (
     <div>
@@ -1985,11 +2002,33 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Runtime Container Logs</span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" size="sm" onClick={handleCopy} icon={copied ? Check : Copy}>{copied ? 'Copied' : 'Copy'}</Button>
-          <Button variant="ghost" size="sm" onClick={fetchLogs} icon={RefreshCw}>Refresh</Button>
+      {/* Toolbar like Coolify */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+          <span style={{ fontWeight: 600 }}>Seaweedfs</span>
+          <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          <Button variant="ghost" size="sm" style={{ padding: 6, minWidth: 32, height: 32 }} onClick={handleCopy} icon={copied ? Check : Copy} title="Copy" />
+          <Button variant="ghost" size="sm" style={{ padding: 6, minWidth: 32, height: 32 }} onClick={fetchLogs} icon={RefreshCw} title="Refresh" />
+          <Button variant="ghost" size="sm" style={{ padding: 6, minWidth: 32, height: 32 }} onClick={handleDownload} icon={FileText} title="Download logs" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '4px 8px' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Lines</span>
+          <select value={lines} onChange={e => setLines(Number(e.target.value))} style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px', fontSize: '0.75rem', color: 'var(--text-primary)' }}>
+            <option value={100}>100</option>
+            <option value={500}>500</option>
+            <option value={1000}>1000</option>
+          </select>
+        </div>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <input
+            placeholder="Find in logs"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '6px 10px 6px 28px', fontSize: '0.8rem', color: 'var(--text-primary)', width: 180 }}
+          />
+          <span style={{ position: 'absolute', left: 8, color: 'var(--text-muted)', pointerEvents: 'none' }}>🔍</span>
         </div>
       </div>
       <pre style={{
@@ -1997,16 +2036,20 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
         border: '1px solid var(--border)',
         borderRadius: 8,
         padding: '1rem',
-        fontSize: '0.875rem',
+        fontSize: '0.8rem',
         lineHeight: 1.6,
         color: '#e2e8f0',
         overflow: 'auto',
-        maxHeight: 320,
+        maxHeight: 380,
         fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
         whiteSpace: 'pre-wrap',
       }}>
-        {logs}
+        {displayedLogs}
       </pre>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+        <span>{filteredLogs.split('\n').length} lines {search && `(filtered)`}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} /> Live polling every 3s</span>
+      </div>
     </div>
   );
 }
@@ -2498,13 +2541,15 @@ function BackupRestorePanel({ service }) {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [backupFile, setBackupFile] = useState('');
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [search, setSearch] = useState('');
   const toast = useToast();
 
   const handleBackup = async () => {
     try {
       setLoading(true);
       const res = await servicesApi.backup(service.id);
-      toast.success('Backup created: ' + res.file);
+      toast.success('Backup created: ' + (res.file || res.backupFileName || 'done'));
     } catch (e) {
       toast.error('Backup failed: ' + e.message);
     } finally {
@@ -2527,24 +2572,61 @@ function BackupRestorePanel({ service }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-        <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Database size={14} color="var(--accent)" /> Manual Logical Backup
-        </h4>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Trigger a backup directly inside the container and save it to the persistent host volume. Database services run a logical dump, Apps run a tar archive.</p>
-        <Button variant="primary" onClick={handleBackup} loading={loading} disabled={loading} style={{ marginTop: 12 }}>
-          Create Backup
-        </Button>
+      {/* Header like Coolify */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>Backups</h3>
+        <div style={{ position: 'relative' }}>
+          <Button variant="primary" size="sm" onClick={() => setShowAddMenu(!showAddMenu)} icon={Plus}>
+            Add backup
+          </Button>
+          {showAddMenu && (
+            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 4, minWidth: 180, zIndex: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+              <div onClick={() => { setShowAddMenu(false); handleBackup(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-primary)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-base)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <Database size={14} /> Storage backup
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="card" style={{ padding: '1.25rem', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)' }}>
-        <h4 style={{ margin: '0 0 1rem 0', fontSize: '1.05rem', fontWeight: 600, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Stats like Coolify */}
+      <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, padding: '1rem', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Schedules</div><div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>0</div></div>
+        <div><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Enabled</div><div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>0</div></div>
+        <div><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Total executions</div><div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>0</div></div>
+      </div>
+
+      {/* Search + Filter like Coolify */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <input placeholder="Search backups" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '8px 12px 8px 32px', fontSize: '0.85rem', color: 'var(--text-primary)', width: '100%' }} />
+          <span style={{ position: 'absolute', left: 10, color: 'var(--text-muted)', pointerEvents: 'none' }}>🔍</span>
+        </div>
+        <Button variant="outline" size="sm" icon={Sliders}>Filter</Button>
+        <Button variant="outline" size="sm" icon={RefreshCw}>Sort</Button>
+      </div>
+
+      {/* Empty state like Coolify */}
+      <div className="card" style={{ padding: '3rem 2rem', textAlign: 'center', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--bg-base)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <Database size={20} style={{ color: 'var(--text-muted)' }} />
+        </div>
+        <h4 style={{ margin: '0 0 8px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>No scheduled backups</h4>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0, maxWidth: 420, marginInline: 'auto' }}>Add a database, persistent volume, or directory backup schedule to protect service data.</p>
+        <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Button variant="primary" size="sm" onClick={handleBackup} loading={loading}>Create Storage Backup</Button>
+        </div>
+      </div>
+
+      {/* Manual Import (kept for compatibility) */}
+      <div className="card" style={{ padding: '1.25rem', background: 'rgba(239,68,68,0.04)', border: '1px solid rgba(239,68,68,0.15)' }}>
+        <h4 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Upload size={14} /> Import Backup
         </h4>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Restore a backup file from the persistent host volume into the database. <strong>Warning: This will drop the current database content!</strong></p>
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <input className="form-input form-input-sm" placeholder="backup_file.sql" value={backupFile} onChange={e => setBackupFile(e.target.value)} style={{ flex: 1 }} />
-          <Button variant="danger" size="sm" onClick={handleImport} loading={importing} disabled={importing || !backupFile}>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0 0 12px' }}>Restore a backup file from the persistent host volume. <strong style={{ color: 'var(--red)' }}>Warning: This will drop the current content!</strong></p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="form-input form-input-sm" placeholder="backup_file.sql or backup_*.tar.gz" value={backupFile} onChange={e => setBackupFile(e.target.value)} style={{ flex: 1 }} />
+          <Button variant="outline" size="sm" onClick={handleImport} loading={importing} disabled={importing || !backupFile}>
             Import Data
           </Button>
         </div>
@@ -3485,93 +3567,9 @@ export default function ProjectDetail() {
         {/* Service Details — left nav + content (Coolify-style grouped) */}
         {(() => {
           const isCompose = selectedSvc.git_builder === 'docker-compose' || selectedSvc.docker_compose_content;
-          const groups = [
-            {
-              title: 'Settings',
-              items: [
-                ...(selectedSvc.type !== 'database' ? [{ id: 'configuration', label: 'General', icon: Settings }] : []),
-                ...(selectedSvc.type === 'database' ? [{ id: 'connection', label: 'Connection Details', icon: Key }] : []),
-                { id: 'domains', label: 'Domains', icon: Globe },
-                ...(selectedSvc.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
-                { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
-                ...(isCompose ? [{ id: 'compose', label: 'Compose', icon: FileCode }] : []),
-              ].filter(Boolean),
-            },
-            {
-              title: 'Observe & troubleshoot',
-              items: [
-                { id: 'deployments', label: 'Deployments', icon: Package },
-                { id: 'logs', label: 'Runtime Logs', icon: FileText },
-                ...(selectedSvc.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
-                { id: 'monitoring', label: 'Monitoring', icon: Cpu },
-              ],
-            },
-            {
-              title: 'Automation',
-              items: [
-                ...((selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) ? [{ id: 'webhooks', label: 'Webhooks', icon: Globe }] : []),
-                ...(selectedSvc.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
-                { id: 'backup', label: 'Backups', icon: Database },
-              ].filter(Boolean),
-            },
-            {
-              title: 'Operations',
-              items: [
-                { id: 'resources', label: 'Resource Limits', icon: Sliders },
-              ],
-            },
-          ];
-          // Fallback to legacy flat list if no group matches (should not happen)
-          const flatItems = groups.flatMap(g => g.items);
-          const activeGroup = groups.find(g => g.items.some(i => i.id === activeTab));
-          if (!activeGroup && flatItems.length > 0 && !flatItems.some(i => i.id === activeTab)) {
-            // invalid tab for this service type — reset to first available
-            setTimeout(() => setActiveTab(flatItems[0].id), 0);
-          }
           return (
             <div style={{ display: 'flex', gap: '1.25rem', minHeight: 500, alignItems: 'flex-start' }}>
-              {/* Left nav — grouped like Coolify */}
-              <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 16 }}>
-                {groups.map(group => (
-                  group.items.length === 0 ? null : (
-                    <div key={group.title}>
-                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, paddingLeft: 8 }}>{group.title}</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        {group.items.map(item => {
-                          const Icon = item.icon;
-                          const active = activeTab === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              onClick={() => setActiveTab(item.id)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 10,
-                                padding: '8px 10px',
-                                borderRadius: 'var(--radius)',
-                                border: '1px solid',
-                                borderColor: active ? 'rgba(79,110,247,0.25)' : 'transparent',
-                                background: active ? 'rgba(79,110,247,0.10)' : 'transparent',
-                                color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                                cursor: 'pointer',
-                                fontSize: '0.84rem',
-                                fontWeight: active ? 600 : 400,
-                                textAlign: 'left',
-                                width: '100%',
-                                transition: 'all 0.15s',
-                              }}
-                            >
-                              {Icon ? <Icon size={14} style={{ flexShrink: 0 }} /> : <span style={{ width: 14 }} />}
-                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )
-                ))}
-              </div>
+              <ServiceSidebar service={selectedSvc} activeTab={activeTab} onSelect={setActiveTab} />
 
               {/* Right content */}
               <div className="card hover-glow" style={{ flex: 1, minWidth: 0, padding: '1.5rem' }}>
