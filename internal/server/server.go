@@ -526,15 +526,52 @@ func (s *Server) handleTerminalStatus(w http.ResponseWriter, r *http.Request) {
 // POST /api/webhooks/{serviceID} — GitHub push webhook, triggers redeploy
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	serviceID := chi.URLParam(r, "serviceID")
-	if err := s.serviceMgr.HandleWebhook(r.Context(), serviceID, r.Body); err != nil {
+	slog.Info("webhook received", "service_id", serviceID, "remote", r.RemoteAddr, "method", r.Method)
+
+	// Read body to extract branch and commit info
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Warn("webhook: failed to read body", "service_id", serviceID, "error", err)
+		response.Error(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	// Parse GitHub push payload for branch and commit info
+	var payload struct {
+		Ref        string `json:"ref"` // refs/heads/main
+		HeadCommit struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"head_commit"`
+		Commits []struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"commits"`
+	}
+	_ = json.Unmarshal(bodyBytes, &payload) // best-effort, not all webhooks send JSON
+
+	branch := strings.TrimPrefix(payload.Ref, "refs/heads/")
+	commitSHA := payload.HeadCommit.ID
+	commitMsg := payload.HeadCommit.Message
+	if commitSHA == "" && len(payload.Commits) > 0 {
+		commitSHA = payload.Commits[0].ID
+		commitMsg = payload.Commits[0].Message
+	}
+	slog.Info("webhook: parsed payload", "service_id", serviceID, "branch", branch, "commit", commitSHA)
+
+	if err := s.serviceMgr.HandleWebhook(r.Context(), serviceID, branch, commitSHA, commitMsg); err != nil {
+		slog.Error("webhook: deployment failed", "service_id", serviceID, "error", err)
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	slog.Info("webhook: deployment triggered", "service_id", serviceID)
 	response.JSON(w, http.StatusOK, map[string]string{"status": "deployment triggered"})
 }
 
 // POST /api/webhooks/github — Global webhook handler for GitHub Apps
 func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
+	slog.Info("github webhook received", "remote", r.RemoteAddr)
+
 	// 1. Verify signature using the github_apps webhook_secret (requires parsing body or trying all secrets)
 	// For simplicity in NanoFly MVP, we'll parse the payload and just trigger deployments for matching repos.
 	// In production, you MUST verify X-Hub-Signature-256.
@@ -559,17 +596,20 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
+		slog.Error("github webhook: failed to read body", "error", err)
 		response.Error(w, http.StatusBadRequest, "failed to read body")
 		return
 	}
 
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		slog.Error("github webhook: invalid json", "error", err)
 		response.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	repoUrl := payload.Repository.HTMLURL
 	if repoUrl == "" {
+		slog.Info("github webhook: no repo info (not a push event)")
 		w.WriteHeader(http.StatusOK) // Not a push event or no repo info
 		return
 	}
@@ -579,20 +619,28 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 		branch = "main"
 	}
 
+	slog.Info("github webhook: parsed", "repo", repoUrl, "branch", branch, "installation_id", payload.Installation.ID)
+
 	var githubAppID string
 	if payload.Installation.ID > 0 {
 		_ = s.db.QueryRowContext(r.Context(), `
 			SELECT id FROM github_apps WHERE installation_id = ?
 		`, payload.Installation.ID).Scan(&githubAppID)
+		slog.Info("github webhook: looked up app", "github_app_id", githubAppID, "installation_id", payload.Installation.ID)
 	}
 
 	// Link pending GitHub App services on first push
 	if githubAppID != "" {
-		_, _ = s.db.ExecContext(r.Context(), `
+		result, _ := s.db.ExecContext(r.Context(), `
 			UPDATE git_sources
 			SET repo_url = ?
 			WHERE github_app_id = ? AND repo_url = ? AND branch = ?
 		`, repoUrl, githubAppID, services.GitHubAppPendingRepo, branch)
+		if result != nil {
+			if rows, _ := result.RowsAffected(); rows > 0 {
+				slog.Info("github webhook: linked pending repo", "repo", repoUrl, "branch", branch)
+			}
+		}
 	}
 
 	// Find all services using this repo and branch (GitHub App or linked repo)
@@ -601,7 +649,8 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 		WHERE repo_url = ? AND branch = ? AND github_app_id IS NOT NULL
 	`, repoUrl, branch)
 	if err != nil {
-		w.WriteHeader(http.StatusOK)
+		slog.Error("github webhook: query failed", "error", err, "repo", repoUrl, "branch", branch)
+		response.Error(w, http.StatusInternalServerError, "database query failed")
 		return
 	}
 	defer rows.Close()
@@ -616,18 +665,34 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(serviceIDs) == 0 {
+		slog.Warn("github webhook: no matching services found", "repo", repoUrl, "branch", branch, "installation_id", payload.Installation.ID)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	slog.Info("github webhook: triggering deploys", "repo", repoUrl, "branch", branch, "services", len(serviceIDs))
+
+	commitSHA := payload.HeadCommit.ID
+	commitMsg := payload.HeadCommit.Message
+	if commitSHA == "" && len(payload.Commits) > 0 {
+		commitSHA = payload.Commits[0].ID
+		commitMsg = payload.Commits[0].Message
+	}
+
 	for _, sid := range serviceIDs {
-		commitSHA := payload.HeadCommit.ID
-		commitMsg := payload.HeadCommit.Message
-		if commitSHA == "" && len(payload.Commits) > 0 {
-			commitSHA = payload.Commits[0].ID
-			commitMsg = payload.Commits[0].Message
-		}
-		go s.serviceMgr.Deploy(context.Background(), sid, services.DeployOptions{
-			Trigger:   "webhook",
-			CommitSHA: commitSHA,
-			CommitMsg: commitMsg,
-		}) //nolint:errcheck
+		sid := sid
+		go func() {
+			slog.Info("github webhook: deploying", "service_id", sid, "commit", commitSHA)
+			_, err := s.serviceMgr.Deploy(context.Background(), sid, services.DeployOptions{
+				Trigger:   "webhook",
+				CommitSHA: commitSHA,
+				CommitMsg: commitMsg,
+			})
+			if err != nil {
+				slog.Error("github webhook: deploy failed", "service_id", sid, "error", err)
+			}
+		}()
 	}
 
 	w.WriteHeader(http.StatusOK)

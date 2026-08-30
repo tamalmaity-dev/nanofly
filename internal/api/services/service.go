@@ -3697,7 +3697,7 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 }
 
 // WebhookHandler processes incoming GitHub push webhooks and redeploys.
-func (m *Manager) HandleWebhook(ctx context.Context, serviceID string, body io.Reader) error {
+func (m *Manager) HandleWebhook(ctx context.Context, serviceID string, branch string, commitSHA string, commitMsg string) error {
 	svc, err := m.Get(ctx, serviceID)
 	if err != nil {
 		return err
@@ -3705,7 +3705,17 @@ func (m *Manager) HandleWebhook(ctx context.Context, serviceID string, body io.R
 	if svc.GitRepoURL == "" {
 		return fmt.Errorf("service has no git source")
 	}
-	_, err = m.Deploy(ctx, serviceID, DeployOptions{Trigger: "webhook"})
+	// If branch is provided, verify it matches the service's configured branch
+	if branch != "" && svc.GitBranch != "" && branch != svc.GitBranch {
+		slog.Info("webhook: branch mismatch, skipping", "service", svc.Name, "pushed", branch, "configured", svc.GitBranch)
+		return fmt.Errorf("branch mismatch: pushed %s but service is configured for %s", branch, svc.GitBranch)
+	}
+	slog.Info("webhook: triggering deploy", "service", svc.Name, "branch", branch, "commit", commitSHA)
+	_, err = m.Deploy(ctx, serviceID, DeployOptions{
+		Trigger:   "webhook",
+		CommitSHA: commitSHA,
+		CommitMsg: commitMsg,
+	})
 	return err
 }
 
