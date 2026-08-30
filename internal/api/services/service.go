@@ -1761,12 +1761,37 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		}
 
 		log("🔨 Building Docker image…")
-		buildArgs := []string{"build", "--progress=plain", "--pull", "-t", imageTag}
+		buildArgs := []string{"build", "--progress=plain", "--pull", "--network=host", "-t", imageTag}
 		if svc.DockerfileLocation != "" {
 			buildArgs = append(buildArgs, "-f", filepath.Join(repoDir, svc.DockerfileLocation))
 		}
 		if svc.BuildStageTarget != "" {
 			buildArgs = append(buildArgs, "--target", svc.BuildStageTarget)
+		}
+		// Inject build-time env vars as --build-arg (Next.js needs NEXT_PUBLIC_* at build time)
+		var buildEnvKeys []string
+		if rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=?`, svc.ID); err == nil && rows != nil {
+			for rows.Next() {
+				var k, v string
+				if err := rows.Scan(&k, &v); err == nil && k != "" {
+					buildArgs = append(buildArgs, "--build-arg", k+"="+v)
+					buildEnvKeys = append(buildEnvKeys, k)
+				}
+			}
+			rows.Close()
+		}
+		// Inject ARG declarations into Dockerfile so --build-arg values are available during build
+		if len(buildEnvKeys) > 0 {
+			dockerfilePath := filepath.Join(repoDir, "Dockerfile")
+			if svc.DockerfileLocation != "" {
+				dockerfilePath = filepath.Join(repoDir, svc.DockerfileLocation)
+			} else if svc.BaseDirectory != "" {
+				// Dockerfile might be inside base directory
+				if _, err := os.Stat(filepath.Join(contextDir, "Dockerfile")); err == nil {
+					dockerfilePath = filepath.Join(contextDir, "Dockerfile")
+				}
+			}
+			injectBuildArgsToDockerfile(dockerfilePath, buildEnvKeys, log)
 		}
 		if svc.BuildCustomOptions != "" {
 			buildArgs = append(buildArgs, strings.Fields(svc.BuildCustomOptions)...)
@@ -2490,6 +2515,53 @@ func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 		}
 	} else {
 		log("ℹ️ Existing Dockerfile already optimized, using as-is.")
+	}
+}
+
+// injectBuildArgsToDockerfile inserts ARG declarations after every FROM instruction
+// so that --build-arg values are available during the build. Similar to Coolify's
+// add_build_env_variables_to_dockerfile. No-op if Dockerfile doesn't exist or has no FROM.
+func injectBuildArgsToDockerfile(dockerfilePath string, keys []string, log func(string)) {
+	if len(keys) == 0 {
+		return
+	}
+	data, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		return
+	}
+	content := string(data)
+	lines := strings.Split(content, "\n")
+	// Collect FROM line indices
+	var fromIndices []int
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(strings.ToUpper(line)), "FROM ") {
+			fromIndices = append(fromIndices, i)
+		}
+	}
+	if len(fromIndices) == 0 {
+		return
+	}
+	// Build ARG lines to inject (skip if already present)
+	var argsToInject []string
+	for _, k := range keys {
+		if !strings.Contains(content, "ARG "+k) {
+			argsToInject = append(argsToInject, "ARG "+k)
+		}
+	}
+	if len(argsToInject) == 0 {
+		return
+	}
+	// Insert after each FROM in reverse order to preserve indices
+	for i := len(fromIndices) - 1; i >= 0; i-- {
+		idx := fromIndices[i]
+		// Inject in reverse so first key ends up right after FROM
+		for j := len(argsToInject) - 1; j >= 0; j-- {
+			lines = append(lines[:idx+1], append([]string{argsToInject[j]}, lines[idx+1:]...)...)
+		}
+	}
+	newContent := strings.Join(lines, "\n")
+	if err := os.WriteFile(dockerfilePath, []byte(newContent), 0644); err == nil {
+		log(fmt.Sprintf("🔧 Injected %d build args into Dockerfile", len(argsToInject)))
 	}
 }
 
