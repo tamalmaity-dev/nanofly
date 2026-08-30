@@ -966,6 +966,19 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 		trigger = "manual"
 	}
 
+	// Global concurrency limit — prevent queue bombing (like Coolify's concurrent_builds + deployment_queue_limit)
+	maxConcurrent := 2
+	if raw := strings.TrimSpace(os.Getenv("NANOFLY_MAX_CONCURRENT_DEPLOYS")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 32 {
+			maxConcurrent = parsed
+		}
+	}
+	var activeCount int
+	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM deployments WHERE status='building' AND finished_at IS NULL`).Scan(&activeCount)
+	if activeCount >= maxConcurrent {
+		return nil, fmt.Errorf("deployment queue full (%d/%d active builds) — retry in a few minutes", activeCount, maxConcurrent)
+	}
+
 	// Create deployment record
 	var deployID string
 	err = m.db.QueryRowContext(ctx, `

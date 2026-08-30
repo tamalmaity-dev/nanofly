@@ -22,6 +22,7 @@ export function ServiceSidebar({ service, activeTab, onSelect, domains, project 
         { id: 'domains', label: 'Domains', icon: Globe },
         { id: 'envvars', label: 'Environment Variables', icon: FileCode },
         { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
+        { id: 'resources', label: 'Resource Limits', icon: Sliders },
         { id: 'advanced', label: 'Advanced', icon: Wrench },
         { id: 'healthcheck', label: 'Healthcheck', icon: Activity },
       ],
@@ -58,6 +59,7 @@ export function ServiceSidebar({ service, activeTab, onSelect, domains, project 
         { id: 'domains', label: 'Domains', icon: Globe },
         ...(service?.type !== 'database' ? [{ id: 'envvars', label: 'Environment Variables', icon: FileCode }] : []),
         { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
+        { id: 'resources', label: 'Resource Limits', icon: Sliders },
         ...(isCompose ? [{ id: 'compose', label: 'Compose', icon: FileCode }] : []),
       ].filter(Boolean),
     },
@@ -84,12 +86,6 @@ export function ServiceSidebar({ service, activeTab, onSelect, domains, project 
         ...(service?.git_repo_url?.startsWith('file://') ? [{ id: 'files', label: 'Source Files', icon: Folder }] : []),
         { id: 'backup', label: 'Backups', icon: Database },
       ].filter(Boolean),
-    },
-    {
-      title: 'Operations',
-      items: [
-        { id: 'resources', label: 'Resource Operations', icon: Sliders },
-      ],
     },
   ];
 
