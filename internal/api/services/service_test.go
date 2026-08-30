@@ -1,6 +1,14 @@
 package services
 
-import "testing"
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/nanofly/nanofly/internal/db"
+)
 
 func TestServiceResourceNamesAreScopedAndSafe(t *testing.T) {
 	service := &Service{ID: "12345678-abcd", Name: "My API / Production", Type: TypeApp}
@@ -47,5 +55,72 @@ func TestServiceBuildHashChangesWithBuildInputs(t *testing.T) {
 	second := serviceBuildHash(service, []buildEnvVar{{Key: "NEXT_PUBLIC_API_URL", Value: "https://two.example"}})
 	if first == second {
 		t.Fatal("serviceBuildHash() did not change when a build-time environment value changed")
+	}
+}
+
+func TestLogBuildContextSummaryReportsLargestFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "small.txt"), []byte("small"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.bin"), make([]byte, 4096), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var lines []string
+	logBuildContextSummary(root, func(line string) { lines = append(lines, line) })
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "Build context: ") || !strings.Contains(joined, "2 files") {
+		t.Fatalf("context summary = %q", joined)
+	}
+	if !strings.Contains(joined, "Build context largest file:") || !strings.Contains(joined, "large.bin") {
+		t.Fatalf("context largest-file summary = %q", joined)
+	}
+}
+
+func TestRecoverInterruptedDeployments(t *testing.T) {
+	database, err := db.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	if _, err := database.ExecContext(ctx, `INSERT INTO projects (id, name) VALUES ('project-1', 'Test')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO services (id, project_id, name, type, status)
+		VALUES ('service-1', 'project-1', 'web', 'app', 'deploying')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO deployments (id, service_id, status, log)
+		VALUES ('deployment-1', 'service-1', 'building', 'before restart')
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := New(database, nil)
+	if count, err := manager.ActiveDeploymentCount(ctx); err != nil || count != 1 {
+		t.Fatalf("ActiveDeploymentCount() = %d, %v; want 1, nil", count, err)
+	}
+	if err := manager.RecoverInterruptedDeployments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := manager.ActiveDeploymentCount(ctx); err != nil || count != 0 {
+		t.Fatalf("ActiveDeploymentCount() after recovery = %d, %v; want 0, nil", count, err)
+	}
+
+	var deploymentStatus, serviceStatus, log string
+	if err := database.QueryRowContext(ctx, `SELECT status, log FROM deployments WHERE id='deployment-1'`).Scan(&deploymentStatus, &log); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT status FROM services WHERE id='service-1'`).Scan(&serviceStatus); err != nil {
+		t.Fatal(err)
+	}
+	if deploymentStatus != "error" || serviceStatus != "error" || !strings.Contains(log, "interrupted") {
+		t.Fatalf("recovered deployment = status %q, service %q, log %q", deploymentStatus, serviceStatus, log)
 	}
 }

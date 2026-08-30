@@ -58,15 +58,23 @@ export function DeploymentLogsPanel({ serviceId }) {
   const [page, setPage] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
   const pageSize = 10;
   const logRef = useRef(null);
   const elapsedRef = useRef(null);
+  const stickToBottomRef = useRef(true);
 
   // Auto-scroll to bottom
   const scrollToBottom = useCallback(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
+  }, []);
+
+  const handleLogScroll = useCallback(() => {
+    if (!logRef.current) return;
+    const distanceFromBottom = logRef.current.scrollHeight - logRef.current.scrollTop - logRef.current.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 48;
   }, []);
 
   // Elapsed timer for active builds
@@ -85,23 +93,54 @@ export function DeploymentLogsPanel({ serviceId }) {
   }, [deps]);
 
   const fetchDeps = useCallback(() => {
-    servicesApi.deployments(serviceId).then(d => {
+    servicesApi.deployments(serviceId, false).then(d => {
       const newDeps = d || [];
-      setDeps(newDeps);
-      if (newDeps.length > 0 && open === null) setOpen(newDeps[0].id);
+      setDeps(previous => newDeps.map(next => {
+        const previousDep = previous.find(item => item.id === next.id);
+        return previousDep?.log ? { ...next, log: previousDep.log } : next;
+      }));
+      if (newDeps.length > 0) setOpen(current => current === null ? newDeps[0].id : current);
     }).catch(() => {}).finally(() => setLoading(false));
-  }, [serviceId, open]);
+  }, [serviceId]);
 
   useEffect(() => {
     fetchDeps();
     const interval = setInterval(() => {
-      servicesApi.deployments(serviceId).then(d => setDeps(d || [])).catch(() => {});
-    }, 1000);
+      servicesApi.deployments(serviceId, false).then(d => {
+        const newDeps = d || [];
+        setDeps(previous => newDeps.map(next => {
+          const previousDep = previous.find(item => item.id === next.id);
+          return previousDep?.log ? { ...next, log: previousDep.log } : next;
+        }));
+      }).catch(() => {});
+    }, 1500);
     return () => clearInterval(interval);
-  }, [serviceId]);
+  }, [serviceId, fetchDeps]);
+
+  // Fetch only the selected deployment's full log. The list endpoint stays
+  // lightweight, so live polling does not repeatedly transfer every history log.
+  const selectedStatus = deps.find(d => d.id === open)?.status;
+  useEffect(() => {
+    if (!open) return undefined;
+    let disposed = false;
+    const loadSelected = () => {
+      servicesApi.deployment(serviceId, open).then(deployment => {
+        if (disposed || !deployment) return;
+        setDeps(previous => previous.map(item => item.id === open ? { ...item, ...deployment } : item));
+      }).catch(() => {});
+    };
+    loadSelected();
+    const interval = selectedStatus === 'building' || selectedStatus === 'deploying'
+      ? setInterval(loadSelected, 1000)
+      : undefined;
+    return () => {
+      disposed = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [serviceId, open, selectedStatus]);
 
   useEffect(() => {
-    scrollToBottom();
+    if (stickToBottomRef.current) scrollToBottom();
   }, [deps, open, scrollToBottom]);
 
   const isBuilding = deps.some(d => d.status === 'building' || d.status === 'deploying');
@@ -109,11 +148,14 @@ export function DeploymentLogsPanel({ serviceId }) {
 
   const handleCancel = async () => {
     if (!buildingDep) return;
+    if (!window.confirm('Cancel this build? The current deployment will be marked as cancelled.')) return;
     setCancelling(true);
+    setCancelError('');
     try {
       await servicesApi.cancelDeployment(serviceId, buildingDep.id);
     } catch (e) {
       console.error('Cancel failed', e);
+      setCancelError(e?.message || 'Could not cancel the build.');
     } finally {
       setCancelling(false);
       setTimeout(fetchDeps, 500);
@@ -181,6 +223,7 @@ export function DeploymentLogsPanel({ serviceId }) {
             {elapsed > 0 ? `Elapsed: ${formatDuration(buildingDep?.started_at, null)}` : ''}
           </span>
           <button
+            type="button"
             onClick={handleCancel}
             disabled={cancelling}
             style={{
@@ -195,8 +238,13 @@ export function DeploymentLogsPanel({ serviceId }) {
               opacity: cancelling ? 0.6 : 1,
             }}
           >
-            {cancelling ? 'Cancelling…' : 'Cancel Deploy'}
+            {cancelling ? 'Cancelling…' : 'Cancel Build'}
           </button>
+        </div>
+      )}
+      {cancelError && (
+        <div style={{ color: '#f87171', fontSize: '0.78rem', margin: '-0.35rem 0 0.75rem' }} role="alert">
+          {cancelError}
         </div>
       )}
 
@@ -358,6 +406,7 @@ export function DeploymentLogsPanel({ serviceId }) {
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
               {isSelectedBuilding && (
                 <button
+                  type="button"
                   onClick={handleCancel}
                   disabled={cancelling}
                   style={{
@@ -407,6 +456,7 @@ export function DeploymentLogsPanel({ serviceId }) {
           {selected.log ? (
             <pre
               ref={logRef}
+              onScroll={handleLogScroll}
               style={{
                 margin: 0,
                 background: '#1a1025',

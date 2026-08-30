@@ -983,7 +983,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 			var activeDeployments int
 			_ = m.db.QueryRowContext(context.Background(), `
 				SELECT COUNT(*) FROM deployments
-				WHERE service_id=? AND id != ? AND status IN ('building', 'running')
+				WHERE service_id=? AND id != ? AND status='building' AND finished_at IS NULL
 			`, serviceID, deployID).Scan(&activeDeployments)
 			if activeDeployments == 0 {
 				m.db.ExecContext(context.Background(), `UPDATE services SET status='idle' WHERE id=? AND status='deploying'`, serviceID) //nolint:errcheck
@@ -1913,17 +1913,10 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 				log(fmt.Sprintf("📄 Updated .dockerignore (+%d entries)", len(missing)))
 			}
 
-			// Log build context size (helps diagnose slow builds)
+			// Log a compact context summary before BuildKit starts transferring it.
+			// The largest files make quiet context-transfer delays actionable.
 			if info, err := os.Stat(contextDir); err == nil && info.IsDir() {
-				var totalSize int64
-				filepath.Walk(contextDir, func(_ string, info os.FileInfo, err error) error {
-					if err == nil && !info.IsDir() {
-						totalSize += info.Size()
-					}
-					return nil
-				})
-				sizeMB := float64(totalSize) / 1024 / 1024
-				log(fmt.Sprintf("📁 Build context: %.1f MB", sizeMB))
+				logBuildContextSummary(contextDir, log)
 			}
 
 			// Check if build was cancelled before starting docker build
@@ -3001,8 +2994,6 @@ func (m *Manager) CancelDeployment(ctx context.Context, deployID string) error {
 	// Update DB status
 	now := time.Now().Format("2006-01-02 15:04:05")
 	m.db.ExecContext(ctx, `UPDATE deployments SET status='cancelled', finished_at=? WHERE id=? AND status='building'`, now, deployID) //nolint:errcheck
-	// Also try to kill any running docker build
-	exec.CommandContext(ctx, "sh", "-c", "pkill -f 'docker build' 2>/dev/null; true").Run() //nolint:errcheck
 	return nil
 }
 
@@ -3068,13 +3059,17 @@ func (m *Manager) GetDeployment(ctx context.Context, deployID string) (*Deployme
 }
 
 // ListDeployments returns deployments for a service, newest first.
-func (m *Manager) ListDeployments(ctx context.Context, serviceID string, limit int) ([]Deployment, error) {
-	rows, err := m.db.QueryContext(ctx, `
+func (m *Manager) ListDeployments(ctx context.Context, serviceID string, limit int, includeLogs ...bool) ([]Deployment, error) {
+	logColumn := "''"
+	if len(includeLogs) == 0 || includeLogs[0] {
+		logColumn = "COALESCE(log,'')"
+	}
+	rows, err := m.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT id, service_id, status, COALESCE(trigger,'manual'), COALESCE(commit_sha,''), COALESCE(commit_msg,''),
-		       COALESCE(log,''), started_at, finished_at
+		       %s, started_at, finished_at
 		FROM deployments WHERE service_id=?
 		ORDER BY started_at DESC LIMIT ?
-	`, serviceID, limit)
+	`, logColumn), serviceID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -4322,14 +4317,19 @@ func (m *Manager) getServiceDomains(ctx context.Context, serviceName string) []s
 }
 
 type logWriter struct {
-	logFunc func(string)
-	buffer  strings.Builder
+	logFunc    func(string)
+	mu         sync.Mutex
+	buffer     strings.Builder
+	lastOutput time.Time
 }
 
 func (w *logWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	w.lastOutput = time.Now()
+	var lines []string
 	for _, b := range p {
 		if b == '\n' {
-			w.logFunc(w.buffer.String())
+			lines = append(lines, w.buffer.String())
 			w.buffer.Reset()
 		} else if b == '\r' {
 			// Flush on carriage return — Docker uses \r for in-place progress
@@ -4341,21 +4341,57 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 			w.buffer.WriteByte(b)
 		}
 	}
+	w.mu.Unlock()
+	for _, line := range lines {
+		w.logFunc(line)
+	}
 	return len(p), nil
 }
 
 func (w *logWriter) Flush() {
+	w.mu.Lock()
+	line := ""
 	if w.buffer.Len() > 0 {
-		w.logFunc(w.buffer.String())
+		line = w.buffer.String()
 		w.buffer.Reset()
+	}
+	w.mu.Unlock()
+	if line != "" {
+		w.logFunc(line)
 	}
 }
 
+func (w *logWriter) idleFor() time.Duration {
+	w.mu.Lock()
+	lastOutput := w.lastOutput
+	w.mu.Unlock()
+	if lastOutput.IsZero() {
+		return 0
+	}
+	return time.Since(lastOutput)
+}
+
 func runCommandStreaming(cmd *exec.Cmd, log func(string)) error {
-	writer := &logWriter{logFunc: log}
+	writer := &logWriter{logFunc: log, lastOutput: time.Now()}
 	cmd.Stdout = writer
 	cmd.Stderr = writer
-	err := cmd.Run()
-	writer.Flush()
-	return err
+
+	commandDone := make(chan error, 1)
+	go func() { commandDone <- cmd.Run() }()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	lastHeartbeat := time.Time{}
+	for {
+		select {
+		case err := <-commandDone:
+			writer.Flush()
+			return err
+		case now := <-heartbeat.C:
+			if writer.idleFor() >= 15*time.Second && (lastHeartbeat.IsZero() || now.Sub(lastHeartbeat) >= 30*time.Second) {
+				lastHeartbeat = now
+				log("[progress] Command is still running; no output for 15s (Docker may be transferring or compiling).")
+			}
+		}
+	}
 }

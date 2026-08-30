@@ -19,7 +19,6 @@ func NewHandler(mgr *Manager) *Handler {
 	return &Handler{mgr: mgr}
 }
 
-
 // RegisterRoutes sets up the HTTP routes for the services API.
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	// Services within a project
@@ -37,6 +36,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/services/{id}/logs", h.GetContainerLogs)
 	r.Get("/services/{id}/metrics", h.GetMetrics)
 	r.Get("/services/{id}/deployments", h.ListDeployments)
+	r.Get("/services/{id}/deployments/{deployID}", h.GetDeployment)
 	r.Post("/services/{id}/deployments/{deployID}/cancel", h.CancelDeployment)
 	r.Get("/services/{id}/envvars", h.GetEnvVars)
 	r.Post("/services/{id}/envvars", h.UpsertEnvVar)
@@ -223,7 +223,8 @@ func (h *Handler) Deploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
-	deps, err := h.mgr.ListDeployments(r.Context(), chi.URLParam(r, "id"), 20)
+	includeLogs := r.URL.Query().Get("include_logs") != "0"
+	deps, err := h.mgr.ListDeployments(r.Context(), chi.URLParam(r, "id"), 20, includeLogs)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -231,8 +232,25 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, deps)
 }
 
-func (h *Handler) CancelDeployment(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
+	serviceID := chi.URLParam(r, "id")
 	deployID := chi.URLParam(r, "deployID")
+	dep, err := h.mgr.GetDeployment(r.Context(), deployID)
+	if err != nil || dep.ServiceID != serviceID {
+		response.Error(w, http.StatusNotFound, "deployment not found")
+		return
+	}
+	response.JSON(w, http.StatusOK, dep)
+}
+
+func (h *Handler) CancelDeployment(w http.ResponseWriter, r *http.Request) {
+	serviceID := chi.URLParam(r, "id")
+	deployID := chi.URLParam(r, "deployID")
+	dep, err := h.mgr.GetDeployment(r.Context(), deployID)
+	if err != nil || dep.ServiceID != serviceID {
+		response.Error(w, http.StatusNotFound, "deployment not found")
+		return
+	}
 	if err := h.mgr.CancelDeployment(r.Context(), deployID); err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return

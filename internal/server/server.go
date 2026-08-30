@@ -94,6 +94,9 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	}
 
 	s.serviceMgr = services.New(database, s.dockerMgr)
+	if err := s.serviceMgr.RecoverInterruptedDeployments(context.Background()); err != nil {
+		slog.Warn("failed to recover interrupted deployments", "error", err)
+	}
 
 	// Build the router
 	s.router = s.buildRouter()
@@ -733,6 +736,13 @@ func (s *Server) Stop(ctx context.Context) error {
 		slog.Info("Waiting for in-flight deployments to finish...")
 		waitCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		s.serviceMgr.WaitForDeploys(waitCtx)
+		if waitCtx.Err() != nil {
+			slog.Warn("deployment drain timed out; cancelling in-flight deployments")
+			s.serviceMgr.CancelAllDeployments()
+			cancelCtx, cancelDeploys := context.WithTimeout(context.Background(), 2*time.Second)
+			s.serviceMgr.WaitForDeploys(cancelCtx)
+			cancelDeploys()
+		}
 		cancel()
 	}
 	return s.httpSrv.Shutdown(ctx)
@@ -962,6 +972,18 @@ func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
+	if s.serviceMgr != nil {
+		active, err := s.serviceMgr.ActiveDeploymentCount(r.Context())
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to check active deployments")
+			return
+		}
+		if active > 0 {
+			response.Error(w, http.StatusConflict, fmt.Sprintf("cannot reboot while %d deployment(s) are running; wait for them to finish", active))
+			return
+		}
+	}
+
 	go func() {
 		time.Sleep(2 * time.Second)
 		var cmd *exec.Cmd
@@ -1597,6 +1619,18 @@ func humanBytesServer(b int64) string {
 }
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if s.serviceMgr != nil {
+		active, err := s.serviceMgr.ActiveDeploymentCount(r.Context())
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to check active deployments")
+			return
+		}
+		if active > 0 {
+			response.Error(w, http.StatusConflict, fmt.Sprintf("cannot update NanoFly while %d deployment(s) are running; wait for them to finish", active))
+			return
+		}
+	}
+
 	s.updateMu.Lock()
 	if s.updateStatus != "idle" && s.updateStatus != "done" && s.updateStatus != "error" {
 		s.updateMu.Unlock()

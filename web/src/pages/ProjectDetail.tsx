@@ -16,6 +16,7 @@ import MonitoringPanel from '../components/panels/MonitoringPanel';
 import { EnvVarsPanel } from './ProjectDetail/EnvVarsPanel';
 import { ComposeEnvVarsPanel } from './ProjectDetail/ComposeEnvVarsPanel';
 import { ServiceSidebar } from './ProjectDetail/ServiceSidebar';
+import { DeploymentLogsPanel } from './ProjectDetail/DeploymentLogsPanel';
 import { GitHubAppWizard } from './ProjectDetail/github-app/GitHubAppWizard';
 import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
@@ -3380,7 +3381,7 @@ export default function ProjectDetail() {
               {/* Right content */}
               <div className="card hover-glow" style={{ flex: 1, minWidth: 0, padding: '1.5rem' }}>
                 {activeTab === 'connection' && <ConnectionDetailsPanel service={selectedSvc} />}
-                {activeTab === 'deployments' && <DeploymentsPanel serviceId={activeSvc} />}
+                {activeTab === 'deployments' && <DeploymentLogsPanel serviceId={activeSvc} />}
                 {activeTab === 'logs' && <ContainerLogsPanel serviceId={activeSvc} services={services} selectedSvc={selectedSvc} />}
                 {activeTab === 'terminal' && (
                   <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Loading terminal...</div>}>
