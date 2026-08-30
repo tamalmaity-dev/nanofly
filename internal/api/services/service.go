@@ -4561,19 +4561,26 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 	var projectName string
 	m.db.QueryRowContext(ctx, `SELECT name FROM projects WHERE id = ?`, svc.ProjectID).Scan(&projectName)
 
-	rows, err := m.db.QueryContext(ctx, `SELECT domain FROM domains_v2 WHERE service = ? AND project = ?`, svc.Name, projectName)
+	type domainRow struct {
+		domain   string
+		protocol string
+		port     int
+		path     string
+	}
+
+	rows, err := m.db.QueryContext(ctx, `SELECT domain, COALESCE(protocol,'https'), COALESCE(port,0), COALESCE(path,'') FROM domains_v2 WHERE service = ? AND project = ?`, svc.Name, projectName)
 	if err != nil || rows == nil {
 		return runArgs
 	}
 	defer rows.Close()
 
-	var sslipDomains []string
-	var customDomains []string
+	var sslipDomains []domainRow
+	var customDomains []domainRow
 	for rows.Next() {
-		var d string
-		if err := rows.Scan(&d); err == nil && d != "" {
-			d = strings.ToLower(strings.TrimSpace(d))
-			if strings.Contains(d, ".sslip.io") {
+		var d domainRow
+		if err := rows.Scan(&d.domain, &d.protocol, &d.port, &d.path); err == nil && d.domain != "" {
+			d.domain = strings.ToLower(strings.TrimSpace(d.domain))
+			if strings.Contains(d.domain, ".sslip.io") {
 				sslipDomains = append(sslipDomains, d)
 			} else {
 				customDomains = append(customDomains, d)
@@ -4581,69 +4588,76 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 		}
 	}
 
-	if len(sslipDomains) > 0 || len(customDomains) > 0 {
-		runArgs = append(runArgs, "-l", "traefik.enable=true")
-		routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
+	if len(sslipDomains) == 0 && len(customDomains) == 0 {
+		return runArgs
+	}
 
-		if exposedPort > 0 {
-			runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", routerName, exposedPort))
+	runArgs = append(runArgs, "-l", "traefik.enable=true")
+	routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
+
+	// Use the service's exposed port as the default backend port
+	backendPort := exposedPort
+	if backendPort <= 0 {
+		backendPort = 80
+	}
+	runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", routerName, backendPort))
+
+	// Helper: build Traefik rule and optional path middleware for a domain row
+	buildRouter := func(prefix string, entrypoint string, d domainRow, extraLabels ...string) {
+		rule := "Host(`" + d.domain + "`)"
+		if d.path != "" {
+			// PathPrefix matching: e.g. Host(`example.com`) && PathPrefix(`/api/v3`)
+			rule = rule + " && PathPrefix(`" + d.path + "`)"
+		}
+		routerFullName := routerName + prefix
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerFullName+".rule="+rule)
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerFullName+".entrypoints="+entrypoint)
+		runArgs = append(runArgs, "-l", "traefik.http.routers."+routerFullName+".service="+routerName)
+		for _, lbl := range extraLabels {
+			runArgs = append(runArgs, "-l", lbl)
+		}
+	}
+
+	// sslip.io domains — always HTTP (no TLS)
+	for _, d := range sslipDomains {
+		buildRouter("-sslip", "web", d)
+	}
+
+	// Custom domains
+	for _, d := range customDomains {
+		isCF := isDomainCloudflareProxied(d.domain)
+		isHTTPS := d.protocol == "https"
+
+		if isCF {
+			// Cloudflare-proxied: expose both web + websecure without certresolver
+			buildRouter("-cf", "web", d)
+			secureLabels := []string{
+				"traefik.http.routers." + routerName + "-cf-secure.rule=Host(`" + d.domain + "`)",
+				"traefik.http.routers." + routerName + "-cf-secure.entrypoints=websecure",
+				"traefik.http.routers." + routerName + "-cf-secure.tls=true",
+				"traefik.http.routers." + routerName + "-cf-secure.service=" + routerName,
+			}
+			if d.path != "" {
+				secureLabels[0] = "traefik.http.routers." + routerName + "-cf-secure.rule=Host(`" + d.domain + "`) && PathPrefix(`" + d.path + "`)"
+			}
+			runArgs = append(runArgs, secureLabels...)
+		} else if isHTTPS {
+			// Direct HTTPS with Let's Encrypt
+			buildRouter("", "websecure", d,
+				"traefik.http.routers."+routerName+".tls.certresolver=letsencrypt",
+			)
+			// HTTP redirect to HTTPS
+			httpRule := "Host(`" + d.domain + "`)"
+			if d.path != "" {
+				httpRule = httpRule + " && PathPrefix(`" + d.path + "`)"
+			}
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+httpRule)
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
+			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
+			runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
 		} else {
-			// Defensive fallback: if no exposed port was provided, assume 80
-			// (covers nginx/apache). Without this, Traefik has a router
-			// pointing at a service with no backend port and returns 404.
-			runArgs = append(runArgs, "-l", fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=80", routerName))
-		}
-
-		if len(sslipDomains) > 0 {
-			rule := "Host(`" + strings.Join(sslipDomains, "`, `") + "`)"
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-sslip.rule="+rule)
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-sslip.entrypoints=web")
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-sslip.service="+routerName)
-		}
-
-		if len(customDomains) > 0 {
-			// Split Cloudflare-proxied vs direct custom domains (Cloudflare needs special handling to avoid 522)
-			var cloudflareDomains []string
-			var directDomains []string
-			for _, d := range customDomains {
-				if isDomainCloudflareProxied(d) {
-					cloudflareDomains = append(cloudflareDomains, d)
-				} else {
-					directDomains = append(directDomains, d)
-				}
-			}
-
-			// Direct (non-Cloudflare) custom domains — use Let's Encrypt on websecure
-			if len(directDomains) > 0 {
-				rule := "Host(`" + strings.Join(directDomains, "`, `") + "`)"
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".rule="+rule)
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".entrypoints=websecure")
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".tls.certresolver=letsencrypt")
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".service="+routerName)
-
-				// HTTP redirect to HTTPS
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+rule)
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
-				runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
-			}
-
-			// Cloudflare-proxied domains — handle without Let's Encrypt to avoid 522
-			// Cloudflare terminates TLS at edge; origin can be reached via HTTP (Flexible)
-			// or HTTPS with self-signed. We expose both web and websecure without certresolver
-			// so Cloudflare can connect regardless of SSL mode (Flexible/Full).
-			if len(cloudflareDomains) > 0 {
-				rule := "Host(`" + strings.Join(cloudflareDomains, "`, `") + "`)"
-				// HTTP entrypoint directly serves (for Flexible mode)
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf.rule="+rule)
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf.entrypoints=web")
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf.service="+routerName)
-				// HTTPS entrypoint with TLS but no certresolver — allows Full mode with self-signed
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.rule="+rule)
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.entrypoints=websecure")
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.tls=true")
-				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.service="+routerName)
-			}
+			// HTTP only
+			buildRouter("-http", "web", d)
 		}
 	}
 

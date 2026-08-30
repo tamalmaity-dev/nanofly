@@ -53,11 +53,18 @@ export interface Service {
 export interface Domain {
   id: string;
   domain: string;
+  protocol?: string;
+  port?: number;
+  path?: string;
   service: string;
   project: string;
   project_id?: string;
   type?: string;
   target_port?: number;
+  direction?: string;
+  tls_status?: string;
+  dns_status?: string;
+  created_at?: string;
 }
 
 export interface EnvVar {

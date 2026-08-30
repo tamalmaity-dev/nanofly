@@ -4,6 +4,11 @@ import { AlertCircle, CheckCircle2, Clock3, Globe, Plus, RefreshCw, ShieldCheck,
 import { domainsApi } from '../../api/client';
 import { Button, SelectContent, SelectItem, SelectRoot, SelectTrigger, useToast } from '../../components/ui';
 
+const PROTOCOLS = [
+  { value: 'https', label: 'https' },
+  { value: 'http', label: 'http' },
+];
+
 const DIRECTIONS = [
   { value: 'both', label: 'Allow www and non-www' },
   { value: 'www', label: 'Redirect to www' },
@@ -33,6 +38,9 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
   const toast = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [domain, setDomain] = useState('');
+  const [protocol, setProtocol] = useState('https');
+  const [port, setPort] = useState('');
+  const [path, setPath] = useState('');
   const [direction, setDirection] = useState('both');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState('');
@@ -43,6 +51,14 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
     () => domains.filter(item => item.service === service.name && item.project === project?.name),
     [domains, project?.name, service.name],
   );
+
+  const resetForm = () => {
+    setDomain('');
+    setProtocol('https');
+    setPort('');
+    setPath('');
+    setDirection('both');
+  };
 
   const handleGenerateDomain = () => {
     const host = window.location.hostname.split(':')[0];
@@ -64,14 +80,17 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
     }
     setSaving(true);
     try {
-      await domainsApi.create({
+      const payload: any = {
         domain: cleaned,
+        protocol,
+        port: port ? parseInt(port, 10) : 0,
+        path: path.trim(),
         service: service.name,
         project: project?.name || 'Production',
         direction,
-      });
-      setDomain('');
-      setDirection('both');
+      };
+      await domainsApi.create(payload);
+      resetForm();
       setShowAdd(false);
       toast.success('Domain added. Verify DNS before deploying it.');
       await refresh();
@@ -101,12 +120,16 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
 
   const updateDirection = async (item, nextDirection) => {
     try {
-      await domainsApi.update(item.id, {
+      const payload: any = {
         domain: item.domain,
+        protocol: item.protocol || 'https',
+        port: item.port || 0,
+        path: item.path || '',
         service: service.name,
         project: project?.name || 'Production',
         direction: nextDirection,
-      });
+      };
+      await domainsApi.update(item.id, payload);
       toast.success('Routing direction updated');
       await refresh();
     } catch (error) {
@@ -137,36 +160,64 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
             Route public traffic to <strong style={{ color: 'var(--text-secondary)' }}>{service.name}</strong> through Traefik and managed TLS.
           </p>
         </div>
-        <Button type="button" variant="primary" size="sm" icon={showAdd ? X : Plus} onClick={() => setShowAdd(previous => !previous)}>
-          {showAdd ? 'Close' : 'Add domain'}
+        <Button type="button" variant="primary" size="sm" icon={showAdd ? X : Plus} onClick={() => { setShowAdd(p => !p); if (showAdd) resetForm(); }}>
+          {showAdd ? 'Close' : 'Add'}
         </Button>
       </div>
 
       {showAdd && (
-        <form onSubmit={addDomain} className="card" style={{ padding: '1rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.4fr) minmax(190px, 1fr) auto', gap: 10, alignItems: 'end' }}>
+        <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+          <h4 style={{ margin: '0 0 14px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>Add domain</h4>
+          <form onSubmit={addDomain} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Row 1: Protocol + Domain + Port */}
+            <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 110px', gap: 10, alignItems: 'end' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Protocol</label>
+                <SelectRoot value={protocol} onValueChange={setProtocol}>
+                  <SelectTrigger style={{ width: '100%' }} />
+                  <SelectContent>{PROTOCOLS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}</SelectContent>
+                </SelectRoot>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Domain <span style={{ color: 'var(--red)' }}>*</span></label>
+                <input className="form-input" value={domain} onChange={event => setDomain(event.target.value)} placeholder="app.example.com" autoFocus style={{ width: '100%' }} />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Port</label>
+                <input className="form-input" type="number" min="0" max="65535" value={port} onChange={event => setPort(event.target.value)} placeholder={protocol === 'https' ? '443' : '80'} style={{ width: '100%' }} />
+              </div>
+            </div>
+
+            {/* Row 2: Path */}
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Hostname</label>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input className="form-input" value={domain} onChange={event => setDomain(event.target.value)} placeholder="app.example.com" autoFocus style={{ flex: 1 }} />
-                <Button type="button" variant="outline" size="sm" onClick={handleGenerateDomain} style={{ whiteSpace: 'nowrap', height: 38, border: '1px solid var(--border)', fontSize: '0.75rem' }}>
-                  Generate
+              <label className="form-label">Path</label>
+              <input className="form-input" value={path} onChange={event => setPath(event.target.value)} placeholder="/api/v3" style={{ width: '100%' }} />
+              <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Optional path, query, or fragment appended after the domain and port.</p>
+            </div>
+
+            {/* Row 3: Direction + buttons */}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ margin: 0, minWidth: 200, flex: 1 }}>
+                <label className="form-label">Routing direction</label>
+                <SelectRoot value={direction} onValueChange={setDirection}>
+                  <SelectTrigger style={{ width: '100%' }} />
+                  <SelectContent>{DIRECTIONS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+                </SelectRoot>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+                <Button type="button" variant="outline" size="sm" onClick={handleGenerateDomain} style={{ whiteSpace: 'nowrap', height: 36 }}>
+                  Generate domain
+                </Button>
+                <Button type="submit" variant="primary" size="sm" loading={saving} disabled={saving} style={{ height: 36 }}>
+                  Save
                 </Button>
               </div>
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Routing direction</label>
-              <SelectRoot value={direction} onValueChange={setDirection}>
-                <SelectTrigger style={{ width: '100%' }} />
-                <SelectContent>{DIRECTIONS.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
-              </SelectRoot>
-            </div>
-            <Button type="submit" variant="primary" icon={Plus} loading={saving} disabled={saving}>Add</Button>
-          </div>
-          <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          </form>
+          <div style={{ marginTop: 10, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             Point the domain A/AAAA record to this server. Cloudflare proxy domains are supported. Use Generate for instant <code style={{ background: 'var(--bg-elevated)', padding: '1px 4px', borderRadius: 3 }}>sslip.io</code> domain.
           </div>
-        </form>
+        </div>
       )}
 
       {serviceDomains.length === 0 ? (
@@ -187,13 +238,20 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
               const result = verification[item.id];
               const status = statusFor(item, result);
               const StatusIcon = status.icon;
+              const displayPort = item.port || (item.protocol === 'http' ? 80 : 443);
+              const displayPath = item.path ? item.path : '';
               return (
-                <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.5fr) minmax(120px, 0.8fr) minmax(190px, 1fr) auto', gap: 12, alignItems: 'center', padding: '0.9rem 1rem', borderBottom: '1px solid var(--border)' }}>
+                <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1.5fr) auto minmax(140px, 0.8fr) auto', gap: 12, alignItems: 'center', padding: '0.9rem 1rem', borderBottom: '1px solid var(--border)' }}>
                   <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
                     <Globe size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
-                      <a href={`https://${item.domain}`} target="_blank" rel="noreferrer" style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{item.domain}</a>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>HTTPS via Traefik</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <a href={`${item.protocol || 'https'}://${item.domain}${displayPath}`} target="_blank" rel="noreferrer" style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.domain}</a>
+                        <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: 3, background: 'rgba(79,110,247,0.1)', color: 'var(--accent)', fontWeight: 600 }}>{item.protocol || 'https'}</span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        Port {displayPort}{displayPath ? ` \u00b7 ${displayPath}` : ''}
+                      </span>
                     </div>
                   </div>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, width: 'fit-content', color: status.color, fontSize: '0.72rem', fontWeight: 600, padding: '4px 8px', borderRadius: 999, background: status.background }}>

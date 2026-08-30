@@ -18,6 +18,9 @@ import (
 type Domain struct {
 	ID        string `json:"id"`
 	Domain    string `json:"domain"`
+	Protocol  string `json:"protocol"`  // https or http
+	Port      int    `json:"port"`      // target port, 0 = auto (443 for https, 80 for http)
+	Path      string `json:"path"`      // optional path prefix
 	ServiceID string `json:"service_id,omitempty"`
 	Service   string `json:"service"`
 	Project   string `json:"project"`
@@ -38,13 +41,19 @@ func NewHandler(db *sql.DB) *Handler {
 	db.Exec(`CREATE TABLE IF NOT EXISTS domains_v2 (
 		id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
 		domain     TEXT UNIQUE NOT NULL,
+		protocol   TEXT NOT NULL DEFAULT 'https',
+		port       INTEGER NOT NULL DEFAULT 0,
+		path       TEXT NOT NULL DEFAULT '',
 		service    TEXT NOT NULL DEFAULT '',
 		project    TEXT NOT NULL DEFAULT '',
 		tls_status TEXT NOT NULL DEFAULT 'pending',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
-	// Migrate column direction
+	// Migrate columns
 	db.Exec(`ALTER TABLE domains_v2 ADD COLUMN direction TEXT NOT NULL DEFAULT 'both'`)
+	db.Exec(`ALTER TABLE domains_v2 ADD COLUMN protocol TEXT NOT NULL DEFAULT 'https'`)
+	db.Exec(`ALTER TABLE domains_v2 ADD COLUMN port INTEGER NOT NULL DEFAULT 0`)
+	db.Exec(`ALTER TABLE domains_v2 ADD COLUMN path TEXT NOT NULL DEFAULT ''`)
 	return &Handler{db: db}
 }
 
@@ -59,7 +68,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 // List returns all configured domains.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.Query(`SELECT id, domain, service, project, tls_status, direction, created_at FROM domains_v2 ORDER BY created_at DESC`)
+	rows, err := h.db.Query(`SELECT id, domain, COALESCE(protocol,'https'), COALESCE(port,0), COALESCE(path,''), service, project, tls_status, direction, created_at FROM domains_v2 ORDER BY created_at DESC`)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to list domains")
 		return
@@ -69,7 +78,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var domains []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.ID, &d.Domain, &d.Service, &d.Project, &d.TLSStatus, &d.Direction, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Domain, &d.Protocol, &d.Port, &d.Path, &d.Service, &d.Project, &d.TLSStatus, &d.Direction, &d.CreatedAt); err != nil {
 			continue
 		}
 		d.DNSStatus = "unverified"
@@ -85,6 +94,9 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // CreateRequest is the payload for adding a domain.
 type CreateRequest struct {
 	Domain    string `json:"domain"`
+	Protocol  string `json:"protocol"`
+	Port      int    `json:"port"`
+	Path      string `json:"path"`
 	Service   string `json:"service"`
 	Project   string `json:"project"`
 	Direction string `json:"direction"`
@@ -110,14 +122,22 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Protocol == "" {
+		req.Protocol = "https"
+	}
+	if req.Port < 0 {
+		req.Port = 0
+	}
+	req.Path = strings.TrimSpace(req.Path)
+
 	if req.Direction == "" {
 		req.Direction = "both"
 	}
 
 	var id string
 	err := h.db.QueryRow(
-		`INSERT INTO domains_v2 (domain, service, project, direction) VALUES (?, ?, ?, ?) RETURNING id`,
-		req.Domain, req.Service, req.Project, req.Direction,
+		`INSERT INTO domains_v2 (domain, protocol, port, path, service, project, direction) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		req.Domain, req.Protocol, req.Port, req.Path, req.Service, req.Project, req.Direction,
 	).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -134,6 +154,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // UpdateRequest is the payload for updating a domain.
 type UpdateRequest struct {
 	Domain    string `json:"domain"`
+	Protocol  string `json:"protocol"`
+	Port      int    `json:"port"`
+	Path      string `json:"path"`
 	Service   string `json:"service"`
 	Project   string `json:"project"`
 	Direction string `json:"direction"`
@@ -154,13 +177,18 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Protocol == "" {
+		req.Protocol = "https"
+	}
+	req.Path = strings.TrimSpace(req.Path)
+
 	if req.Direction == "" {
 		req.Direction = "both"
 	}
 
 	_, err := h.db.Exec(
-		`UPDATE domains_v2 SET domain = ?, service = ?, project = ?, direction = ? WHERE id = ?`,
-		req.Domain, req.Service, req.Project, req.Direction, id,
+		`UPDATE domains_v2 SET domain = ?, protocol = ?, port = ?, path = ?, service = ?, project = ?, direction = ? WHERE id = ?`,
+		req.Domain, req.Protocol, req.Port, req.Path, req.Service, req.Project, req.Direction, id,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
