@@ -248,6 +248,7 @@ function SystemTab() {
     images: true,
     volumes: true,
     networks: true,
+    build_cache: false,
   });
 
   const handlePrune = async () => {
@@ -257,7 +258,10 @@ function SystemTab() {
       return;
     }
 
-    if (!confirm(`Are you sure you want to prune the selected Docker resources (${selectedKeys.join(', ')})? This will free up disk space by cleaning up selected unused items.`)) {
+    const cacheWarning = pruneOptions.build_cache
+      ? ' BuildKit build cache will also be removed, so the next deployment will be slower while caches are rebuilt.'
+      : '';
+    if (!confirm(`Are you sure you want to prune the selected Docker resources (${selectedKeys.join(', ')})? This will free up disk space by cleaning up selected unused items.${cacheWarning}`)) {
       return;
     }
     setPruning(true);
@@ -268,6 +272,7 @@ function SystemTab() {
         res.images_deleted ? `${res.images_deleted} image(s)` : '',
         res.volumes_deleted ? `${res.volumes_deleted} volume(s)` : '',
         res.networks_deleted ? `${res.networks_deleted} network(s)` : '',
+        res.build_cache_reclaimed ? `${res.build_cache_reclaimed} B of build cache` : '',
       ].filter(Boolean).join(', ');
       const detailsStr = details ? ` (${details})` : '';
       toast.success(`Storage cleanup complete! Reclaimed ${res.reclaimed_human || '0 B'}${detailsStr}.`);
@@ -347,6 +352,7 @@ function SystemTab() {
             { id: 'images', label: 'Unused Images', desc: 'Remove dangling and unreferenced Docker images.' },
             { id: 'volumes', label: 'Unused Volumes', desc: 'Remove volumes not attached to any container.' },
             { id: 'networks', label: 'Unused Networks', desc: 'Remove Docker networks not in use.' },
+            { id: 'build_cache', label: 'BuildKit Cache', desc: 'Remove compiler and dependency caches; the next build will be slower.' },
           ].map(opt => {
             const checked = pruneOptions[opt.id];
             return (

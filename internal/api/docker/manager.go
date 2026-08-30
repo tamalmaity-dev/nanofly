@@ -379,7 +379,7 @@ func (m *Manager) CreateDB(ctx context.Context, cfg DBConfig, logFn func(string)
 		containerVol = "/data"
 	}
 
-	containerName := "nf-db-" + cfg.Name
+	containerName := "nf-db-" + SafeName(cfg.Name)
 	if len(cfg.ServiceID) >= 8 {
 		containerName = fmt.Sprintf("%s-%s", containerName, cfg.ServiceID[:8])
 	}
@@ -665,7 +665,7 @@ func (m *Manager) DeployApp(ctx context.Context, serviceID, name, img string, ho
 		return "", err
 	}
 
-	oldName := "nf-app-" + name
+	oldName := "nf-app-" + SafeName(name)
 	if len(serviceID) >= 8 {
 		oldName = fmt.Sprintf("%s-%s", oldName, serviceID[:8])
 	}
@@ -907,9 +907,9 @@ func (m *Manager) InitTraefik(ctx context.Context, adminEmail string) error {
 	return nil
 }
 
-
-// PruneSystem cleans up dangling images, stopped containers, unused volumes, unused networks,
-// and Docker build cache.
+// PruneSystem cleans up the selected Docker resources. BuildKit cache is kept
+// out of this routine because it is part of the deployment performance path;
+// callers can request explicit cache cleanup with PruneBuildCache.
 func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages, pruneVolumes, pruneNetworks bool) (PruneResult, error) {
 	slog.Info("Running Docker system prune", "containers", pruneContainers, "images", pruneImages, "volumes", pruneVolumes, "networks", pruneNetworks)
 	var res PruneResult
@@ -949,17 +949,23 @@ func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages,
 		}
 	}
 
-	// Prune build cache
-	if _, err := m.cli.BuildCachePrune(ctx, dockertypes.BuildCachePruneOptions{All: true}); err != nil {
-		slog.Warn("Failed to prune build cache", "error", err)
-	}
-
 	res.ReclaimedHuman = FormatBytes(res.SpaceReclaimed)
 	return res, nil
 }
 
-// AutoPruneAfterDeploy silently cleans up dangling images and build cache
-// after a successful deployment. Best-effort: errors are logged, not returned.
+// PruneBuildCache explicitly removes all BuildKit cache. It is intentionally
+// separate from ordinary image cleanup because deleting this cache makes the
+// next deployment rebuild dependencies and compiled assets from scratch.
+func (m *Manager) PruneBuildCache(ctx context.Context) (uint64, error) {
+	report, err := m.cli.BuildCachePrune(ctx, dockertypes.BuildCachePruneOptions{All: true})
+	if err != nil {
+		return 0, err
+	}
+	return report.SpaceReclaimed, nil
+}
+
+// AutoPruneAfterDeploy silently cleans up dangling images after a successful
+// deployment. BuildKit cache is deliberately retained for future builds.
 func (m *Manager) AutoPruneAfterDeploy(ctx context.Context) {
 	pruneCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -971,8 +977,4 @@ func (m *Manager) AutoPruneAfterDeploy(ctx context.Context) {
 		slog.Warn("Auto-prune images failed", "error", err)
 	}
 
-	// Prune build cache to prevent unbounded growth
-	if _, err := m.cli.BuildCachePrune(pruneCtx, dockertypes.BuildCachePruneOptions{All: true}); err != nil {
-		slog.Warn("Auto-prune build cache failed", "error", err)
-	}
 }

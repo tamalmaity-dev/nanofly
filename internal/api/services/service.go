@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -129,11 +130,34 @@ func (s *Service) ContainerName() string {
 	if s.Type == TypeDatabase {
 		prefix = "nf-db-"
 	}
-	name := prefix + s.Name
-	if len(s.ID) >= 8 {
-		name = fmt.Sprintf("%s-%s", name, s.ID[:8])
+	name := prefix + docker.SafeName(s.Name)
+	if shortID := serviceShortID(s.ID); shortID != "" {
+		name = fmt.Sprintf("%s-%s", name, shortID)
 	}
 	return name
+}
+
+// ImageTag returns the private image tag used for a service build. Including
+// the service ID prevents two projects with the same display name from
+// overwriting one another's images.
+func (s *Service) ImageTag() string {
+	prefix := "app"
+	if s.Type == TypeDatabase {
+		prefix = "db"
+	}
+	shortID := serviceShortID(s.ID)
+	if shortID == "" {
+		shortID = "local"
+	}
+	return fmt.Sprintf("nf-%s-%s-%s:latest", prefix, docker.SafeName(s.Name), shortID)
+}
+
+func serviceShortID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // EnvVar is a key=value pair stored encrypted in DB.
@@ -164,15 +188,81 @@ type DeployOptions struct {
 
 // Manager handles service operations.
 type Manager struct {
-	db             *db.DB
-	docker         *docker.Manager
-	deployWg     sync.WaitGroup
+	db            *db.DB
+	docker        *docker.Manager
+	deployWg      sync.WaitGroup
 	deployCancels sync.Map // deployID -> context.CancelFunc
+	deployGatesMu sync.Mutex
+	deployGates   map[string]*deploymentGate
+	buildSlots    chan struct{}
+}
+
+// deploymentGate serializes deployments for one service. This mirrors the
+// per-application queue used by mature PaaS platforms and prevents two GitHub
+// pushes from compiling the same application concurrently.
+type deploymentGate struct {
+	token chan struct{}
+}
+
+func newDeploymentGate() *deploymentGate {
+	gate := &deploymentGate{token: make(chan struct{}, 1)}
+	gate.token <- struct{}{}
+	return gate
+}
+
+func (g *deploymentGate) acquire(ctx context.Context) error {
+	select {
+	case <-g.token:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (g *deploymentGate) release() {
+	g.token <- struct{}{}
 }
 
 // New creates a Manager. docker may be nil if Docker is unavailable.
 func New(database *db.DB, dockerMgr *docker.Manager) *Manager {
-	return &Manager{db: database, docker: dockerMgr}
+	concurrency := 1
+	if raw := strings.TrimSpace(os.Getenv("NANOFLY_BUILD_CONCURRENCY")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 32 {
+			concurrency = parsed
+		}
+	}
+	return &Manager{
+		db:          database,
+		docker:      dockerMgr,
+		deployGates: make(map[string]*deploymentGate),
+		buildSlots:  make(chan struct{}, concurrency),
+	}
+}
+
+func (m *Manager) deploymentGate(serviceID string) *deploymentGate {
+	m.deployGatesMu.Lock()
+	defer m.deployGatesMu.Unlock()
+	if m.deployGates == nil {
+		m.deployGates = make(map[string]*deploymentGate)
+	}
+	if gate, ok := m.deployGates[serviceID]; ok {
+		return gate
+	}
+	gate := newDeploymentGate()
+	m.deployGates[serviceID] = gate
+	return gate
+}
+
+func (m *Manager) acquireBuildSlot(ctx context.Context) (func(), error) {
+	if m.buildSlots == nil {
+		return func() {}, nil
+	}
+	select {
+	case m.buildSlots <- struct{}{}:
+		return func() { <-m.buildSlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // WaitForDeploys blocks until in-flight deployments finish or ctx is done.
@@ -618,23 +708,23 @@ type CreateAppReq struct {
 	AppDirectory         string
 	RunFile              string
 	RequirementsFile     string
-	UseVenv              bool    `json:"use_venv"`
-	DockerArgs           string  `json:"docker_args"`
-	DockerfileContent    string  `json:"dockerfile_content"`
-	DockerComposeContent string  `json:"docker_compose_content"`
-	TierName             string  `json:"tier_name"`
-	DockerfileLocation   string  `json:"dockerfile_location"`
-	BuildStageTarget     string  `json:"build_stage_target"`
-	BuildCustomOptions   string  `json:"build_custom_options"`
-	BaseDirectory        string  `json:"base_directory"`
-	DockerRegistryImage  string  `json:"docker_registry_image"`
-	DockerRegistryTag    string  `json:"docker_registry_tag"`
-	PortsExposes         int     `json:"ports_exposes"`
-	PortMappings         string  `json:"port_mappings"`
-	NetworkAliases       string  `json:"network_aliases"`
-	BuildWatchPaths      string  `json:"build_watch_paths"`
-	BuildUseServer       bool    `json:"build_use_server"`
-	Volumes              string  `json:"volumes"` // JSON array of volume mounts
+	UseVenv              bool   `json:"use_venv"`
+	DockerArgs           string `json:"docker_args"`
+	DockerfileContent    string `json:"dockerfile_content"`
+	DockerComposeContent string `json:"docker_compose_content"`
+	TierName             string `json:"tier_name"`
+	DockerfileLocation   string `json:"dockerfile_location"`
+	BuildStageTarget     string `json:"build_stage_target"`
+	BuildCustomOptions   string `json:"build_custom_options"`
+	BaseDirectory        string `json:"base_directory"`
+	DockerRegistryImage  string `json:"docker_registry_image"`
+	DockerRegistryTag    string `json:"docker_registry_tag"`
+	PortsExposes         int    `json:"ports_exposes"`
+	PortMappings         string `json:"port_mappings"`
+	NetworkAliases       string `json:"network_aliases"`
+	BuildWatchPaths      string `json:"build_watch_paths"`
+	BuildUseServer       bool   `json:"build_use_server"`
+	Volumes              string `json:"volumes"` // JSON array of volume mounts
 }
 
 // CreateApp creates an App service record (doesn't deploy yet).
@@ -643,10 +733,10 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 	// (idx_services_project_name) also enforces this at the DB level, but
 	// checking first gives the user a clear error message instead of a raw
 	// SQLite UNIQUE constraint failure.
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("service name is required")
 	}
+	name := docker.SafeName(req.Name)
 	var existingID string
 	_ = m.db.QueryRowContext(ctx,
 		`SELECT id FROM services WHERE project_id = ? AND name = ? LIMIT 1`,
@@ -667,7 +757,7 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 		)
 		VALUES (?, ?, 'app', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.Port, req.Image, req.TierName,
+	`, req.ProjectID, name, req.Port, req.Image, req.TierName,
 		req.StartCommand, req.InstallCommand, req.AppDirectory, req.RunFile,
 		defaultRequirementsFile(req.RequirementsFile), req.UseVenv, req.DockerArgs,
 		req.DockerfileContent, req.DockerComposeContent, req.DockerfileLocation, req.BuildStageTarget, req.BuildCustomOptions,
@@ -733,10 +823,10 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 		return nil, fmt.Errorf("docker is not available on this server")
 	}
 
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("service name is required")
 	}
+	name := docker.SafeName(req.Name)
 	var existingID string
 	_ = m.db.QueryRowContext(ctx,
 		`SELECT id FROM services WHERE project_id = ? AND name = ? LIMIT 1`,
@@ -753,7 +843,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 
 	dbName := req.DBName
 	if dbName == "" {
-		dbName = strings.ReplaceAll(strings.ToLower(req.Name), "-", "_")
+		dbName = strings.ReplaceAll(strings.ToLower(name), "-", "_")
 	}
 
 	hostPort := docker.ResolveHostPort(0)
@@ -763,7 +853,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 		INSERT INTO services (project_id, name, db_user, db_password, db_name, type, status, image, port, resource_tier, custom_memory, custom_cpu)
 		VALUES (?, ?, ?, ?, ?, 'database', 'deploying', ?, ?, ?, ?, ?)
 		RETURNING id
-	`, req.ProjectID, req.Name, req.DBUser, password, dbName, req.DBType, hostPort, req.TierName, req.CustomMemory, req.CustomCPU).Scan(&id)
+	`, req.ProjectID, name, req.DBUser, password, dbName, req.DBType, hostPort, req.TierName, req.CustomMemory, req.CustomCPU).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -815,7 +905,7 @@ func (m *Manager) CreateDatabase(ctx context.Context, req CreateDBReq) (*Service
 		_, connStr, err := m.docker.CreateDB(bgCtx, docker.DBConfig{
 			ServiceID:    id,
 			DBType:       req.DBType,
-			Name:         req.Name,
+			Name:         name,
 			Username:     req.DBUser,
 			Password:     password,
 			DBName:       dbName,
@@ -881,6 +971,27 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 		m.deployCancels.Store(deployID, bgCancel)
 		defer m.deployCancels.Delete(deployID)
 		defer bgCancel()
+
+		// Serialize deployments for the same service. A burst of webhook events
+		// must not start multiple compilers against the same Docker daemon.
+		gate := m.deploymentGate(serviceID)
+		if err := gate.acquire(bgCtx); err != nil {
+			now := time.Now().Format("2006-01-02 15:04:05")
+			m.db.ExecContext(context.Background(), `
+				UPDATE deployments SET status='cancelled', log='Deployment cancelled before it reached the build queue.', finished_at=? WHERE id=?
+			`, now, deployID) //nolint:errcheck
+			var activeDeployments int
+			_ = m.db.QueryRowContext(context.Background(), `
+				SELECT COUNT(*) FROM deployments
+				WHERE service_id=? AND id != ? AND status IN ('building', 'running')
+			`, serviceID, deployID).Scan(&activeDeployments)
+			if activeDeployments == 0 {
+				m.db.ExecContext(context.Background(), `UPDATE services SET status='idle' WHERE id=? AND status='deploying'`, serviceID) //nolint:errcheck
+			}
+			return
+		}
+		defer gate.release()
+
 		var logBuf strings.Builder
 		var finalStatus string
 		var logMu sync.Mutex
@@ -956,10 +1067,6 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 				go m.pruneDeploymentLogs(context.Background(), serviceID)
 			}
 
-			// Auto-prune dangling Docker images and build cache after successful deploy
-			if finalStatus == "running" && m.docker != nil {
-				go m.docker.AutoPruneAfterDeploy(context.Background())
-			}
 		}()
 
 		m.logServiceDomains(bgCtx, svc, log)
@@ -1150,7 +1257,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 					}
 
 					dbRunning := false
-					dbContainerName := "nf-db-" + dbName
+					dbContainerName := "nf-db-" + docker.SafeName(dbName)
 					if len(dbID) >= 8 {
 						dbContainerName = fmt.Sprintf("%s-%s", dbContainerName, dbID[:8])
 					}
@@ -1445,6 +1552,7 @@ func mysqlFamilyLogsFailed(logs string) bool {
 	}
 	return false
 }
+
 // waitForMySQLFamilyReady polls the container until MySQL/MariaDB is fully initialized
 // and listening on port 3306. It handles the two-phase MySQL startup (temp server on
 // port 0, then the production server on port 3306) correctly.
@@ -1641,6 +1749,14 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		}
 	}
 	m.recordDeploymentCommit(ctx, deployID, repoDir)
+	// Capture the commit before removing .git. Webhook metadata remains
+	// authoritative when it was supplied by GitHub.
+	commitSHA := m.deploymentCommitSHA(ctx, deployID)
+	if commitSHA == "" {
+		if out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "HEAD").Output(); err == nil {
+			commitSHA = strings.TrimSpace(string(out))
+		}
+	}
 
 	// Remove .git directory after clone — reduces build context dramatically
 	if err := os.RemoveAll(filepath.Join(repoDir, ".git")); err == nil {
@@ -1649,6 +1765,11 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 
 	// Handle Docker Compose
 	if svc.Builder == "docker-compose" {
+		releaseBuild, err := m.acquireBuildSlot(ctx)
+		if err != nil {
+			return fmt.Errorf("waiting for build slot: %w", err)
+		}
+		defer releaseBuild()
 		log("ℹ️ Docker Compose builder selected. Writing docker-compose.yml…")
 		dockerComposePath := filepath.Join(repoDir, "docker-compose.yml")
 		if svc.DockerComposeContent != "" {
@@ -1687,180 +1808,196 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		return fmt.Errorf("generating Dockerfile: %w", err)
 	}
 
-	// Get commit SHA for build skip optimization
-	imageTag := "nf-" + svc.Name + ":latest"
-	var commitSHA string
-	if out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "HEAD").Output(); err == nil {
-		commitSHA = strings.TrimSpace(string(out))
+	// Scope the image tag to the service so same-named services in different
+	// projects cannot overwrite one another's cached image.
+	imageTag := svc.ImageTag()
+	buildEnv, err := m.loadBuildEnv(ctx, svc.ID)
+	if err != nil {
+		return fmt.Errorf("loading build environment: %w", err)
 	}
+	buildHash := serviceBuildHash(svc, buildEnv)
 
-	// Check if we can skip the build (like Coolify: if image with same commit SHA exists)
-	if commitSHA != "" && hasImageWithCommitSHA(ctx, imageTag, commitSHA) {
-		log("✅ No build configuration changed & image found (hash:" + commitSHA[:7] + ") with the same Git Commit SHA. Build step skipped.")
-	} else if svc.Builder == "nixpacks" {
-		log("📦 Building with Nixpacks…")
-		buildCmd := exec.CommandContext(ctx, "nixpacks", "build", contextDir, "--name", imageTag)
-		buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
-		if err := runCommandStreaming(buildCmd, log); err != nil {
-			return fmt.Errorf("nixpacks build: %w", err)
-		}
+	// Check if we can skip the build (like Coolify: same commit and build config).
+	// A commit-only check can deploy a stale image after an env/build setting
+	// change, so the configuration fingerprint is stored beside the commit.
+	canSkipBuild := commitSHA != "" && hasImageWithCommitSHA(ctx, imageTag, commitSHA)
+	if canSkipBuild && svc.Builder != "nixpacks" {
+		canSkipBuild = hasImageWithBuildHash(ctx, imageTag, buildHash)
+	}
+	if canSkipBuild {
+		log("✅ No build configuration changed & image found (hash:" + shortCommit(commitSHA) + ") with the same Git Commit SHA. Build step skipped.")
 	} else {
-		// Merge entries into existing .dockerignore (or create if missing)
-		diPath := filepath.Join(contextDir, ".dockerignore")
-		diEntries := map[string]bool{
-			// Dependencies (installed inside Docker)
-			"node_modules": true, ".pnpm-store": true,
-			".venv": true, "venv": true, ".env": true, "env": true,
-			// Build outputs (generated during build inside Docker)
-			".next": true, ".nuxt": true, "out": true, "dist": true, "build": true, ".vercel": true,
-			// Tests
-			"coverage": true, ".nyc_output": true, "__tests__": true, "__mocks__": true,
-			"jest": true, "cypress": true, "playwright-report": true, "test-results": true,
-			".vitest": true, "vitest.config.*": true, "jest.config.*": true,
-			// IDE / Editor
-			".vscode": true, ".idea": true, "*.swp": true, "*.swo": true, "*~": true,
-			".fleet": true, ".dev": true,
-			// Git
-			".git": true, ".gitignore": true, ".gitattributes": true,
-			// Docker (not needed inside build context)
-			"Dockerfile*": true, ".dockerignore": true,
-			"docker-compose*.yml": true, "docker-compose*.yaml": true,
-			"compose.yaml": true, "compose.yml": true,
-			// Environment / secrets
-			".env.*": true, ".env*.local": true, ".env.development": true,
-			".env.test": true, ".env.production.local": true,
-			".env.backup": true, ".env.secrets": true,
-			// Logs
-			"*.log": true, "npm-debug.log*": true, "yarn-debug.log*": true,
-			"yarn-error.log*": true, "pnpm-debug.log*": true, "lerna-debug.log*": true,
-			// TypeScript / Build cache
-			"*.tsbuildinfo": true, ".swc": true, ".turbo": true, ".cache": true,
-			".parcel-cache": true, ".eslintcache": true, ".stylelintcache": true,
-			// Documentation
-			"*.md": true, "docs": true, "LICENSE": true,
-			// CI/CD
-			".github": true, ".gitlab-ci.yml": true, ".travis.yml": true,
-			".circleci": true, "Jenkinsfile": true,
-			// Config files (not needed at runtime)
-			"*.pem": true, ".editorconfig": true, ".prettierrc*": true,
-			"prettier.config.*": true, ".eslintrc*": true, "eslint.config.*": true,
-			".stylelintrc*": true, "stylelint.config.*": true, ".babelrc*": true,
-			// OS
-			".DS_Store": true, "._*": true, "Thumbs.db": true, "ehthumbs.db": true,
-			"Desktop.ini": true, ".Spotlight-V100": true, ".Trashes": true,
-			// Python
-			"__pycache__": true, "*.pyc": true, "*.pyo": true, ".Python": true,
-			"*.egg-info": true, ".eggs": true,
-			// Go
-			"vendor": true,
-			// Rust
-			"target": true,
-			// Misc
-			"tmp": true, "temp": true, ".tmp": true, ".temp": true,
-			"*.zip": true, "*.tar.gz": true, "*.rar": true,
-			// AI tools
-			".cursor": true, ".cursorrules": true, ".copilot": true,
-			".gemini": true, ".anthropic": true, ".claude": true, "AGENTS.md": true,
+		releaseBuild, err := m.acquireBuildSlot(ctx)
+		if err != nil {
+			return fmt.Errorf("waiting for build slot: %w", err)
 		}
-		var existing string
-		if data, err := os.ReadFile(diPath); err == nil {
-			existing = string(data)
-		}
-		var missing []string
-		for entry := range diEntries {
-			if !strings.Contains(existing, entry) {
-				missing = append(missing, entry)
-			}
-		}
-		if len(missing) > 0 {
-			merged := strings.TrimRight(existing, "\n\r") + "\n# === NanoFly auto-generated entries ===\n" + strings.Join(missing, "\n") + "\n"
-			_ = os.WriteFile(diPath, []byte(merged), 0644)
-			log(fmt.Sprintf("📄 Updated .dockerignore (+%d entries)", len(missing)))
-		}
-
-		// Log build context size (helps diagnose slow builds)
-		if info, err := os.Stat(contextDir); err == nil && info.IsDir() {
-			var totalSize int64
-			filepath.Walk(contextDir, func(_ string, info os.FileInfo, err error) error {
-				if err == nil && !info.IsDir() {
-					totalSize += info.Size()
-				}
-				return nil
-			})
-			sizeMB := float64(totalSize) / 1024 / 1024
-			log(fmt.Sprintf("📁 Build context: %.1f MB", sizeMB))
-		}
-
-		// Check if build was cancelled before starting docker build
-		if ctx.Err() == context.Canceled {
-			return fmt.Errorf("deployment cancelled")
-		}
-		log("🔨 Building Docker image…")
-		hasBuildKit := isBuildKitAvailable()
-		var buildArgs []string
-		if hasBuildKit {
-			buildArgs = []string{"build", "--progress=plain", "--pull", "--network=host", "-t", imageTag}
-		} else {
-			buildArgs = []string{"build", "--pull", "-t", imageTag}
-			log("ℹ️ BuildKit not detected — using standard Docker build")
-		}
-		if svc.DockerfileLocation != "" {
-			buildArgs = append(buildArgs, "-f", filepath.Join(repoDir, svc.DockerfileLocation))
-		}
-		if svc.BuildStageTarget != "" {
-			buildArgs = append(buildArgs, "--target", svc.BuildStageTarget)
-		}
-		// Inject build-time env vars as --build-arg (Next.js needs NEXT_PUBLIC_* at build time)
-		var buildEnvKeys []string
-		if rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM env_vars WHERE service_id=?`, svc.ID); err == nil && rows != nil {
-			for rows.Next() {
-				var k, v string
-				if err := rows.Scan(&k, &v); err == nil && k != "" {
-					buildArgs = append(buildArgs, "--build-arg", k+"="+v)
-					buildEnvKeys = append(buildEnvKeys, k)
-				}
-			}
-			rows.Close()
-		}
-		// Inject ARG declarations into Dockerfile so --build-arg values are available during build
-		if len(buildEnvKeys) > 0 {
-			dockerfilePath := filepath.Join(repoDir, "Dockerfile")
-			if svc.DockerfileLocation != "" {
-				dockerfilePath = filepath.Join(repoDir, svc.DockerfileLocation)
-			} else if svc.BaseDirectory != "" {
-				// Dockerfile might be inside base directory
-				if _, err := os.Stat(filepath.Join(contextDir, "Dockerfile")); err == nil {
-					dockerfilePath = filepath.Join(contextDir, "Dockerfile")
-				}
-			}
-			injectBuildArgsToDockerfile(dockerfilePath, buildEnvKeys, log)
-		}
-		if svc.BuildCustomOptions != "" {
-			buildArgs = append(buildArgs, strings.Fields(svc.BuildCustomOptions)...)
-		}
-		// Add commit SHA as label for build skip optimization (like Coolify)
-		if commitSHA != "" {
-			buildArgs = append(buildArgs, "--label", "nanofly.commit_sha="+commitSHA)
-		}
-		buildArgs = append(buildArgs, contextDir)
-
-		// Apply build timeout to prevent indefinite hangs (30 minutes)
-		buildCtx, buildCancel := context.WithTimeout(ctx, buildTimeout)
-		defer buildCancel()
-		buildCmd := exec.CommandContext(buildCtx, "docker", buildArgs...)
-		if hasBuildKit {
+		defer releaseBuild()
+		if svc.Builder == "nixpacks" {
+			log("📦 Building with Nixpacks…")
+			buildCmd := exec.CommandContext(ctx, "nixpacks", "build", contextDir, "--name", imageTag)
 			buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
-		}
-		if err := runCommandStreaming(buildCmd, log); err != nil {
-			if buildCtx.Err() == context.DeadlineExceeded {
-				return fmt.Errorf("docker build timed out after %v — check for stuck processes or very large build contexts", buildTimeout)
+			if err := runCommandStreaming(buildCmd, log); err != nil {
+				return fmt.Errorf("nixpacks build: %w", err)
 			}
+		} else {
+			// Merge entries into existing .dockerignore (or create if missing)
+			diPath := filepath.Join(contextDir, ".dockerignore")
+			diEntries := map[string]bool{
+				// Dependencies (installed inside Docker)
+				"node_modules": true, ".pnpm-store": true,
+				".venv": true, "venv": true, ".env": true, "env": true,
+				// Build outputs (generated during build inside Docker)
+				".next": true, ".nuxt": true, "out": true, "dist": true, "build": true, ".vercel": true,
+				// Tests
+				"coverage": true, ".nyc_output": true, "__tests__": true, "__mocks__": true,
+				"jest": true, "cypress": true, "playwright-report": true, "test-results": true,
+				".vitest": true, "vitest.config.*": true, "jest.config.*": true,
+				// IDE / Editor
+				".vscode": true, ".idea": true, "*.swp": true, "*.swo": true, "*~": true,
+				".fleet": true, ".dev": true,
+				// Git
+				".git": true, ".gitignore": true, ".gitattributes": true,
+				// Docker (not needed inside build context)
+				"Dockerfile*": true, ".dockerignore": true,
+				"docker-compose*.yml": true, "docker-compose*.yaml": true,
+				"compose.yaml": true, "compose.yml": true,
+				// Environment / secrets
+				".env.*": true, ".env*.local": true, ".env.development": true,
+				".env.test": true, ".env.production.local": true,
+				".env.backup": true, ".env.secrets": true,
+				// Logs
+				"*.log": true, "npm-debug.log*": true, "yarn-debug.log*": true,
+				"yarn-error.log*": true, "pnpm-debug.log*": true, "lerna-debug.log*": true,
+				// TypeScript / Build cache
+				"*.tsbuildinfo": true, ".swc": true, ".turbo": true, ".cache": true,
+				".parcel-cache": true, ".eslintcache": true, ".stylelintcache": true,
+				// Documentation
+				"*.md": true, "docs": true, "LICENSE": true,
+				// CI/CD
+				".github": true, ".gitlab-ci.yml": true, ".travis.yml": true,
+				".circleci": true, "Jenkinsfile": true,
+				// Config files (not needed at runtime)
+				"*.pem": true, ".editorconfig": true, ".prettierrc*": true,
+				"prettier.config.*": true, ".eslintrc*": true, "eslint.config.*": true,
+				".stylelintrc*": true, "stylelint.config.*": true, ".babelrc*": true,
+				// OS
+				".DS_Store": true, "._*": true, "Thumbs.db": true, "ehthumbs.db": true,
+				"Desktop.ini": true, ".Spotlight-V100": true, ".Trashes": true,
+				// Python
+				"__pycache__": true, "*.pyc": true, "*.pyo": true, ".Python": true,
+				"*.egg-info": true, ".eggs": true,
+				// Go
+				"vendor": true,
+				// Rust
+				"target": true,
+				// Misc
+				"tmp": true, "temp": true, ".tmp": true, ".temp": true,
+				"*.zip": true, "*.tar.gz": true, "*.rar": true,
+				// AI tools
+				".cursor": true, ".cursorrules": true, ".copilot": true,
+				".gemini": true, ".anthropic": true, ".claude": true, "AGENTS.md": true,
+			}
+			var existing string
+			if data, err := os.ReadFile(diPath); err == nil {
+				existing = string(data)
+			}
+			var missing []string
+			for entry := range diEntries {
+				if !strings.Contains(existing, entry) {
+					missing = append(missing, entry)
+				}
+			}
+			if len(missing) > 0 {
+				merged := strings.TrimRight(existing, "\n\r") + "\n# === NanoFly auto-generated entries ===\n" + strings.Join(missing, "\n") + "\n"
+				_ = os.WriteFile(diPath, []byte(merged), 0644)
+				log(fmt.Sprintf("📄 Updated .dockerignore (+%d entries)", len(missing)))
+			}
+
+			// Log build context size (helps diagnose slow builds)
+			if info, err := os.Stat(contextDir); err == nil && info.IsDir() {
+				var totalSize int64
+				filepath.Walk(contextDir, func(_ string, info os.FileInfo, err error) error {
+					if err == nil && !info.IsDir() {
+						totalSize += info.Size()
+					}
+					return nil
+				})
+				sizeMB := float64(totalSize) / 1024 / 1024
+				log(fmt.Sprintf("📁 Build context: %.1f MB", sizeMB))
+			}
+
+			// Check if build was cancelled before starting docker build
 			if ctx.Err() == context.Canceled {
 				return fmt.Errorf("deployment cancelled")
 			}
-			return fmt.Errorf("docker build: %w", err)
-		}
-	} // end else (build needed)
+			log("🔨 Building Docker image…")
+			hasBuildKit := isBuildKitAvailable()
+			var buildArgs []string
+			if hasBuildKit {
+				buildArgs = []string{"build", "--progress=plain", "--network=host", "-t", imageTag}
+			} else {
+				buildArgs = []string{"build", "-t", imageTag}
+				log("ℹ️ BuildKit not detected — using standard Docker build")
+			}
+			if svc.DockerfileLocation != "" {
+				buildArgs = append(buildArgs, "-f", filepath.Join(repoDir, svc.DockerfileLocation))
+			}
+			if svc.BuildStageTarget != "" {
+				buildArgs = append(buildArgs, "--target", svc.BuildStageTarget)
+			}
+			if shouldPullBaseImages() {
+				buildArgs = append(buildArgs, "--pull")
+			} else {
+				log("Reusing local base images (set NANOFLY_BUILD_PULL=1 to refresh them)")
+			}
+			// Inject only build-time env vars as --build-arg (Next.js needs
+			// NEXT_PUBLIC_* at build time). Runtime secrets stay out of image history.
+			var buildEnvKeys []string
+			for _, envVar := range buildEnv {
+				buildArgs = append(buildArgs, "--build-arg", envVar.Key+"="+envVar.Value)
+				buildEnvKeys = append(buildEnvKeys, envVar.Key)
+			}
+			// Inject ARG declarations into Dockerfile so --build-arg values are available during build
+			if len(buildEnvKeys) > 0 {
+				dockerfilePath := filepath.Join(repoDir, "Dockerfile")
+				if svc.DockerfileLocation != "" {
+					dockerfilePath = filepath.Join(repoDir, svc.DockerfileLocation)
+				} else if svc.BaseDirectory != "" {
+					// Dockerfile might be inside base directory
+					if _, err := os.Stat(filepath.Join(contextDir, "Dockerfile")); err == nil {
+						dockerfilePath = filepath.Join(contextDir, "Dockerfile")
+					}
+				}
+				injectBuildArgsToDockerfile(dockerfilePath, buildEnvKeys, log)
+			}
+			if svc.BuildCustomOptions != "" {
+				buildArgs = append(buildArgs, strings.Fields(svc.BuildCustomOptions)...)
+			}
+			// Add commit SHA as label for build skip optimization (like Coolify)
+			if commitSHA != "" {
+				buildArgs = append(buildArgs, "--label", "nanofly.commit_sha="+commitSHA)
+			}
+			buildArgs = append(buildArgs, "--label", "nanofly.build_hash="+buildHash)
+			buildArgs = append(buildArgs, contextDir)
+
+			// Apply build timeout to prevent indefinite hangs (30 minutes)
+			buildCtx, buildCancel := context.WithTimeout(ctx, buildTimeout)
+			defer buildCancel()
+			buildCmd := exec.CommandContext(buildCtx, "docker", buildArgs...)
+			if hasBuildKit {
+				buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+			}
+			if err := runCommandStreaming(buildCmd, log); err != nil {
+				if buildCtx.Err() == context.DeadlineExceeded {
+					return fmt.Errorf("docker build timed out after %v — check for stuck processes or very large build contexts", buildTimeout)
+				}
+				if ctx.Err() == context.Canceled {
+					return fmt.Errorf("deployment cancelled")
+				}
+				return fmt.Errorf("docker build: %w", err)
+			}
+		} // end Docker build branch
+	} // end build-needed branch
 	// Note: if build was skipped, we still proceed to container start below
 
 	// Tag and Push to Docker Registry if specified
@@ -2120,6 +2257,24 @@ CMD ["sh", "-c", "%s"]
 `, baseImage, workdir, venvLines, install, portStr, portStr, dockerShellEscape(cmd))
 }
 
+// writeGeneratedDockerfile removes BuildKit-only cache mounts when the host
+// does not support BuildKit. This keeps generated Dockerfiles usable with the
+// legacy builder while retaining dependency/compiler caches on modern Docker.
+func writeGeneratedDockerfile(path, content string) error {
+	if !isBuildKitAvailable() {
+		for _, target := range []string{
+			"/root/.npm",
+			"/root/.cache/pip",
+			"/go/pkg/mod",
+			"/root/.cache/go-build",
+			"/app/.next/cache",
+		} {
+			content = strings.ReplaceAll(content, "--mount=type=cache,target="+target+" ", "")
+		}
+	}
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
 // detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
 func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool, log func(string)) error {
 	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
@@ -2207,7 +2362,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM %s AS runner
 WORKDIR /app
@@ -2220,7 +2375,7 @@ USER nextjs
 EXPOSE %s
 CMD ["node", "server.js"]
 `, baseImage, baseImage, baseImage, portStr, portStr)
-				return os.WriteFile(dockerfilePath, []byte(content), 0644)
+				return writeGeneratedDockerfile(dockerfilePath, content)
 			}
 			content := fmt.Sprintf(`# syntax=docker/dockerfile:1
 FROM %s AS deps
@@ -2234,7 +2389,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM %s AS runner
 WORKDIR /app
@@ -2248,7 +2403,7 @@ USER nextjs
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
 `, baseImage, baseImage, baseImage, portStr, portStr, dockerShellEscape(cmd))
-			return os.WriteFile(dockerfilePath, []byte(content), 0644)
+			return writeGeneratedDockerfile(dockerfilePath, content)
 		}
 		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
 FROM %s
@@ -2261,7 +2416,7 @@ ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
 `, baseImage, install, portStr, portStr, dockerShellEscape(cmd))
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	if bType == "go" {
@@ -2285,13 +2440,13 @@ ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
 `, baseImage, portStr, portStr, dockerShellEscape(cmd))
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	if bType == "python" {
 		log("ℹ️ Using Python runtime template (" + baseImage + "). Generating optimized Dockerfile…")
 		content := pythonDockerfile(repoDir, baseImage, portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	if bType == "php" {
@@ -2302,7 +2457,7 @@ RUN a2enmod rewrite || true
 RUN echo "Listen %s" > /etc/apache2/ports.conf && sed -i 's/<VirtualHost \\\*:80>/<VirtualHost *:%s>/g' /etc/apache2/sites-available/000-default.conf
 EXPOSE %s
 `, baseImage, portStr, portStr, portStr)
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	if builder == "static" {
@@ -2312,7 +2467,7 @@ COPY . /usr/share/nginx/html/
 RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.conf
 EXPOSE %s
 `, portStr, portStr)
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	if builder == "dockerfile" {
@@ -2364,7 +2519,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -2377,7 +2532,7 @@ USER nextjs
 EXPOSE %s
 CMD ["node", "server.js"]
 `, portStr, portStr)
-				return os.WriteFile(dockerfilePath, []byte(content), 0644)
+				return writeGeneratedDockerfile(dockerfilePath, content)
 			}
 			content := fmt.Sprintf(`# syntax=docker/dockerfile:1
 FROM node:20-alpine AS deps
@@ -2391,7 +2546,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -2405,7 +2560,7 @@ USER nextjs
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
 `, portStr, portStr, dockerShellEscape(cmd))
-			return os.WriteFile(dockerfilePath, []byte(content), 0644)
+			return writeGeneratedDockerfile(dockerfilePath, content)
 		}
 		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
 FROM node:20-alpine
@@ -2418,7 +2573,7 @@ ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
 `, install, portStr, portStr, dockerShellEscape(cmd))
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	cmd := strings.TrimSpace(startCommand)
@@ -2444,7 +2599,7 @@ ENV PORT=%s
 EXPOSE %s
 CMD ["sh", "-c", "%s"]
 `, portStr, portStr, dockerShellEscape(cmd))
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	// Python
@@ -2455,7 +2610,7 @@ CMD ["sh", "-c", "%s"]
 	if hasRequirements || fileExistsWithExtension(repoDir, ".py") {
 		log("ℹ️ Detected Python runtime. Generating optimized Dockerfile…")
 		content := pythonDockerfile(repoDir, "python:3.11-slim", portStr, startCommand, installCommand, appDirectory, runFile, requirementsFile, useVenv)
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	// PHP
@@ -2467,7 +2622,7 @@ RUN a2enmod rewrite || true
 RUN echo "Listen %s" > /etc/apache2/ports.conf && sed -i 's/<VirtualHost \\\*:80>/<VirtualHost *:%s>/g' /etc/apache2/sites-available/000-default.conf
 EXPOSE %s
 `, portStr, portStr, portStr)
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	// Static Web
@@ -2478,7 +2633,7 @@ COPY . /usr/share/nginx/html/
 RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.conf
 EXPOSE %s
 `, portStr, portStr)
-		return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		return writeGeneratedDockerfile(dockerfilePath, content)
 	}
 
 	// Default fallback: assume Static / HTML
@@ -2488,7 +2643,7 @@ COPY . /usr/share/nginx/html/
 RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.conf
 EXPOSE %s
 `, portStr, portStr)
-	return os.WriteFile(dockerfilePath, []byte(content), 0644)
+	return writeGeneratedDockerfile(dockerfilePath, content)
 }
 
 // optimizeExistingDockerfile patches an existing Dockerfile for faster builds.
@@ -2545,6 +2700,13 @@ func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
 				patched = true
 			}
+		}
+		// Next.js persists compiler output in .next/cache. Reusing it is
+		// especially important for large applications where dependency layers
+		// are already cached but `next build` still recompiles every page.
+		if hasBuildKit && (strings.Contains(trimmed, "npm run build") || strings.Contains(trimmed, "next build")) && !strings.Contains(lines[i], "--mount=type=cache") {
+			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/app/.next/cache ", 1)
+			patched = true
 		}
 	}
 	if patched {
@@ -2657,14 +2819,15 @@ func isBuildKitAvailable() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "buildx", "version")
-	if err := cmd.Run(); err == nil {
+	if out, err := cmd.CombinedOutput(); err == nil && strings.TrimSpace(string(out)) != "" {
 		buildKitCache = true
 		buildKitCacheTime = time.Now()
 		return true
 	}
-	// Check 2: DOCKER_BUILDKIT=1 docker build --help | grep progress
-	cmd2 := exec.CommandContext(ctx, "sh", "-c", "DOCKER_BUILDKIT=1 docker build --help 2>&1 | grep -q '\\-\\-progress'")
-	if err := cmd2.Run(); err == nil {
+	// Check 2 without a shell so this also works on Windows hosts.
+	cmd2 := exec.CommandContext(ctx, "docker", "build", "--help")
+	cmd2.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+	if out, err := cmd2.CombinedOutput(); err == nil && strings.Contains(string(out), "--progress") {
 		buildKitCache = true
 		buildKitCacheTime = time.Now()
 		return true
@@ -2690,6 +2853,135 @@ func hasImageWithCommitSHA(ctx context.Context, imageTag, commitSHA string) bool
 	}
 	existingSHA := strings.TrimSpace(string(out))
 	return existingSHA == commitSHA
+}
+
+func hasImageWithBuildHash(ctx context.Context, imageTag, buildHash string) bool {
+	if buildHash == "" {
+		return false
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(checkCtx, "docker", "inspect", "--format", "{{index .Config.Labels \"nanofly.build_hash\"}}", imageTag)
+	out, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(out)) == buildHash
+}
+
+type buildEnvVar struct {
+	Key   string
+	Value string
+}
+
+func (m *Manager) loadBuildEnv(ctx context.Context, serviceID string) ([]buildEnvVar, error) {
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT key, value
+		FROM env_vars
+		WHERE service_id=?
+		ORDER BY key
+	`, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var values []buildEnvVar
+	for rows.Next() {
+		var value buildEnvVar
+		if err := rows.Scan(&value.Key, &value.Value); err != nil {
+			return nil, err
+		}
+		if shouldInjectBuildEnv(value.Key) {
+			values = append(values, value)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func serviceBuildHash(svc *Service, envVars []buildEnvVar) string {
+	values := []string{
+		svc.Builder,
+		svc.Image,
+		svc.StartCommand,
+		svc.InstallCommand,
+		svc.AppDirectory,
+		svc.RunFile,
+		svc.RequirementsFile,
+		strconv.FormatBool(svc.UseVenv),
+		svc.DockerfileContent,
+		svc.DockerComposeContent,
+		svc.DockerfileLocation,
+		svc.BuildStageTarget,
+		svc.BuildCustomOptions,
+		svc.BaseDirectory,
+		strconv.Itoa(svc.Port),
+		strconv.FormatBool(shouldPullBaseImages()),
+	}
+	var fingerprint strings.Builder
+	for _, value := range values {
+		fingerprint.WriteString(strconv.Itoa(len(value)))
+		fingerprint.WriteByte(':')
+		fingerprint.WriteString(value)
+		fingerprint.WriteByte('|')
+	}
+	for _, envVar := range envVars {
+		fingerprint.WriteString(strconv.Itoa(len(envVar.Key)))
+		fingerprint.WriteByte(':')
+		fingerprint.WriteString(envVar.Key)
+		fingerprint.WriteString(strconv.Itoa(len(envVar.Value)))
+		fingerprint.WriteByte(':')
+		fingerprint.WriteString(envVar.Value)
+		fingerprint.WriteByte('|')
+	}
+	sum := sha256.Sum256([]byte(fingerprint.String()))
+	return fmt.Sprintf("%x", sum)
+}
+
+func shortCommit(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
+// shouldPullBaseImages keeps normal deploys offline-friendly and cache-first.
+// Operators can opt into a fresh registry check when they intentionally want
+// updated floating base images.
+func shouldPullBaseImages() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("NANOFLY_BUILD_PULL"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// shouldInjectBuildEnv prevents credentials stored as runtime environment
+// variables from being copied into Docker's build arguments/history. Public
+// frontend variables and ordinary configuration remain available; set
+// NANOFLY_BUILD_ALL_ENV=1 only for legacy builds that intentionally require
+// every runtime variable during image creation.
+func shouldInjectBuildEnv(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9' && i > 0) || r == '_') {
+			return false
+		}
+	}
+	if os.Getenv("NANOFLY_BUILD_ALL_ENV") == "1" {
+		return true
+	}
+	upper := strings.ToUpper(key)
+	for _, marker := range []string{"PASSWORD", "SECRET", "TOKEN", "PRIVATE_KEY", "API_KEY", "DATABASE_URL", "CONNECTION_STRING"} {
+		if strings.Contains(upper, marker) {
+			return false
+		}
+	}
+	return true
 }
 
 // buildTimeout is the maximum time allowed for a Docker build before it's considered stuck.
@@ -2743,6 +3035,12 @@ func (m *Manager) recordDeploymentCommit(ctx context.Context, deployID, repoDir 
 			commit_msg = CASE WHEN commit_msg = '' OR commit_msg IS NULL THEN ? ELSE commit_msg END
 		WHERE id = ?
 	`, sha, msg, deployID)
+}
+
+func (m *Manager) deploymentCommitSHA(ctx context.Context, deployID string) string {
+	var sha string
+	_ = m.db.QueryRowContext(ctx, `SELECT COALESCE(commit_sha,'') FROM deployments WHERE id=?`, deployID).Scan(&sha)
+	return strings.TrimSpace(sha)
 }
 
 // GetDeployment fetches a single deployment.
@@ -2943,7 +3241,7 @@ func (m *Manager) Delete(ctx context.Context, serviceID string) error {
 	}
 
 	if svc.Name != "" {
-		imageTag := "nf-" + svc.Name + ":latest"
+		imageTag := svc.ImageTag()
 		exec.CommandContext(ctx, "docker", "rmi", "-f", imageTag).Run() //nolint:errcheck
 	}
 
@@ -3092,40 +3390,40 @@ func (m *Manager) GetContainerLogs(ctx context.Context, serviceID string) (strin
 
 // UpdateServiceReq defines request parameters to edit service settings.
 type UpdateServiceReq struct {
-	Name                 string `json:"name"`
-	Description          string `json:"description"`
-	DBUser               string `json:"db_user"`
-	DBPassword           string `json:"db_password"`
-	DBName               string `json:"db_name"`
-	Image                string `json:"image"`
-	Port                 int    `json:"port"`
-	GitRepoURL           string `json:"git_repo_url"`
-	GitBranch            string `json:"git_branch"`
-	Builder              string `json:"git_builder"`
-	StartCommand         string `json:"start_command"`
-	InstallCommand       string `json:"install_command"`
-	AppDirectory         string `json:"app_directory"`
-	RunFile              string `json:"run_file"`
-	RequirementsFile     string `json:"requirements_file"`
-	UseVenv              bool   `json:"use_venv"`
-	DockerArgs           string `json:"docker_args"`
-	DockerfileContent    string `json:"dockerfile_content"`
-	DockerComposeContent string `json:"docker_compose_content"`
-	GitToken             string `json:"git_token"`
-	SSHKey               string `json:"ssh_key"`
-	TierName             string `json:"tier_name"`
-	CustomMemory         int64  `json:"custom_memory"`
-	CustomCPU            int64  `json:"custom_cpu"`
-	DockerfileLocation   string `json:"dockerfile_location"`
-	BuildStageTarget     string `json:"build_stage_target"`
-	BuildCustomOptions   string `json:"build_custom_options"`
-	BaseDirectory        string `json:"base_directory"`
-	DockerRegistryImage  string `json:"docker_registry_image"`
-	DockerRegistryTag    string `json:"docker_registry_tag"`
-	PortsExposes         int    `json:"ports_exposes"`
-	PortMappings         string `json:"port_mappings"`
-	NetworkAliases       string `json:"network_aliases"`
-	BuildWatchPaths      string `json:"build_watch_paths"`
+	Name                 string  `json:"name"`
+	Description          string  `json:"description"`
+	DBUser               string  `json:"db_user"`
+	DBPassword           string  `json:"db_password"`
+	DBName               string  `json:"db_name"`
+	Image                string  `json:"image"`
+	Port                 int     `json:"port"`
+	GitRepoURL           string  `json:"git_repo_url"`
+	GitBranch            string  `json:"git_branch"`
+	Builder              string  `json:"git_builder"`
+	StartCommand         string  `json:"start_command"`
+	InstallCommand       string  `json:"install_command"`
+	AppDirectory         string  `json:"app_directory"`
+	RunFile              string  `json:"run_file"`
+	RequirementsFile     string  `json:"requirements_file"`
+	UseVenv              bool    `json:"use_venv"`
+	DockerArgs           string  `json:"docker_args"`
+	DockerfileContent    string  `json:"dockerfile_content"`
+	DockerComposeContent string  `json:"docker_compose_content"`
+	GitToken             string  `json:"git_token"`
+	SSHKey               string  `json:"ssh_key"`
+	TierName             string  `json:"tier_name"`
+	CustomMemory         int64   `json:"custom_memory"`
+	CustomCPU            int64   `json:"custom_cpu"`
+	DockerfileLocation   string  `json:"dockerfile_location"`
+	BuildStageTarget     string  `json:"build_stage_target"`
+	BuildCustomOptions   string  `json:"build_custom_options"`
+	BaseDirectory        string  `json:"base_directory"`
+	DockerRegistryImage  string  `json:"docker_registry_image"`
+	DockerRegistryTag    string  `json:"docker_registry_tag"`
+	PortsExposes         int     `json:"ports_exposes"`
+	PortMappings         string  `json:"port_mappings"`
+	NetworkAliases       string  `json:"network_aliases"`
+	BuildWatchPaths      string  `json:"build_watch_paths"`
 	BuildUseServer       bool    `json:"build_use_server"`
 	Volumes              string  `json:"volumes"` // JSON array of volume mounts
 	GitHubAppID          *string `json:"github_app_id"`
@@ -3142,7 +3440,8 @@ type UpdateServiceReq struct {
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
 	// Reject name collisions on rename (DB unique index would also enforce this,
 	// but a friendly pre-check beats a raw UNIQUE constraint error).
-	if newName := strings.TrimSpace(req.Name); newName != "" {
+	if strings.TrimSpace(req.Name) != "" {
+		newName := docker.SafeName(req.Name)
 		var collision string
 		_ = m.db.QueryRowContext(ctx,
 			`SELECT id FROM services WHERE project_id = (SELECT project_id FROM services WHERE id = ?) AND name = ? AND id != ? LIMIT 1`,
@@ -3151,6 +3450,7 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 		if collision != "" {
 			return nil, fmt.Errorf("a service named %q already exists in this project — choose a different name", newName)
 		}
+		req.Name = newName
 	}
 
 	// Build dynamic SET clause — only include fields that were provided.
@@ -3416,6 +3716,11 @@ func volumeRunArgs(svc *Service, log func(string)) []string {
 
 func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath string, log func(string)) error {
 	log("📁 Starting local folder deployment: " + localPath)
+	releaseBuild, err := m.acquireBuildSlot(ctx)
+	if err != nil {
+		return fmt.Errorf("waiting for build slot: %w", err)
+	}
+	defer releaseBuild()
 	if err := os.MkdirAll(localPath, 0755); err != nil {
 		return fmt.Errorf("creating local path: %w", err)
 	}
@@ -3450,7 +3755,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		}
 
 		log("🔨 Building Docker image from local Dockerfile…")
-		imageTag := "nf-" + svc.Name + ":latest"
+		imageTag := svc.ImageTag()
 		buildCmd := exec.CommandContext(ctx, "docker", "build", "-t", imageTag, localPath)
 		buildOut, err := buildCmd.CombinedOutput()
 		log(string(buildOut))
@@ -3867,7 +4172,7 @@ func enrichWordPressEnv(ctx context.Context, database *db.DB, serviceID string, 
 			if err == nil {
 				// Use the Docker container name for DNS on the shared nanofly network.
 				// Container names are "nf-db-<serviceName>-<serviceID[:8]>", and Docker DNS resolves them.
-				containerName := "nf-db-" + dbServiceName
+				containerName := "nf-db-" + docker.SafeName(dbServiceName)
 				if len(dbID) >= 8 {
 					containerName = fmt.Sprintf("%s-%s", containerName, dbID[:8])
 				}

@@ -5,7 +5,42 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 )
+
+// SafeName converts a user-facing service name into a Docker-compatible slug.
+// Docker resource names are shared across projects, so callers should append
+// their own project/service identifier when they need global uniqueness.
+func SafeName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastSeparator := false
+
+	for _, r := range value {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '.' || r == '-':
+			b.WriteRune(r)
+			lastSeparator = r == '_' || r == '.' || r == '-'
+		case !lastSeparator:
+			b.WriteByte('-')
+			lastSeparator = true
+		}
+	}
+
+	slug := strings.Trim(b.String(), "-_.")
+	if slug == "" {
+		return "service"
+	}
+	// Keep the human-readable portion short enough that the identifier suffix
+	// still fits comfortably within Docker and Compose name limits.
+	if len(slug) > 48 {
+		slug = strings.Trim(slug[:48], "-_.")
+	}
+	if slug == "" {
+		return "service"
+	}
+	return slug
+}
 
 // RandPassword generates a random 20-char password safe for all platforms.
 func RandPassword() string {

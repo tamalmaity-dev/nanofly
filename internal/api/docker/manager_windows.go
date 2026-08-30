@@ -99,6 +99,10 @@ func (m *Manager) PruneSystem(ctx context.Context, pruneContainers, pruneImages,
 	return PruneResult{}, fmt.Errorf("docker not available on Windows")
 }
 
+func (m *Manager) PruneBuildCache(ctx context.Context) (uint64, error) {
+	return 0, fmt.Errorf("docker not available on Windows")
+}
+
 func (m *Manager) AutoPruneAfterDeploy(ctx context.Context) {}
 
 func (m *Manager) InspectContainer(ctx context.Context, nameOrID string) (*dockertypes.ContainerJSON, error) {

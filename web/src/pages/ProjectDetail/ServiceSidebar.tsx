@@ -1,12 +1,54 @@
 // @ts-nocheck
 import React from 'react';
-import { Settings, Key, Package, FileText, TerminalSquare, Cpu, Sliders, HardDrive, Globe, Folder, FileCode, Database } from 'lucide-react';
+import {
+  Settings, Key, Package, FileText, TerminalSquare, Cpu, Sliders, HardDrive, Globe, Folder,
+  FileCode, Database, GitBranch, Server, Activity, Wrench,
+} from 'lucide-react';
 
-const iconMap = { Settings, Key, Package, FileText, TerminalSquare, Cpu, Sliders, HardDrive, Globe, Folder, FileCode, Database };
+const iconMap = {
+  Settings, Key, Package, FileText, TerminalSquare, Cpu, Sliders, HardDrive, Globe, Folder,
+  FileCode, Database, GitBranch, Server, Activity, Wrench,
+};
 
 export function ServiceSidebar({ service, activeTab, onSelect, domains, project }) {
   const isCompose = service?.git_builder === 'docker-compose' || !!service?.docker_compose_content;
-  const groups = [
+  const isGitHubApp = !!service?.github_app_id;
+
+  const groups = isGitHubApp ? [
+    {
+      title: 'Settings',
+      items: [
+        { id: 'configuration', label: 'General', icon: Settings },
+        { id: 'domains', label: 'Domains', icon: Globe },
+        { id: 'envvars', label: 'Environment Variables', icon: FileCode },
+        { id: 'volumes', label: 'Persistent Storage', icon: HardDrive },
+        { id: 'advanced', label: 'Advanced', icon: Wrench },
+        { id: 'healthcheck', label: 'Healthcheck', icon: Activity },
+      ],
+    },
+    {
+      title: 'Observe & troubleshoot',
+      items: [
+        { id: 'deployments', label: 'Deployment Logs', icon: Package },
+        { id: 'logs', label: 'Runtime Logs', icon: FileText },
+        { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+        { id: 'monitoring', label: 'Metrics', icon: Cpu },
+      ],
+    },
+    {
+      title: 'Deploy',
+      items: [
+        { id: 'gitsource', label: 'Git Source', icon: GitBranch },
+        { id: 'servers', label: 'Servers', icon: Server },
+      ],
+    },
+    {
+      title: 'Automation',
+      items: [
+        { id: 'backup', label: 'Backups', icon: Database },
+      ],
+    },
+  ] : [
     {
       title: 'Settings',
       items: [

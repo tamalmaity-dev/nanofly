@@ -76,7 +76,7 @@ func (h *Handler) CreateManifest(w http.ResponseWriter, r *http.Request) {
 		req.Host = "http://" + req.Host
 	}
 
-	webhookUrl := fmt.Sprintf("%s/api/v1/webhooks/github", req.Host)
+	webhookUrl := fmt.Sprintf("%s/api/webhooks/github", req.Host)
 	callbackUrl := fmt.Sprintf("%s/api/v1/github/app/callback?system_wide=%t", req.Host, req.SystemWide)
 	setupUrl := fmt.Sprintf("%s/api/v1/github/app/install-callback", req.Host)
 

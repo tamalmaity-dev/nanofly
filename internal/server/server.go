@@ -84,7 +84,7 @@ func New(cfg *config.Config, database *db.DB) (*Server, error) {
 	// Try to connect Docker (fails gracefully on Windows or if Docker not running)
 	if dm, err := docker.New(cfg.DataDir); err == nil {
 		s.dockerMgr = dm
-		
+
 		// Ensure Traefik Reverse Proxy is running
 		go func() {
 			if err := proxy.EnsureTraefik(context.Background(), cfg.DataDir); err != nil {
@@ -240,6 +240,7 @@ func (s *Server) githubAppRouter() chi.Router {
 	ghHandler.RegisterRoutes(r)
 	return r
 }
+
 type serviceResource struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"project_id"`
@@ -542,7 +543,15 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 		Installation struct {
 			ID int64 `json:"id"`
 		} `json:"installation"`
-		Ref string `json:"ref"` // e.g. refs/heads/main
+		Ref        string `json:"ref"` // e.g. refs/heads/main
+		HeadCommit struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"head_commit"`
+		Commits []struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"commits"`
 	}
 
 	bodyBytes, err := io.ReadAll(r.Body)
@@ -605,7 +614,17 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, sid := range serviceIDs {
-		go s.serviceMgr.Deploy(context.Background(), sid) //nolint:errcheck
+		commitSHA := payload.HeadCommit.ID
+		commitMsg := payload.HeadCommit.Message
+		if commitSHA == "" && len(payload.Commits) > 0 {
+			commitSHA = payload.Commits[0].ID
+			commitMsg = payload.Commits[0].Message
+		}
+		go s.serviceMgr.Deploy(context.Background(), sid, services.DeployOptions{
+			Trigger:   "webhook",
+			CommitSHA: commitSHA,
+			CommitMsg: commitMsg,
+		}) //nolint:errcheck
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -930,7 +949,7 @@ func (s *Server) getCurrentVersion() string {
 func (s *Server) handleUpdateLog(w http.ResponseWriter, r *http.Request) {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
-	
+
 	status := s.updateStatus
 	if status == "done" {
 		s.updateStatus = "idle"
@@ -976,6 +995,7 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 		Images     bool `json:"images"`
 		Volumes    bool `json:"volumes"`
 		Networks   bool `json:"networks"`
+		BuildCache bool `json:"build_cache"`
 	}
 	// Decode JSON request. If error (like empty body), default to pruning all for backward compatibility.
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -990,16 +1010,27 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var buildCacheReclaimed uint64
+	if req.BuildCache {
+		buildCacheReclaimed, err = s.dockerMgr.PruneBuildCache(r.Context())
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		res.SpaceReclaimed += buildCacheReclaimed
+		res.ReclaimedHuman = docker.FormatBytes(res.SpaceReclaimed)
+	}
 
 	response.Success(w, map[string]any{
-		"status":             "success",
-		"message":            fmt.Sprintf("Docker storage cleanup completed! Reclaimed %s.", res.ReclaimedHuman),
-		"containers_deleted": res.ContainersDeleted,
-		"images_deleted":     res.ImagesDeleted,
-		"volumes_deleted":    res.VolumesDeleted,
-		"networks_deleted":   res.NetworksDeleted,
-		"space_reclaimed":    res.SpaceReclaimed,
-		"reclaimed_human":    res.ReclaimedHuman,
+		"status":                "success",
+		"message":               fmt.Sprintf("Docker storage cleanup completed! Reclaimed %s.", res.ReclaimedHuman),
+		"containers_deleted":    res.ContainersDeleted,
+		"images_deleted":        res.ImagesDeleted,
+		"volumes_deleted":       res.VolumesDeleted,
+		"networks_deleted":      res.NetworksDeleted,
+		"space_reclaimed":       res.SpaceReclaimed,
+		"reclaimed_human":       res.ReclaimedHuman,
+		"build_cache_reclaimed": buildCacheReclaimed,
 	})
 }
 
@@ -1164,7 +1195,6 @@ func getServerIPs() []string {
 	}
 	return ips
 }
-
 
 func defaultSettings() map[string]string {
 	return map[string]string{
@@ -1422,7 +1452,8 @@ func (s *Server) periodicCleanup() {
 	}
 }
 
-// periodicDockerPrune reclaims dangling images and build cache weekly.
+// periodicDockerPrune reclaims dangling images weekly while retaining
+// BuildKit's dependency/compiler cache for fast subsequent deployments.
 // Controlled by NANOFLY_AUTO_PRUNE (default "1"); set to "0" to disable.
 // Volumes/networks/containers are never auto-pruned without explicit opt-in.
 func (s *Server) periodicDockerPrune() {
@@ -1436,7 +1467,7 @@ func (s *Server) periodicDockerPrune() {
 		if s.dockerMgr == nil || s.serviceMgr == nil {
 			continue
 		}
-		slog.Info("Running periodic Docker prune (dangling images + build cache)...")
+		slog.Info("Running periodic Docker prune (dangling images)...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		res, err := s.dockerMgr.PruneSystem(ctx, false, true, false, false)
 		cancel()
