@@ -1721,35 +1721,7 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 			domains = append(domains, d)
 		}
 	}
-	if len(domains) == 0 {
-		// No custom domain — hint about sslip or host:port
-		if svc.Port > 0 {
-			log(fmt.Sprintf("🌐 No custom domain configured — app reachable via http://<server-ip>:%d or generate a sslip.io domain in Domains panel", svc.Port))
-		} else {
-			log("🌐 No custom domain configured — add one in Domains panel to expose this service publicly")
-		}
-		return
-	}
 
-	log(fmt.Sprintf("🌐 Domains: %d configured", len(domains)))
-	for _, d := range domains {
-		statusLabel := "DNS pending"
-		if d.tlsStatus == "active" {
-			statusLabel = "DNS verified"
-		}
-		// Clean domain for URL
-		clean := strings.TrimPrefix(strings.TrimPrefix(d.domain, "https://"), "http://")
-		clean = strings.Split(clean, "/")[0]
-		clean = strings.Split(clean, "?")[0]
-		log(fmt.Sprintf("   → https://%s (%s) [%s]", clean, d.direction, statusLabel))
-		if isDomainCloudflareProxied(clean) {
-			log(fmt.Sprintf("     ☁️ Cloudflare proxy detected for %s — Traefik configured for Flexible/Full without Let's Encrypt to avoid 522", clean))
-		}
-		if statusLabel != "DNS verified" {
-			log(fmt.Sprintf("     ⚠️ Ensure A/AAAA record for %s points to this server's public IP; Cloudflare proxy is supported. Verify in Domains panel.", clean))
-		}
-	}
-	// Internal and Traefik hints
 	internalPort := exposedPort
 	if internalPort <= 0 {
 		internalPort = svc.Port
@@ -1760,184 +1732,263 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 	if internalPort <= 0 {
 		internalPort = 80
 	}
+
+	if len(domains) == 0 {
+		if svc.Port > 0 {
+			log(fmt.Sprintf("🌐 No custom domain configured — app reachable via http://<server-ip>:%d or generate a sslip.io domain in Domains panel", svc.Port))
+		} else {
+			log("🌐 No custom domain configured — add one in Domains panel to expose this service publicly")
+		}
+		return
+	}
+
+	// ── Per-domain diagnostics ──
+	log(fmt.Sprintf("🌐 Domains: %d configured", len(domains)))
+	for _, d := range domains {
+		clean := strings.TrimPrefix(strings.TrimPrefix(d.domain, "https://"), "http://")
+		clean = strings.Split(clean, "/")[0]
+		clean = strings.Split(clean, "?")[0]
+
+		sslip := strings.Contains(clean, ".sslip.io")
+		cfProxied := !sslip && isDomainCloudflareProxied(clean)
+
+		// Line 1: domain + direction + DNS status
+		statusIcon := "⏳"
+		statusLabel := "DNS pending"
+		if d.tlsStatus == "active" {
+			statusIcon = "✅"
+			statusLabel = "DNS verified"
+		}
+		log(fmt.Sprintf("   %s https://%s (%s) [%s]", statusIcon, clean, d.direction, statusLabel))
+
+		// Line 2: routing type + TLS
+		if sslip {
+			log(fmt.Sprintf("     → routing: sslip.io (auto, HTTP on web entrypoint, no TLS)"))
+		} else if cfProxied {
+			log(fmt.Sprintf("     → routing: Cloudflare-proxied (HTTP on web + HTTPS with tls=true on websecure, no certresolver)"))
+		} else {
+			log(fmt.Sprintf("     → routing: direct (HTTPS on websecure + tls via letsencrypt, HTTP→HTTPS redirect)"))
+		}
+
+		// Line 3: DNS resolution check
+		if !sslip {
+			dnsCtx, dnsCancel := context.WithTimeout(ctx, 3*time.Second)
+			ips, dnsErr := net.DefaultResolver.LookupHost(dnsCtx, clean)
+			dnsCancel()
+			if dnsErr != nil || len(ips) == 0 {
+				log(fmt.Sprintf("     → DNS: ❌ could not resolve %s — %s", clean, dnsHint(dnsErr)))
+			} else {
+				log(fmt.Sprintf("     → DNS: resolves to %s", strings.Join(ips, ", ")))
+			}
+		}
+	}
+
+	// ── Internal routing ──
 	routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
 	log(fmt.Sprintf("🔗 Internal: http://%s:%d @ %s (router: %s)", svc.Name, internalPort, docker.NanoflyNetworkName(), routerName))
-	log(fmt.Sprintf("🚦 Traefik: %s → %s (TLS via letsencrypt, entrypoints websecure + http→https redirect for custom domains)", domains[0].domain, svc.ContainerName()))
-	// Check Traefik container status for diagnostics (handles both nanofly-traefik and legacy nf-traefik)
-	traefikFound := false
+
+	// ── Traefik container status ──
+	traefikContainer := ""
+	traefikStatus := ""
 	for _, name := range []string{"nanofly-traefik", "nf-traefik"} {
 		traefikCheckCtx, traefikCancel := context.WithTimeout(ctx, 2*time.Second)
 		out, err := exec.CommandContext(traefikCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", name).Output()
 		traefikCancel()
 		if err == nil {
-			status := strings.TrimSpace(string(out))
-			traefikFound = true
-			if status == "running" {
-				log(fmt.Sprintf("✅ Traefik is running (%s)", name))
-			} else {
-				log(fmt.Sprintf("⚠️ Traefik container %s status: %s — check docker logs %s", name, status, name))
-			}
+			traefikContainer = name
+			traefikStatus = strings.TrimSpace(string(out))
 			break
 		}
 	}
-	if !traefikFound {
-		log("⚠️ Traefik container not found (checked nanofly-traefik, nf-traefik) — run: docker ps -a | grep traefik and check install")
+	if traefikContainer == "" {
+		log("⚠️ Traefik container not found (checked nanofly-traefik, nf-traefik)")
+	} else if traefikStatus != "running" {
+		log(fmt.Sprintf("⚠️ Traefik (%s) status: %s", traefikContainer, traefikStatus))
 	} else {
-		// Show app container's Traefik labels for debugging
-		labelCtx, labelCancel := context.WithTimeout(ctx, 2*time.Second)
-		defer labelCancel()
-		if out, err := exec.CommandContext(labelCtx, "docker", "inspect", "-f", "{{json .Config.Labels}}", svc.ContainerName()).Output(); err == nil {
-			labelsStr := string(out)
-			// Truncate to avoid huge log, just show traefik-relevant parts
-			if strings.Contains(labelsStr, "traefik") {
-				// Extract traefik labels for brevity
-				var labels map[string]string
-				if jsonErr := json.Unmarshal(out, &labels); jsonErr == nil {
-					var traefikLabels []string
-					for k, v := range labels {
-						if strings.HasPrefix(k, "traefik.") {
-							traefikLabels = append(traefikLabels, fmt.Sprintf("%s=%s", k, v))
-						}
-					}
-					sort.Strings(traefikLabels)
-					if len(traefikLabels) > 0 {
-						log(fmt.Sprintf("🏷️ Traefik labels (%d): %s", len(traefikLabels), strings.Join(traefikLabels, " | ")))
-					}
-				} else {
-					log("🏷️ Labels: " + labelsStr)
+		log(fmt.Sprintf("✅ Traefik running (%s)", traefikContainer))
+	}
+
+	// ── Traefik labels ──
+	labelCtx, labelCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer labelCancel()
+	if out, err := exec.CommandContext(labelCtx, "docker", "inspect", "-f", "{{json .Config.Labels}}", svc.ContainerName()).Output(); err == nil {
+		var labels map[string]string
+		if jsonErr := json.Unmarshal(out, &labels); jsonErr == nil {
+			var traefikLabels []string
+			for k, v := range labels {
+				if strings.HasPrefix(k, "traefik.") {
+					traefikLabels = append(traefikLabels, fmt.Sprintf("%s=%s", k, v))
 				}
+			}
+			sort.Strings(traefikLabels)
+			if len(traefikLabels) > 0 {
+				log(fmt.Sprintf("🏷️ Traefik labels (%d): %s", len(traefikLabels), strings.Join(traefikLabels, " | ")))
 			} else {
-				log("⚠️ No traefik labels found on container — Traefik will not route to it. Check deployment labels.")
+				log("⚠️ No traefik labels on container — Traefik will not route to it")
 			}
 		}
 	}
-	// Check app container status immediately after start
+
+	// ── App container status + startup logs ──
 	appCheckCtx, appCheckCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer appCheckCancel()
-	if out, err := exec.CommandContext(appCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", svc.ContainerName()).Output(); err == nil {
-		status := strings.TrimSpace(string(out))
-		log(fmt.Sprintf("📦 Container %s status: %s", svc.ContainerName(), status))
-		if strings.Contains(status, "running") {
-			log(fmt.Sprintf("   Try: curl -I http://%s:%d or docker logs --tail 50 %s", svc.Name, internalPort, svc.ContainerName()))
-			// Fetch recent container logs to show if app started correctly
-			logCtx, logCancel := context.WithTimeout(ctx, 3*time.Second)
-			defer logCancel()
-			if logOut, err := exec.CommandContext(logCtx, "docker", "logs", "--tail", "20", svc.ContainerName()).CombinedOutput(); err == nil && len(logOut) > 0 {
-				lines := strings.Split(strings.TrimSpace(string(logOut)), "\n")
-				// Show last 5 lines
-				start := 0
-				if len(lines) > 5 {
-					start = len(lines) - 5
-				}
-				for _, l := range lines[start:] {
-					l = strings.TrimSpace(l)
-					if l != "" {
-						// Strip timestamp prefix if present
-						if len(l) > 20 && l[4] == '-' && l[7] == '-' {
-							if idx := strings.Index(l, " "); idx > 0 {
-								l = l[idx+1:]
-							}
-						}
-						log(fmt.Sprintf("   [app] %s", l))
+	out, err := exec.CommandContext(appCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", svc.ContainerName()).Output()
+	if err != nil {
+		log(fmt.Sprintf("📦 Container %s: not found", svc.ContainerName()))
+		return
+	}
+	appStatus := strings.TrimSpace(string(out))
+	log(fmt.Sprintf("📦 Container %s: %s", svc.ContainerName(), appStatus))
+
+	if !strings.Contains(appStatus, "running") {
+		return
+	}
+
+	// Show last 5 lines of app logs
+	logCtx, logCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer logCancel()
+	if logOut, err := exec.CommandContext(logCtx, "docker", "logs", "--tail", "20", svc.ContainerName()).CombinedOutput(); err == nil && len(logOut) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(logOut)), "\n")
+		start := 0
+		if len(lines) > 5 {
+			start = len(lines) - 5
+		}
+		for _, l := range lines[start:] {
+			l = strings.TrimSpace(l)
+			if l != "" {
+				if len(l) > 20 && l[4] == '-' && l[7] == '-' {
+					if idx := strings.Index(l, " "); idx > 0 {
+						l = l[idx+1:]
 					}
 				}
+				log(fmt.Sprintf("   [app] %s", l))
 			}
-			// Internal health check — retry with backoff, try multiple tools (wget, node fetch)
-			time.Sleep(5 * time.Second)
-			internalOK := false
-			for attempt := 1; attempt <= 4; attempt++ {
-				// Try 1: wget via sh — avoid pipefail (ash doesn't support it), check output content directly
-				curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
-				curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("wget -qO- http://localhost:%d 2>&1; echo __EXIT:$?", internalPort))
-				out, err := curlCmd.CombinedOutput()
-				curlCancel()
-				outStr := string(out)
-				// Parse exit code from last line
-				lines := strings.Split(strings.TrimSpace(outStr), "\n")
-				exitOK := false
-				previewRaw := ""
-				if len(lines) > 0 {
-					lastLine := strings.TrimSpace(lines[len(lines)-1])
-					if strings.HasPrefix(lastLine, "__EXIT:") {
-						code := strings.TrimPrefix(lastLine, "__EXIT:")
-						if code == "0" {
-							exitOK = true
-						}
-						previewRaw = strings.Join(lines[:len(lines)-1], "\n")
-					} else {
-						previewRaw = outStr
-						exitOK = err == nil
-					}
+		}
+	}
+
+	// ── Internal health check ──
+	time.Sleep(5 * time.Second)
+	internalOK := false
+	for attempt := 1; attempt <= 4; attempt++ {
+		// Try 1: wget
+		curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
+		curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("wget -qO- http://localhost:%d 2>&1; echo __EXIT:$?", internalPort))
+		out, err := curlCmd.CombinedOutput()
+		curlCancel()
+		outStr := string(out)
+		lines := strings.Split(strings.TrimSpace(outStr), "\n")
+		exitOK := false
+		previewRaw := ""
+		if len(lines) > 0 {
+			lastLine := strings.TrimSpace(lines[len(lines)-1])
+			if strings.HasPrefix(lastLine, "__EXIT:") {
+				if strings.TrimPrefix(lastLine, "__EXIT:") == "0" {
+					exitOK = true
 				}
-				lowerPreview := strings.ToLower(previewRaw)
-				isErrorOutput := strings.Contains(lowerPreview, "can't connect") || strings.Contains(lowerPreview, "connection refused") || strings.Contains(lowerPreview, "wget: not found") || strings.Contains(lowerPreview, "not found") || strings.Contains(lowerPreview, "failed to connect")
-				if exitOK && !isErrorOutput && len(strings.TrimSpace(previewRaw)) > 20 {
-					preview := strings.ReplaceAll(strings.TrimSpace(previewRaw), "\n", " ")
-					if len(preview) > 200 {
-						preview = preview[:200] + "..."
-					}
-					log(fmt.Sprintf("✅ Internal check http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
-					internalOK = true
-					break
-				}
-				if isErrorOutput && attempt == 1 {
-					// Log first failure reason for debugging, but continue retrying
-					preview := strings.TrimSpace(previewRaw)
-					if len(preview) > 150 {
-						preview = preview[:150]
-					}
-					preview = strings.ReplaceAll(preview, "\n", " ")
-					log(fmt.Sprintf("   [health] attempt %d wget: %s (retrying...)", attempt, preview))
-				}
-				// Try 2: node fetch (Next.js standalone has node) — more reliable in minimal image
-				curlCtx2, curlCancel2 := context.WithTimeout(ctx, 5*time.Second)
-				nodeCmd := exec.CommandContext(curlCtx2, "docker", "exec", svc.ContainerName(), "node", "-e", fmt.Sprintf("fetch('http://localhost:%d').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(t=>{console.log(t.slice(0,400));process.stdout.write('__EXIT:0')}).catch(e=>{console.error(String(e));process.exit(1)})", internalPort))
-				out2, err2 := nodeCmd.CombinedOutput()
-				curlCancel2()
-				if err2 == nil && strings.Contains(string(out2), "__EXIT:0") {
-					preview := strings.TrimSpace(strings.ReplaceAll(string(out2), "__EXIT:0", ""))
-					preview = strings.ReplaceAll(preview, "\n", " ")
-					lower2 := strings.ToLower(preview)
-					if preview != "" && !strings.Contains(lower2, "econnrefused") && !strings.Contains(lower2, "fetch failed") {
-						if len(preview) > 200 {
-							preview = preview[:200] + "..."
-						}
-						log(fmt.Sprintf("✅ Internal check (node fetch) http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
-						internalOK = true
-						break
-					}
-				}
-				if attempt < 4 {
-					time.Sleep(3 * time.Second)
-				}
+				previewRaw = strings.Join(lines[:len(lines)-1], "\n")
+			} else {
+				previewRaw = outStr
+				exitOK = err == nil
 			}
-			if !internalOK {
-				log(fmt.Sprintf("⚠️ Internal check still not responding after retries — app may still be starting. Check docker logs %s and try curl from host: curl -I http://localhost:%d", svc.ContainerName(), internalPort))
-				// Fetch one more time fresh logs to show startup progress
-				logCtx2, logCancel2 := context.WithTimeout(ctx, 3*time.Second)
-				defer logCancel2()
-				if logOut2, err := exec.CommandContext(logCtx2, "docker", "logs", "--tail", "30", svc.ContainerName()).CombinedOutput(); err == nil && len(logOut2) > 0 {
-					lines2 := strings.Split(strings.TrimSpace(string(logOut2)), "\n")
-					start2 := 0
-					if len(lines2) > 8 {
-						start2 = len(lines2) - 8
-					}
-					for _, l := range lines2[start2:] {
-						l = strings.TrimSpace(l)
-						if l != "" {
-							if len(l) > 20 && l[4] == '-' && l[7] == '-' {
-								if idx := strings.Index(l, " "); idx > 0 {
-									l = l[idx+1:]
-								}
-							}
-							log(fmt.Sprintf("   [app] %s", l))
+		}
+		lowerPreview := strings.ToLower(previewRaw)
+		isErrorOutput := strings.Contains(lowerPreview, "can't connect") || strings.Contains(lowerPreview, "connection refused") || strings.Contains(lowerPreview, "wget: not found") || strings.Contains(lowerPreview, "not found") || strings.Contains(lowerPreview, "failed to connect")
+		if exitOK && !isErrorOutput && len(strings.TrimSpace(previewRaw)) > 20 {
+			preview := strings.ReplaceAll(strings.TrimSpace(previewRaw), "\n", " ")
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			log(fmt.Sprintf("✅ Internal check http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
+			internalOK = true
+			break
+		}
+		if isErrorOutput && attempt == 1 {
+			preview := strings.TrimSpace(previewRaw)
+			if len(preview) > 150 {
+				preview = preview[:150]
+			}
+			preview = strings.ReplaceAll(preview, "\n", " ")
+			log(fmt.Sprintf("   [health] attempt %d wget: %s (retrying...)", attempt, preview))
+		}
+		// Try 2: node fetch
+		curlCtx2, curlCancel2 := context.WithTimeout(ctx, 5*time.Second)
+		nodeCmd := exec.CommandContext(curlCtx2, "docker", "exec", svc.ContainerName(), "node", "-e", fmt.Sprintf("fetch('http://localhost:%d').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(t=>{console.log(t.slice(0,400));process.stdout.write('__EXIT:0')}).catch(e=>{console.error(String(e));process.exit(1)})", internalPort))
+		out2, err2 := nodeCmd.CombinedOutput()
+		curlCancel2()
+		if err2 == nil && strings.Contains(string(out2), "__EXIT:0") {
+			preview := strings.TrimSpace(strings.ReplaceAll(string(out2), "__EXIT:0", ""))
+			preview = strings.ReplaceAll(preview, "\n", " ")
+			lower2 := strings.ToLower(preview)
+			if preview != "" && !strings.Contains(lower2, "econnrefused") && !strings.Contains(lower2, "fetch failed") {
+				if len(preview) > 200 {
+					preview = preview[:200] + "..."
+				}
+				log(fmt.Sprintf("✅ Internal check (node fetch) http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
+				internalOK = true
+				break
+			}
+		}
+		if attempt < 4 {
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	if !internalOK {
+		log(fmt.Sprintf("⚠️ Internal check not responding — app may still be starting. Check: docker logs %s", svc.ContainerName()))
+		logCtx2, logCancel2 := context.WithTimeout(ctx, 3*time.Second)
+		defer logCancel2()
+		if logOut2, err := exec.CommandContext(logCtx2, "docker", "logs", "--tail", "30", svc.ContainerName()).CombinedOutput(); err == nil && len(logOut2) > 0 {
+			lines2 := strings.Split(strings.TrimSpace(string(logOut2)), "\n")
+			start2 := 0
+			if len(lines2) > 8 {
+				start2 = len(lines2) - 8
+			}
+			for _, l := range lines2[start2:] {
+				l = strings.TrimSpace(l)
+				if l != "" {
+					if len(l) > 20 && l[4] == '-' && l[7] == '-' {
+						if idx := strings.Index(l, " "); idx > 0 {
+							l = l[idx+1:]
 						}
 					}
+					log(fmt.Sprintf("   [app] %s", l))
 				}
 			}
 		}
 	}
-	log("   If domain shows empty page, check: 1) DNS propagation (dig A theroopsa.com), 2) Traefik running (docker ps | grep traefik), 3) container on nanofly-network (docker network inspect nanofly-network), 4) app logs (docker logs "+svc.ContainerName()+")")
+
+	// ── Troubleshooting (per-domain) ──
+	log("─── Troubleshooting ───")
+	log(fmt.Sprintf("   • app logs: docker logs --tail 50 %s", svc.ContainerName()))
+	log(fmt.Sprintf("   • Traefik:  docker logs --tail 20 %s", traefikContainer))
+	log(fmt.Sprintf("   • network:  docker network inspect %s", docker.NanoflyNetworkName()))
+	for _, d := range domains {
+		clean := strings.TrimPrefix(strings.TrimPrefix(d.domain, "https://"), "http://")
+		clean = strings.Split(clean, "/")[0]
+		clean = strings.Split(clean, "?")[0]
+		sslip := strings.Contains(clean, ".sslip.io")
+		cfProxied := !sslip && isDomainCloudflareProxied(clean)
+		if sslip {
+			log(fmt.Sprintf("   • %s: open https://%s in browser (sslip.io, no DNS setup needed)", clean, clean))
+		} else if cfProxied {
+			log(fmt.Sprintf("   • %s: check Cloudflare SSL mode (Flexible or Full) and A/AAAA record → %s", clean, clean))
+		} else {
+			log(fmt.Sprintf("   • %s: verify A/AAAA record → %s, then check Traefik logs for ACME errors", clean, clean))
+		}
+	}
+}
+
+func dnsHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	if strings.Contains(err.Error(), "no such host") {
+		return "domain does not exist or has no DNS record"
+	}
+	if strings.Contains(err.Error(), "i/o timeout") {
+		return "DNS query timed out"
+	}
+	return err.Error()
 }
 
 var cloudflareServiceIPs = []string{
