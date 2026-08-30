@@ -1759,30 +1759,80 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 	routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
 	log(fmt.Sprintf("🔗 Internal: http://%s:%d @ %s (router: %s)", svc.Name, internalPort, docker.NanoflyNetworkName(), routerName))
 	log(fmt.Sprintf("🚦 Traefik: %s → %s (TLS via letsencrypt, entrypoints websecure + http→https redirect for custom domains)", domains[0].domain, svc.ContainerName()))
-	// Check Traefik container status for diagnostics
-	traefikCheckCtx, traefikCancel := context.WithTimeout(ctx, 3*time.Second)
-	defer traefikCancel()
-	if out, err := exec.CommandContext(traefikCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", "nf-traefik").Output(); err == nil {
-		status := strings.TrimSpace(string(out))
-		if status == "running" {
-			log("✅ Traefik is running (nf-traefik)")
-		} else {
-			log(fmt.Sprintf("⚠️ Traefik container status: %s — check docker logs nf-traefik", status))
+	// Check Traefik container status for diagnostics (handles both nanofly-traefik and legacy nf-traefik)
+	traefikFound := false
+	for _, name := range []string{"nanofly-traefik", "nf-traefik"} {
+		traefikCheckCtx, traefikCancel := context.WithTimeout(ctx, 2*time.Second)
+		out, err := exec.CommandContext(traefikCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", name).Output()
+		traefikCancel()
+		if err == nil {
+			status := strings.TrimSpace(string(out))
+			traefikFound = true
+			if status == "running" {
+				log(fmt.Sprintf("✅ Traefik is running (%s)", name))
+			} else {
+				log(fmt.Sprintf("⚠️ Traefik container %s status: %s — check docker logs %s", name, status, name))
+			}
+			break
 		}
+	}
+	if !traefikFound {
+		log("⚠️ Traefik container not found (checked nanofly-traefik, nf-traefik) — run: docker ps -a | grep traefik and check install")
 	} else {
-		log("⚠️ Traefik container not found — run: docker ps -a | grep traefik and check install")
+		// Show app container's Traefik labels for debugging
+		labelCtx, labelCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer labelCancel()
+		if out, err := exec.CommandContext(labelCtx, "docker", "inspect", "-f", "{{json .Config.Labels}}", svc.ContainerName()).Output(); err == nil {
+			labelsStr := string(out)
+			// Truncate to avoid huge log, just show traefik-relevant parts
+			if strings.Contains(labelsStr, "traefik") {
+				// Extract traefik labels for brevity
+				var labels map[string]string
+				if jsonErr := json.Unmarshal(out, &labels); jsonErr == nil {
+					var traefikLabels []string
+					for k, v := range labels {
+						if strings.HasPrefix(k, "traefik.") {
+							traefikLabels = append(traefikLabels, fmt.Sprintf("%s=%s", k, v))
+						}
+					}
+					sort.Strings(traefikLabels)
+					if len(traefikLabels) > 0 {
+						log(fmt.Sprintf("🏷️ Traefik labels (%d): %s", len(traefikLabels), strings.Join(traefikLabels, " | ")))
+					}
+				} else {
+					log("🏷️ Labels: " + labelsStr)
+				}
+			} else {
+				log("⚠️ No traefik labels found on container — Traefik will not route to it. Check deployment labels.")
+			}
+		}
 	}
 	// Check app container status immediately after start
 	appCheckCtx, appCheckCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer appCheckCancel()
-	if out, err := exec.CommandContext(appCheckCtx, "docker", "inspect", "-f", "{{.State.Status}} ({{.State.Health.Status}})", svc.ContainerName()).Output(); err == nil {
+	if out, err := exec.CommandContext(appCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", svc.ContainerName()).Output(); err == nil {
 		status := strings.TrimSpace(string(out))
 		log(fmt.Sprintf("📦 Container %s status: %s", svc.ContainerName(), status))
 		if strings.Contains(status, "running") {
 			log(fmt.Sprintf("   Try: curl -I http://%s:%d or docker logs --tail 50 %s", svc.Name, internalPort, svc.ContainerName()))
+			// Quick internal curl test after short wait
+			time.Sleep(2 * time.Second)
+			curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer curlCancel()
+			curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "wget", "-qO-", fmt.Sprintf("http://localhost:%d", internalPort))
+			if out, err := curlCmd.CombinedOutput(); err == nil && len(out) > 0 {
+				preview := strings.TrimSpace(string(out))
+				if len(preview) > 200 {
+					preview = preview[:200] + "..."
+				}
+				preview = strings.ReplaceAll(preview, "\n", " ")
+				log(fmt.Sprintf("✅ Internal curl http://localhost:%d returned %d bytes: %s", internalPort, len(out), preview))
+			} else if err != nil {
+				log(fmt.Sprintf("⚠️ Internal curl failed (app may still be starting): %v — check docker logs %s", err, svc.ContainerName()))
+			}
 		}
 	}
-	log("   If domain shows empty page, check: 1) DNS propagation (dig A theroopsa.com), 2) Traefik running (docker ps | grep nf-traefik), 3) container on nanofly-network (docker network inspect nanofly-network), 4) app logs (docker logs "+svc.ContainerName()+")")
+	log("   If domain shows empty page, check: 1) DNS propagation (dig A theroopsa.com), 2) Traefik running (docker ps | grep traefik), 3) container on nanofly-network (docker network inspect nanofly-network), 4) app logs (docker logs "+svc.ContainerName()+")")
 }
 
 // gitDeploy clones a repo and runs the app inside Docker.
