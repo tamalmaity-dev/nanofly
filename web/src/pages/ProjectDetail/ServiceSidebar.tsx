@@ -45,6 +45,7 @@ export function ServiceSidebar({ service, activeTab, onSelect, domains, project 
     {
       title: 'Automation',
       items: [
+        { id: 'webhooks', label: 'Webhooks', icon: Globe },
         { id: 'backup', label: 'Backups', icon: Database },
       ],
     },
@@ -67,6 +68,13 @@ export function ServiceSidebar({ service, activeTab, onSelect, domains, project 
         { id: 'logs', label: 'Runtime Logs', icon: FileText },
         ...(service?.type !== 'database' ? [{ id: 'terminal', label: 'Terminal', icon: TerminalSquare }] : []),
         { id: 'monitoring', label: 'Monitoring', icon: Cpu },
+      ],
+    },
+    {
+      title: 'Deploy',
+      items: [
+        ...(service?.git_repo_url && !service?.git_repo_url?.startsWith('file://') ? [{ id: 'gitsource', label: 'Git Source', icon: GitBranch }] : []),
+        { id: 'servers', label: 'Servers', icon: Server },
       ],
     },
     {

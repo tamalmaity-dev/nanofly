@@ -77,18 +77,19 @@ export function GitSourcePanel({ service, onUpdate }) {
   };
 
   const handleSave = async () => {
-    if (!githubAppId) {
-      toast.error('Select a GitHub App');
+    if (!githubAppId && !gitUrl.trim()) {
+      toast.error('Select a GitHub App or enter a repository URL');
       return;
     }
     setSaving(true);
     try {
       const repoUrl = gitUrl.trim() || PENDING_REPO;
-      await servicesApi.update(service.id, {
-        github_app_id: githubAppId,
+      const payload = {
         git_repo_url: repoUrl,
         git_branch: branch.trim() || 'main',
-      });
+      };
+      if (githubAppId) payload.github_app_id = githubAppId;
+      await servicesApi.update(service.id, payload);
       markPendingRedeploy(service.id);
       toast.info('Git source saved — Redeploy to apply changes');
       onUpdate();
@@ -102,7 +103,7 @@ export function GitSourcePanel({ service, onUpdate }) {
     <div>
       <ConfigSection
         title="Git repository"
-        desc="Select your GitHub App. The repository links automatically on the first push via the app webhook."
+        desc="Connect a GitHub App for managed webhooks or enter a repository URL manually."
       >
         <div className="form-group">
           <label className="form-label">Branch</label>
@@ -110,10 +111,10 @@ export function GitSourcePanel({ service, onUpdate }) {
         </div>
 
         <div className="form-group">
-          <label className="form-label">GitHub App *</label>
+          <label className="form-label">GitHub App <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
           {githubApps.length === 0 ? (
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              <Link to="/sources">Add a GitHub App in Sources</Link> first, then install it on your org/repos.
+              No GitHub App is configured. You can <Link to="/sources">add one in Sources</Link>, or use a repository URL below.
             </p>
           ) : (
             <SelectRoot value={githubAppId || undefined} onValueChange={setGithubAppId}>
@@ -149,6 +150,13 @@ export function GitSourcePanel({ service, onUpdate }) {
                 </SelectContent>
               </SelectRoot>
             )}
+          </div>
+        )}
+
+        {!githubAppId && (
+          <div className="form-group">
+            <label className="form-label">Repository URL</label>
+            <input className="form-input" value={gitUrl} onChange={e => setGitUrl(e.target.value)} placeholder="https://github.com/owner/repository.git" />
           </div>
         )}
 

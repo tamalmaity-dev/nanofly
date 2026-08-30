@@ -17,6 +17,10 @@ import { EnvVarsPanel } from './ProjectDetail/EnvVarsPanel';
 import { ComposeEnvVarsPanel } from './ProjectDetail/ComposeEnvVarsPanel';
 import { ServiceSidebar } from './ProjectDetail/ServiceSidebar';
 import { DeploymentLogsPanel } from './ProjectDetail/DeploymentLogsPanel';
+import { DomainsPanel } from './ProjectDetail/DomainsPanel';
+import { GeneralSettingsPanel } from './ProjectDetail/GeneralSettingsPanel';
+import { GitSourcePanel } from './ProjectDetail/GitSourcePanel';
+import { WebhookPanel } from './ProjectDetail/WebhookPanel';
 import { GitHubAppWizard } from './ProjectDetail/github-app/GitHubAppWizard';
 import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
@@ -1862,7 +1866,7 @@ function ContainerLogsPanel({ serviceId, services = [], selectedSvc = null }) {
 }
 
 //  Webhook Panel 
-function WebhookPanel({ serviceId, githubAppId, gitRepoUrl }) {
+function LegacyWebhookPanel({ serviceId, githubAppId, gitRepoUrl }) {
   const [copied, setCopied] = useState(false);
   const isGitHubApp = !!githubAppId;
   const webhookUrl = isGitHubApp
@@ -3376,7 +3380,7 @@ export default function ProjectDetail() {
           const isCompose = selectedSvc.git_builder === 'docker-compose' || selectedSvc.docker_compose_content;
           return (
             <div style={{ display: 'flex', gap: '1.25rem', minHeight: 500, alignItems: 'flex-start' }}>
-              <ServiceSidebar service={selectedSvc} activeTab={activeTab} onSelect={setActiveTab} />
+              <ServiceSidebar service={selectedSvc} activeTab={activeTab} onSelect={setActiveTab} domains={domains} project={project} />
 
               {/* Right content */}
               <div className="card hover-glow" style={{ flex: 1, minWidth: 0, padding: '1.5rem' }}>
@@ -3455,10 +3459,17 @@ export default function ProjectDetail() {
                   )
                 )}
                 {activeTab === 'webhooks' && (selectedSvc.github_app_id || (selectedSvc.git_repo_url && !selectedSvc.git_repo_url.startsWith('file://'))) && (
-                  <WebhookPanel serviceId={activeSvc} githubAppId={selectedSvc.github_app_id} gitRepoUrl={selectedSvc.git_repo_url} />
+                  <WebhookPanel service={selectedSvc} />
+                )}
+                {activeTab === 'gitsource' && selectedSvc.type !== 'database' && (
+                  <GitSourcePanel service={selectedSvc} onUpdate={load} />
                 )}
                 {activeTab === 'files' && selectedSvc.git_repo_url?.startsWith('file://') && <SourceFilesPanel service={selectedSvc} />}
-                {activeTab === 'configuration' && <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />}
+                {activeTab === 'configuration' && (selectedSvc.type === 'database' ? (
+                  <SettingsPanel service={selectedSvc} project={project} domains={domains} services={services} onUpdate={load} />
+                ) : (
+                  <GeneralSettingsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} onNavigateTab={setActiveTab} />
+                ))}
                 {activeTab === 'backup' && <BackupRestorePanel service={selectedSvc} />}
                 {activeTab === 'envvars' && (
                   isCompose ? (
@@ -3467,25 +3478,7 @@ export default function ProjectDetail() {
                     <EnvVarsPanel serviceId={activeSvc} />
                   )
                 )}
-                {activeTab === 'domains' && (
-                  <div>
-                    <h3 style={{ margin: '0 0 12px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Domains</h3>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 16 }}>Domains routed to this service via Traefik.</p>
-                    {domains.filter(d => d.service === selectedSvc.name && d.project === project?.name).length === 0 ? (
-                      <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)' }}>No domains assigned. Add one in the project Domains page.</div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {domains.filter(d => d.service === selectedSvc.name && d.project === project?.name).map(d => (
-                          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-                            <Globe size={14} style={{ color: 'var(--accent)' }} />
-                            <a href={`https://${d.domain}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.85rem' }}>{d.domain}</a>
-                            <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.type || 'auto'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {activeTab === 'domains' && <DomainsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />}
                 {activeTab === 'compose' && isCompose && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

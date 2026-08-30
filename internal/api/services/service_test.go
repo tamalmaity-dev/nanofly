@@ -58,6 +58,63 @@ func TestServiceBuildHashChangesWithBuildInputs(t *testing.T) {
 	}
 }
 
+func TestSyncServicePortsKeepsContainerAndExposedPortsAligned(t *testing.T) {
+	cases := []struct {
+		name        string
+		port        int
+		exposed     int
+		wantPort    int
+		wantExposed int
+	}{
+		{name: "container port updates exposed port", port: 4000, exposed: 0, wantPort: 4000, wantExposed: 4000},
+		{name: "exposed port fills missing container port", port: 0, exposed: 5000, wantPort: 5000, wantExposed: 5000},
+		{name: "explicit values are preserved", port: 3000, exposed: 8080, wantPort: 3000, wantExposed: 8080},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			port, exposed := syncServicePorts(tc.port, tc.exposed)
+			if port != tc.wantPort || exposed != tc.wantExposed {
+				t.Fatalf("syncServicePorts(%d, %d) = (%d, %d), want (%d, %d)", tc.port, tc.exposed, port, exposed, tc.wantPort, tc.wantExposed)
+			}
+		})
+	}
+}
+
+func TestOptimizedNodeInstallCommandAddsCacheFriendlyFlags(t *testing.T) {
+	command := optimizedNodeInstallCommand("npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund")
+	for _, invocation := range []string{"npm ci", "npm install"} {
+		start := strings.Index(command, invocation)
+		if start < 0 {
+			t.Fatalf("optimized command %q does not contain %q", command, invocation)
+		}
+		end := len(command)
+		for _, separator := range []string{"&&", "||", ";"} {
+			if next := strings.Index(command[start+len(invocation):], separator); next >= 0 && start+len(invocation)+next < end {
+				end = start + len(invocation) + next
+			}
+		}
+		segment := command[start:end]
+		for _, flag := range []string{"--prefer-offline", "--no-audit", "--no-fund", "--progress=false"} {
+			if !strings.Contains(segment, flag) {
+				t.Errorf("command segment %q does not contain %q", segment, flag)
+			}
+		}
+	}
+}
+
+func TestBuildProgressStageIdentifiesQuietDockerSteps(t *testing.T) {
+	cases := map[string]string{
+		"#10 [deps 4/4] RUN npm ci --prefer-offline": "Dependency installation (npm ci)",
+		"#13 [builder 5/5] RUN npm run build":        "Application compilation (Next.js)",
+		"#6 [internal] load build context":           "Docker context transfer",
+	}
+	for line, want := range cases {
+		if got := buildProgressStage(line); got != want {
+			t.Errorf("buildProgressStage(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
 func TestLogBuildContextSummaryReportsLargestFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "small.txt"), []byte("small"), 0644); err != nil {
@@ -122,5 +179,21 @@ func TestRecoverInterruptedDeployments(t *testing.T) {
 	}
 	if deploymentStatus != "error" || serviceStatus != "error" || !strings.Contains(log, "interrupted") {
 		t.Fatalf("recovered deployment = status %q, service %q, log %q", deploymentStatus, serviceStatus, log)
+	}
+
+	// A Git Source panel updates only git_sources. Ensure that update is not
+	// short-circuited by the service-column update path.
+	if _, err := manager.Update(ctx, "service-1", UpdateServiceReq{
+		GitRepoURL: "https://github.com/example/web.git",
+		GitBranch:  "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var repoURL string
+	if err := database.QueryRowContext(ctx, `SELECT repo_url FROM git_sources WHERE service_id='service-1'`).Scan(&repoURL); err != nil {
+		t.Fatal(err)
+	}
+	if repoURL != "https://github.com/example/web.git" {
+		t.Fatalf("saved git source URL = %q", repoURL)
 	}
 }

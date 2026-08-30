@@ -727,6 +727,20 @@ type CreateAppReq struct {
 	Volumes              string `json:"volumes"` // JSON array of volume mounts
 }
 
+// syncServicePorts keeps the application port and the Docker exposed port
+// aligned when a client updates only one of the legacy fields. The UI sends
+// both fields, but this also protects API clients and older saved forms from
+// producing a container whose routing port differs from its runtime port.
+func syncServicePorts(port, exposed int) (int, int) {
+	if port == 0 && exposed > 0 {
+		port = exposed
+	}
+	if exposed == 0 && port > 0 {
+		exposed = port
+	}
+	return port, exposed
+}
+
 // CreateApp creates an App service record (doesn't deploy yet).
 func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, error) {
 	// Reject duplicate service names within the same project. A unique index
@@ -736,6 +750,7 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("service name is required")
 	}
+	req.Port, req.PortsExposes = syncServicePorts(req.Port, req.PortsExposes)
 	name := docker.SafeName(req.Name)
 	var existingID string
 	_ = m.db.QueryRowContext(ctx,
@@ -2059,7 +2074,9 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 	if svc.PortMappings != "" {
 		runArgs = append(runArgs, "-p", svc.PortMappings)
 	} else if svc.Port > 0 {
-		runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", svc.Port, svc.Port))
+		// Port is the host/listening port and containerPort is the port exposed
+		// by the image. Keep an explicit mapping when those values differ.
+		runArgs = append(runArgs, "-p", fmt.Sprintf("%d:%d", svc.Port, containerPort))
 	}
 
 	if containerPort > 0 {
@@ -2268,6 +2285,40 @@ func writeGeneratedDockerfile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
+// optimizedNodeInstallCommand makes generated and patched npm installs cache-first
+// and quiet enough for BuildKit to report useful stage progress. It deliberately
+// preserves the user's command and only adds safe npm flags when missing.
+func optimizedNodeInstallCommand(command string) string {
+	for _, invocation := range []string{"npm ci", "npm install"} {
+		offset := 0
+		for offset < len(command) {
+			relative := strings.Index(command[offset:], invocation)
+			if relative < 0 {
+				break
+			}
+			start := offset + relative
+			end := len(command)
+			for _, separator := range []string{"&&", "||", ";"} {
+				if next := strings.Index(command[start+len(invocation):], separator); next >= 0 {
+					candidate := start + len(invocation) + next
+					if candidate < end {
+						end = candidate
+					}
+				}
+			}
+			segment := command[start:end]
+			for _, flag := range []string{"--prefer-offline", "--no-audit", "--no-fund", "--progress=false"} {
+				if !strings.Contains(segment, flag) {
+					segment = strings.Replace(segment, invocation, invocation+" "+flag, 1)
+				}
+			}
+			command = command[:start] + segment + command[end:]
+			offset = start + len(segment)
+		}
+	}
+	return command
+}
+
 // detectAndWriteDockerfile checks if a Dockerfile exists, and if not, detects the runtime and generates one.
 func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool, log func(string)) error {
 	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
@@ -2315,10 +2366,9 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand
 		log("ℹ️ Using NodeJS runtime template (" + baseImage + "). Generating optimized Dockerfile…")
 		install := strings.TrimSpace(installCommand)
 		if install == "" {
-			install = "npm ci --no-audit --no-fund"
-		} else if !strings.Contains(install, "--no-audit") && strings.Contains(install, "npm") {
-			install += " --no-audit --no-fund"
+			install = "if [ -f package-lock.json ]; then npm ci; else npm install; fi"
 		}
+		install = optimizedNodeInstallCommand(install)
 		cmd := strings.TrimSpace(startCommand)
 		if cmd == "" {
 			cmd = "npm start"
@@ -2348,7 +2398,7 @@ FROM %s AS deps
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit --no-fund --progress=false; else npm install --prefer-offline --no-audit --no-fund --progress=false; fi
 
 FROM %s AS builder
 WORKDIR /app
@@ -2375,7 +2425,7 @@ FROM %s AS deps
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit --no-fund --progress=false; else npm install --prefer-offline --no-audit --no-fund --progress=false; fi
 
 FROM %s AS builder
 WORKDIR /app
@@ -2474,10 +2524,9 @@ EXPOSE %s
 		log("ℹ️ Detected Node.js runtime. Generating optimized Dockerfile…")
 		install := strings.TrimSpace(installCommand)
 		if install == "" {
-			install = "npm ci --no-audit --no-fund"
-		} else if !strings.Contains(install, "--no-audit") && strings.Contains(install, "npm") {
-			install += " --no-audit --no-fund"
+			install = "if [ -f package-lock.json ]; then npm ci; else npm install; fi"
 		}
+		install = optimizedNodeInstallCommand(install)
 		cmd := strings.TrimSpace(startCommand)
 		if cmd == "" {
 			cmd = "npm start"
@@ -2505,7 +2554,7 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit --no-fund --progress=false; else npm install --prefer-offline --no-audit --no-fund --progress=false; fi
 
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -2532,7 +2581,7 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit --no-fund --progress=false; else npm install --prefer-offline --no-audit --no-fund --progress=false; fi
 
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -2657,28 +2706,28 @@ func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 		patched = true
 	}
 
-	// 2. Patch npm ci / npm install to add --no-audit --no-fund and optionally cache mount
+	// 2. Patch npm ci / npm install to prefer the local cache, avoid audit/network
+	// overhead, and optionally add a BuildKit cache mount.
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "RUN") {
 			continue
 		}
-		// Skip if already has cache mount
-		if strings.Contains(trimmed, "--mount=type=cache") {
-			continue
+		// Patch every npm invocation, including a line that already has a
+		// BuildKit cache mount from an earlier deployment. The old implementation
+		// skipped those lines, so existing Dockerfiles never received
+		// --prefer-offline and --progress=false.
+		if strings.Contains(trimmed, "npm ci") || strings.Contains(trimmed, "npm install") {
+			optimized := optimizedNodeInstallCommand(line)
+			if optimized != line {
+				lines[i] = optimized
+				patched = true
+			}
 		}
-		if strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--no-audit") {
-			lines[i] = strings.Replace(line, "npm ci", "npm ci --no-audit --no-fund", 1)
-			if hasBuildKit {
-				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
-			}
-			patched = true
-		} else if strings.Contains(trimmed, "npm install") && !strings.Contains(trimmed, "--no-audit") {
-			lines[i] = strings.Replace(line, "npm install", "npm install --no-audit --no-fund", 1)
-			if hasBuildKit {
-				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
-			}
+		trimmed = strings.TrimSpace(lines[i])
+		if hasBuildKit && (strings.Contains(trimmed, "npm ci") || strings.Contains(trimmed, "npm install")) && !strings.Contains(trimmed, "--mount=type=cache") {
+			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
 			patched = true
 		} else if hasBuildKit && strings.Contains(trimmed, "yarn install") && !strings.Contains(trimmed, "--mount") {
 			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/usr/local/share/.cache/yarn ", 1)
@@ -2686,13 +2735,6 @@ func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 		} else if hasBuildKit && strings.Contains(trimmed, "pnpm install") && !strings.Contains(trimmed, "--mount") {
 			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.local/share/pnpm/store ", 1)
 			patched = true
-		}
-		// Also add cache mount to plain `RUN npm ci` that already has --no-audit but no cache (BuildKit only)
-		if hasBuildKit && strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--mount=type=cache") && strings.Contains(lines[i], "npm ci") {
-			if !strings.Contains(lines[i], "--mount") {
-				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
-				patched = true
-			}
 		}
 		// Next.js persists compiler output in .next/cache. Reusing it is
 		// especially important for large applications where dependency layers
@@ -3433,6 +3475,8 @@ type UpdateServiceReq struct {
 // (e.g. Persistent Storage, Environment Variables) to save their own
 // slice without overwriting unrelated columns.
 func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServiceReq) (*Service, error) {
+	req.Port, req.PortsExposes = syncServicePorts(req.Port, req.PortsExposes)
+
 	// Reject name collisions on rename (DB unique index would also enforce this,
 	// but a friendly pre-check beats a raw UNIQUE constraint error).
 	if strings.TrimSpace(req.Name) != "" {
@@ -3512,24 +3556,19 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 	addStr("healthcheck_path", req.HealthcheckPath)
 	addInt("healthcheck_port", req.HealthcheckPort)
 
-	if len(setClauses) == 0 {
-		return m.Get(ctx, serviceID)
+	if len(setClauses) > 0 {
+		// Always touch updated_at when a service column changed. Git source-only
+		// updates must continue below instead of returning before persistence.
+		setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
+		args = append(args, serviceID)
+
+		query := "UPDATE services SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
+		if _, err := m.db.ExecContext(ctx, query, args...); err != nil {
+			return nil, fmt.Errorf("updating service table: %w", err)
+		}
 	}
 
-	// Always touch updated_at.
-	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
-	args = append(args, serviceID)
-
-	query := "UPDATE services SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
-	_, err := m.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("updating service table: %w", err)
-	}
-
-	builderVal := req.Builder
-	if builderVal == "" {
-		builderVal = "auto"
-	}
+	builderVal := strings.TrimSpace(req.Builder)
 
 	// Only touch git_sources if GitRepoURL was explicitly provided.
 	if req.GitRepoURL != "" || req.GitBranch != "" || req.GitToken != "" || req.SSHKey != "" || req.GitHubAppID != nil {
@@ -3540,20 +3579,39 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 				_, _ = m.db.ExecContext(ctx, `DELETE FROM git_sources WHERE service_id = ?`, serviceID)
 			} else {
 				if req.GitHubAppID != nil {
-					_, _ = m.db.ExecContext(ctx, `
-						UPDATE git_sources
-						SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?, github_app_id = ?
-						WHERE service_id = ?
-					`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
+					if builderVal == "" {
+						_, _ = m.db.ExecContext(ctx, `
+							UPDATE git_sources
+							SET repo_url = ?, branch = ?, git_token = ?, ssh_key = ?, github_app_id = ?
+							WHERE service_id = ?
+						`, req.GitRepoURL, req.GitBranch, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
+					} else {
+						_, _ = m.db.ExecContext(ctx, `
+							UPDATE git_sources
+							SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?, github_app_id = ?
+							WHERE service_id = ?
+						`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
+					}
 				} else {
-					_, _ = m.db.ExecContext(ctx, `
-						UPDATE git_sources
-						SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
-						WHERE service_id = ?
-					`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+					if builderVal == "" {
+						_, _ = m.db.ExecContext(ctx, `
+							UPDATE git_sources
+							SET repo_url = ?, branch = ?, git_token = ?, ssh_key = ?
+							WHERE service_id = ?
+						`, req.GitRepoURL, req.GitBranch, req.GitToken, req.SSHKey, serviceID)
+					} else {
+						_, _ = m.db.ExecContext(ctx, `
+							UPDATE git_sources
+							SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
+							WHERE service_id = ?
+						`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+					}
 				}
 			}
 		} else if req.GitRepoURL != "" {
+			if builderVal == "" {
+				builderVal = "auto"
+			}
 			var appID interface{}
 			if req.GitHubAppID != nil {
 				appID = *req.GitHubAppID
@@ -4321,6 +4379,7 @@ type logWriter struct {
 	mu         sync.Mutex
 	buffer     strings.Builder
 	lastOutput time.Time
+	lastLine   string
 }
 
 func (w *logWriter) Write(p []byte) (n int, err error) {
@@ -4329,12 +4388,16 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 	var lines []string
 	for _, b := range p {
 		if b == '\n' {
-			lines = append(lines, w.buffer.String())
+			line := w.buffer.String()
+			lines = append(lines, line)
+			w.lastLine = line
 			w.buffer.Reset()
 		} else if b == '\r' {
 			// Flush on carriage return — Docker uses \r for in-place progress
 			if w.buffer.Len() > 0 {
-				w.logFunc(w.buffer.String())
+				line := w.buffer.String()
+				lines = append(lines, line)
+				w.lastLine = line
 				w.buffer.Reset()
 			}
 		} else {
@@ -4353,6 +4416,7 @@ func (w *logWriter) Flush() {
 	line := ""
 	if w.buffer.Len() > 0 {
 		line = w.buffer.String()
+		w.lastLine = line
 		w.buffer.Reset()
 	}
 	w.mu.Unlock()
@@ -4371,6 +4435,50 @@ func (w *logWriter) idleFor() time.Duration {
 	return time.Since(lastOutput)
 }
 
+func (w *logWriter) quietStage() string {
+	w.mu.Lock()
+	lastLine := w.lastLine
+	w.mu.Unlock()
+	return buildProgressStage(lastLine)
+}
+
+func buildProgressStage(line string) string {
+	lower := strings.ToLower(line)
+	switch {
+	case strings.Contains(lower, "npm ci"):
+		return "Dependency installation (npm ci)"
+	case strings.Contains(lower, "npm install"):
+		return "Dependency installation (npm install)"
+	case strings.Contains(lower, "npm run build"), strings.Contains(lower, "next build"):
+		return "Application compilation (Next.js)"
+	case strings.Contains(lower, "load build context"):
+		return "Docker context transfer"
+	case strings.Contains(lower, "copy --from=deps"):
+		return "Copying installed dependencies into the build stage"
+	case strings.Contains(lower, "resolve image config"), strings.Contains(lower, "load metadata"):
+		return "Resolving the Docker base image"
+	}
+	return ""
+}
+
+func commandProgressStage(cmd *exec.Cmd) string {
+	command := strings.ToLower(strings.Join(cmd.Args, " "))
+	switch {
+	case strings.Contains(command, "git clone"):
+		return "Repository clone"
+	case strings.Contains(command, "docker build"):
+		return "Docker build"
+	case strings.Contains(command, "docker compose"):
+		return "Docker Compose deployment"
+	case strings.Contains(command, "docker push"):
+		return "Image push"
+	case strings.Contains(command, "docker tag"):
+		return "Image tagging"
+	default:
+		return "Command"
+	}
+}
+
 func runCommandStreaming(cmd *exec.Cmd, log func(string)) error {
 	writer := &logWriter{logFunc: log, lastOutput: time.Now()}
 	cmd.Stdout = writer
@@ -4382,6 +4490,7 @@ func runCommandStreaming(cmd *exec.Cmd, log func(string)) error {
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	lastHeartbeat := time.Time{}
+	commandStage := commandProgressStage(cmd)
 	for {
 		select {
 		case err := <-commandDone:
@@ -4390,7 +4499,11 @@ func runCommandStreaming(cmd *exec.Cmd, log func(string)) error {
 		case now := <-heartbeat.C:
 			if writer.idleFor() >= 15*time.Second && (lastHeartbeat.IsZero() || now.Sub(lastHeartbeat) >= 30*time.Second) {
 				lastHeartbeat = now
-				log("[progress] Command is still running; no output for 15s (Docker may be transferring or compiling).")
+				stage := writer.quietStage()
+				if stage == "" {
+					stage = commandStage
+				}
+				log(fmt.Sprintf("[progress] %s is still running; no output for 15s.", stage))
 			}
 		}
 	}
