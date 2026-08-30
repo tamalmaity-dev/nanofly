@@ -388,8 +388,23 @@ func (h *Handler) GetCompose(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "service is not a docker-compose service")
 		return
 	}
+
+	content := svc.DockerComposeContent
+
+	// For file:// services, read from disk if DB content is empty
+	if content == "" && strings.HasPrefix(svc.GitRepoURL, "file://") {
+		localPath := strings.TrimPrefix(svc.GitRepoURL, "file://")
+		for _, name := range composeFileNames {
+			path := filepath.Join(localPath, name)
+			if data, err := os.ReadFile(path); err == nil {
+				content = string(data)
+				break
+			}
+		}
+	}
+
 	response.JSON(w, http.StatusOK, map[string]string{
-		"content": svc.DockerComposeContent,
+		"content": content,
 	})
 }
 
