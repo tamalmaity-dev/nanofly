@@ -3307,11 +3307,23 @@ export default function ProjectDetail() {
                   <ExternalLink size={13} /> {httpsUrl}
                 </a>
               )}
-              {selectedSvc.resource_tier && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
-                  <Cpu size={14} color="var(--text-secondary)" /> Tier: <span style={{ textTransform: 'capitalize' }}>{selectedSvc.resource_tier}</span>
-                </span>
-              )}
+              {selectedSvc.resource_tier && (() => {
+                const TIER_MAP = {
+                  nano: { cpu: '0.25', mem: '128MB' },
+                  micro: { cpu: '0.50', mem: '256MB' },
+                  standard: { cpu: '1.0', mem: '512MB' },
+                  large: { cpu: '2.0', mem: '1GB' },
+                  unlimited: { cpu: '∞', mem: '∞' },
+                };
+                const tier = TIER_MAP[selectedSvc.resource_tier] || TIER_MAP.micro;
+                const cpuLabel = selectedSvc.custom_cpu ? `${selectedSvc.custom_cpu} CPU` : `${tier.cpu} CPU`;
+                const memLabel = selectedSvc.custom_memory ? `${Math.round(selectedSvc.custom_memory / 1024 / 1024)}MB` : tier.mem;
+                return (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '20px' }}>
+                    <Cpu size={14} color="var(--text-secondary)" /> {cpuLabel} · {memLabel}
+                  </span>
+                );
+              })()}
             </div>
 
             {selectedSvc.status === 'oom_killed' && (
