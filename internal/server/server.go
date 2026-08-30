@@ -209,6 +209,10 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Get("/settings/backups/{name}/download", s.handleBackupDownload)
 		r.Delete("/settings/backups/{name}", s.handleBackupDelete)
 
+		// Webhook delivery log + test
+		r.Get("/services/{serviceID}/webhook-log", s.handleWebhookLog)
+		r.Post("/services/{serviceID}/webhook-test", s.handleWebhookTest)
+
 		// GitHub Apps (authenticated: list, get, delete, create manifest)
 		r.Mount("/github/app", s.githubAppRouter())
 	})
@@ -523,6 +527,48 @@ func (s *Server) handleTerminalStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/v1/services/{serviceID}/webhook-log — list recent webhook deliveries
+func (s *Server) handleWebhookLog(w http.ResponseWriter, r *http.Request) {
+	serviceID := chi.URLParam(r, "serviceID")
+	limit := 20
+	deliveries, err := s.serviceMgr.ListWebhookDeliveries(r.Context(), serviceID, limit)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, deliveries)
+}
+
+// POST /api/v1/services/{serviceID}/webhook-test — simulate a webhook push for testing
+func (s *Server) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
+	serviceID := chi.URLParam(r, "serviceID")
+	slog.Info("webhook test triggered", "service_id", serviceID)
+
+	svc, err := s.serviceMgr.Get(r.Context(), serviceID)
+	if err != nil {
+		response.Error(w, http.StatusNotFound, "service not found")
+		return
+	}
+
+	s.serviceMgr.LogWebhook(r.Context(), serviceID, "test", svc.GitRepoURL, svc.GitBranch, "", "triggered", "manual test from UI", r.RemoteAddr)
+
+	commitSHA := ""
+	commitMsg := "manual webhook test"
+	_, deployErr := s.serviceMgr.Deploy(r.Context(), serviceID, services.DeployOptions{
+		Trigger:   "webhook",
+		CommitSHA: commitSHA,
+		CommitMsg: commitMsg,
+	})
+	if deployErr != nil {
+		s.serviceMgr.LogWebhook(r.Context(), serviceID, "test", svc.GitRepoURL, svc.GitBranch, "", "failed", deployErr.Error(), r.RemoteAddr)
+		response.Error(w, http.StatusInternalServerError, deployErr.Error())
+		return
+	}
+
+	s.serviceMgr.LogWebhook(r.Context(), serviceID, "test", svc.GitRepoURL, svc.GitBranch, "", "deploy_triggered", "deployment started", r.RemoteAddr)
+	response.JSON(w, http.StatusOK, map[string]string{"status": "deployment triggered"})
+}
+
 // POST /api/webhooks/{serviceID} — GitHub push webhook, triggers redeploy
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	serviceID := chi.URLParam(r, "serviceID")
@@ -558,12 +604,15 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		commitMsg = payload.Commits[0].Message
 	}
 	slog.Info("webhook: parsed payload", "service_id", serviceID, "branch", branch, "commit", commitSHA)
+	s.serviceMgr.LogWebhook(r.Context(), serviceID, "per-service", "", branch, commitSHA, "received", "", r.RemoteAddr)
 
 	if err := s.serviceMgr.HandleWebhook(r.Context(), serviceID, branch, commitSHA, commitMsg); err != nil {
 		slog.Error("webhook: deployment failed", "service_id", serviceID, "error", err)
+		s.serviceMgr.LogWebhook(r.Context(), serviceID, "per-service", "", branch, commitSHA, "failed", err.Error(), r.RemoteAddr)
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.serviceMgr.LogWebhook(r.Context(), serviceID, "per-service", "", branch, commitSHA, "deploy_triggered", "deployment started", r.RemoteAddr)
 	slog.Info("webhook: deployment triggered", "service_id", serviceID)
 	response.JSON(w, http.StatusOK, map[string]string{"status": "deployment triggered"})
 }
@@ -667,6 +716,7 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 
 	if len(serviceIDs) == 0 {
 		slog.Warn("github webhook: no matching services found", "repo", repoUrl, "branch", branch, "installation_id", payload.Installation.ID)
+		s.serviceMgr.LogWebhook(r.Context(), "", "github-app", repoUrl, branch, "", "no_match", fmt.Sprintf("installation_id=%d", payload.Installation.ID), r.RemoteAddr)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -681,6 +731,7 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, sid := range serviceIDs {
+		s.serviceMgr.LogWebhook(r.Context(), sid, "github-app", repoUrl, branch, commitSHA, "received", "", r.RemoteAddr)
 		sid := sid
 		go func() {
 			slog.Info("github webhook: deploying", "service_id", sid, "commit", commitSHA)
@@ -691,6 +742,9 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				slog.Error("github webhook: deploy failed", "service_id", sid, "error", err)
+				s.serviceMgr.LogWebhook(context.Background(), sid, "github-app", repoUrl, branch, commitSHA, "failed", err.Error(), r.RemoteAddr)
+			} else {
+				s.serviceMgr.LogWebhook(context.Background(), sid, "github-app", repoUrl, branch, commitSHA, "deploy_triggered", "deployment started", r.RemoteAddr)
 			}
 		}()
 	}

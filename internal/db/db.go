@@ -293,6 +293,20 @@ func (db *DB) migrate() error {
 		fmt.Printf("WARN: idx_services_project_name could not be created (likely existing duplicate names): %v\n", idxErr)
 	}
 
+	// Webhook delivery log
+	migrate(`CREATE TABLE IF NOT EXISTS webhook_deliveries (
+		id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+		service_id  TEXT DEFAULT '',
+		source      TEXT NOT NULL DEFAULT 'unknown',
+		repo_url    TEXT DEFAULT '',
+		branch      TEXT DEFAULT '',
+		commit_sha  TEXT DEFAULT '',
+		status      TEXT NOT NULL DEFAULT 'received',
+		message     TEXT DEFAULT '',
+		remote_addr TEXT DEFAULT '',
+		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+
 	return nil
 }
 

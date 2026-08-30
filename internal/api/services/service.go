@@ -187,6 +187,56 @@ type DeployOptions struct {
 	CommitMsg string
 }
 
+// WebhookDelivery is a record of an incoming webhook.
+type WebhookDelivery struct {
+	ID         string    `json:"id"`
+	ServiceID  string    `json:"service_id"`
+	Source     string    `json:"source"`
+	RepoURL    string    `json:"repo_url"`
+	Branch     string    `json:"branch"`
+	CommitSHA  string    `json:"commit_sha"`
+	Status     string    `json:"status"`
+	Message    string    `json:"message"`
+	RemoteAddr string    `json:"remote_addr"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// LogWebhook records an incoming webhook delivery for debugging.
+func (m *Manager) LogWebhook(ctx context.Context, serviceID, source, repoURL, branch, commitSHA, status, message, remoteAddr string) {
+	_, _ = m.db.ExecContext(ctx, `
+		INSERT INTO webhook_deliveries (service_id, source, repo_url, branch, commit_sha, status, message, remote_addr)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, serviceID, source, repoURL, branch, commitSHA, status, message, remoteAddr)
+}
+
+// ListWebhookDeliveries returns recent webhook deliveries for a service.
+func (m *Manager) ListWebhookDeliveries(ctx context.Context, serviceID string, limit int) ([]WebhookDelivery, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT id, COALESCE(service_id,''), source, COALESCE(repo_url,''), COALESCE(branch,''),
+		       COALESCE(commit_sha,''), status, COALESCE(message,''), COALESCE(remote_addr,''), created_at
+		FROM webhook_deliveries
+		WHERE service_id = ? OR service_id = ''
+		ORDER BY created_at DESC LIMIT ?
+	`, serviceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var deliveries []WebhookDelivery
+	for rows.Next() {
+		var d WebhookDelivery
+		var createdAt string
+		if err := rows.Scan(&d.ID, &d.ServiceID, &d.Source, &d.RepoURL, &d.Branch, &d.CommitSHA, &d.Status, &d.Message, &d.RemoteAddr, &createdAt); err == nil {
+			d.CreatedAt = parseSqliteTime(createdAt)
+			deliveries = append(deliveries, d)
+		}
+	}
+	return deliveries, nil
+}
+
 // Manager handles service operations.
 type Manager struct {
 	db            *db.DB

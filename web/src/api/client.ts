@@ -88,6 +88,8 @@ export const servicesApi = {
   deleteEnvVar: (id: string, key: string): Promise<unknown> => del(`/services/${id}/envvars/${key}`),
   backup: (id: string): Promise<unknown> => post(`/services/${id}/backup`),
   importBackup: (id: string, fileName: string): Promise<unknown> => post(`/services/${id}/import`, { file_name: fileName }),
+  webhookLog: (id: string): Promise<unknown> => get(`/services/${id}/webhook-log`),
+  webhookTest: (id: string): Promise<unknown> => post(`/services/${id}/webhook-test`),
 };
 
 // Systemd Services (real system services)
