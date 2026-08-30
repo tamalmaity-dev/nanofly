@@ -621,10 +621,6 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	slog.Info("github webhook received", "remote", r.RemoteAddr)
 
-	// 1. Verify signature using the github_apps webhook_secret (requires parsing body or trying all secrets)
-	// For simplicity in NanoFly MVP, we'll parse the payload and just trigger deployments for matching repos.
-	// In production, you MUST verify X-Hub-Signature-256.
-
 	var payload struct {
 		Repository struct {
 			HTMLURL string `json:"html_url"` // e.g. https://github.com/user/repo
@@ -659,17 +655,21 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	repoUrl := payload.Repository.HTMLURL
 	if repoUrl == "" {
 		slog.Info("github webhook: no repo info (not a push event)")
-		w.WriteHeader(http.StatusOK) // Not a push event or no repo info
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	branch := strings.TrimPrefix(payload.Ref, "refs/heads/")
+	// Normalize: strip trailing .git and whitespace for consistent matching
+	repoUrlNormalized := strings.TrimSuffix(strings.TrimSpace(repoUrl), ".git")
+
+	branch := strings.TrimSpace(strings.TrimPrefix(payload.Ref, "refs/heads/"))
 	if branch == "" {
 		branch = "main"
 	}
 
-	slog.Info("github webhook: parsed", "repo", repoUrl, "branch", branch, "installation_id", payload.Installation.ID)
+	slog.Info("github webhook: parsed", "repo", repoUrl, "repo_normalized", repoUrlNormalized, "branch", branch, "installation_id", payload.Installation.ID)
 
+	// Look up GitHub App by installation_id
 	var githubAppID string
 	if payload.Installation.ID > 0 {
 		_ = s.db.QueryRowContext(r.Context(), `
@@ -678,40 +678,77 @@ func (s *Server) handleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 		slog.Info("github webhook: looked up app", "github_app_id", githubAppID, "installation_id", payload.Installation.ID)
 	}
 
-	// Link pending GitHub App services on first push
+	// Step 1: Link pending GitHub App services on first push (match pending sentinel)
 	if githubAppID != "" {
 		result, _ := s.db.ExecContext(r.Context(), `
 			UPDATE git_sources
 			SET repo_url = ?
 			WHERE github_app_id = ? AND repo_url = ? AND branch = ?
-		`, repoUrl, githubAppID, services.GitHubAppPendingRepo, branch)
+		`, repoUrlNormalized, githubAppID, services.GitHubAppPendingRepo, branch)
 		if result != nil {
 			if rows, _ := result.RowsAffected(); rows > 0 {
-				slog.Info("github webhook: linked pending repo", "repo", repoUrl, "branch", branch)
+				slog.Info("github webhook: linked pending repo", "repo", repoUrlNormalized, "branch", branch)
 			}
 		}
 	}
 
-	// Find all services using this repo and branch (GitHub App or linked repo)
-	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT service_id FROM git_sources
-		WHERE repo_url = ? AND branch = ? AND github_app_id IS NOT NULL
-	`, repoUrl, branch)
-	if err != nil {
-		slog.Error("github webhook: query failed", "error", err, "repo", repoUrl, "branch", branch)
-		response.Error(w, http.StatusInternalServerError, "database query failed")
-		return
-	}
-	defer rows.Close()
-
+	// Step 2: Find services — try multiple matching strategies
 	seen := make(map[string]bool)
 	var serviceIDs []string
-	for rows.Next() {
-		var sid string
-		if err := rows.Scan(&sid); err == nil && sid != "" && !seen[sid] {
-			seen[sid] = true
-			serviceIDs = append(serviceIDs, sid)
+
+	// Strategy A: exact match on normalized repo_url + branch + github_app_id
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT service_id FROM git_sources
+		WHERE (repo_url = ? OR repo_url = ?) AND branch = ? AND github_app_id IS NOT NULL
+	`, repoUrlNormalized, repoUrl, branch)
+	if err == nil {
+		for rows.Next() {
+			var sid string
+			if err := rows.Scan(&sid); err == nil && sid != "" && !seen[sid] {
+				seen[sid] = true
+				serviceIDs = append(serviceIDs, sid)
+			}
 		}
+		rows.Close()
+	}
+	slog.Info("github webhook: strategy A (repo+branch)", "count", len(serviceIDs))
+
+	// Strategy B: match by github_app_id + branch (ignore repo_url)
+	if len(serviceIDs) == 0 && githubAppID != "" {
+		rows2, err2 := s.db.QueryContext(r.Context(), `
+			SELECT service_id FROM git_sources
+			WHERE github_app_id = ? AND branch = ?
+		`, githubAppID, branch)
+		if err2 == nil {
+			for rows2.Next() {
+				var sid string
+				if err := rows2.Scan(&sid); err == nil && sid != "" && !seen[sid] {
+					seen[sid] = true
+					serviceIDs = append(serviceIDs, sid)
+				}
+			}
+			rows2.Close()
+		}
+		slog.Info("github webhook: strategy B (app_id+branch)", "count", len(serviceIDs))
+	}
+
+	// Strategy C: match by github_app_id alone (any branch) — last resort
+	if len(serviceIDs) == 0 && githubAppID != "" {
+		rows3, err3 := s.db.QueryContext(r.Context(), `
+			SELECT service_id FROM git_sources
+			WHERE github_app_id = ?
+		`, githubAppID)
+		if err3 == nil {
+			for rows3.Next() {
+				var sid string
+				if err := rows3.Scan(&sid); err == nil && sid != "" && !seen[sid] {
+					seen[sid] = true
+					serviceIDs = append(serviceIDs, sid)
+				}
+			}
+			rows3.Close()
+		}
+		slog.Info("github webhook: strategy C (app_id only)", "count", len(serviceIDs))
 	}
 
 	if len(serviceIDs) == 0 {

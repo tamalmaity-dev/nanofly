@@ -307,6 +307,11 @@ func (db *DB) migrate() error {
 		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 
+	// Normalize git_sources: strip .git suffix from repo_url for consistent webhook matching
+	if _, normErr := db.Exec("UPDATE git_sources SET repo_url = rtrim(repo_url, '.git') WHERE repo_url LIKE '%.git'"); normErr != nil {
+		fmt.Printf("WARN: git_sources URL normalization migration failed: %v\n", normErr)
+	}
+
 	return nil
 }
 

@@ -840,14 +840,18 @@ func (m *Manager) CreateApp(ctx context.Context, req CreateAppReq) (*Service, er
 		if builderVal == "" {
 			builderVal = "auto"
 		}
-		repoURL := req.GitRepoURL
+		repoURL := strings.TrimSuffix(strings.TrimSpace(req.GitRepoURL), ".git")
 		if repoURL == "" {
 			repoURL = GitHubAppPendingRepo
+		}
+		branch := strings.TrimSpace(req.GitBranch)
+		if branch == "" {
+			branch = "main"
 		}
 		_, err = m.db.ExecContext(ctx, `
 			INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key, github_app_id)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, id, repoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, req.GitHubAppID)
+		`, id, repoURL, branch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, req.GitHubAppID)
 		if err != nil {
 			slog.Warn("storing git source", "err", err)
 		}
@@ -4009,6 +4013,13 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 
 	// Only touch git_sources if GitRepoURL was explicitly provided.
 	if req.GitRepoURL != "" || req.GitBranch != "" || req.GitToken != "" || req.SSHKey != "" || req.GitHubAppID != nil {
+		// Normalize repo URL and branch for consistent webhook matching
+		normalizedRepoURL := strings.TrimSuffix(strings.TrimSpace(req.GitRepoURL), ".git")
+		normalizedBranch := strings.TrimSpace(req.GitBranch)
+		if normalizedBranch == "" {
+			normalizedBranch = "main"
+		}
+
 		var exists bool
 		_ = m.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM git_sources WHERE service_id = ?)`, serviceID).Scan(&exists)
 		if exists {
@@ -4021,13 +4032,13 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 							UPDATE git_sources
 							SET repo_url = ?, branch = ?, git_token = ?, ssh_key = ?, github_app_id = ?
 							WHERE service_id = ?
-						`, req.GitRepoURL, req.GitBranch, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
+						`, normalizedRepoURL, normalizedBranch, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
 					} else {
 						_, _ = m.db.ExecContext(ctx, `
 							UPDATE git_sources
 							SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?, github_app_id = ?
 							WHERE service_id = ?
-						`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
+						`, normalizedRepoURL, normalizedBranch, builderVal, req.GitToken, req.SSHKey, req.GitHubAppID, serviceID)
 					}
 				} else {
 					if builderVal == "" {
@@ -4035,13 +4046,13 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 							UPDATE git_sources
 							SET repo_url = ?, branch = ?, git_token = ?, ssh_key = ?
 							WHERE service_id = ?
-						`, req.GitRepoURL, req.GitBranch, req.GitToken, req.SSHKey, serviceID)
+						`, normalizedRepoURL, normalizedBranch, req.GitToken, req.SSHKey, serviceID)
 					} else {
 						_, _ = m.db.ExecContext(ctx, `
 							UPDATE git_sources
 							SET repo_url = ?, branch = ?, builder = ?, git_token = ?, ssh_key = ?
 							WHERE service_id = ?
-						`, req.GitRepoURL, req.GitBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
+						`, normalizedRepoURL, normalizedBranch, builderVal, req.GitToken, req.SSHKey, serviceID)
 					}
 				}
 			}
@@ -4056,7 +4067,7 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 			_, _ = m.db.ExecContext(ctx, `
 				INSERT INTO git_sources (service_id, repo_url, branch, webhook_secret, builder, git_token, ssh_key, github_app_id)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			`, serviceID, req.GitRepoURL, req.GitBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, appID)
+			`, serviceID, normalizedRepoURL, normalizedBranch, docker.RandPassword(), builderVal, req.GitToken, req.SSHKey, appID)
 		}
 	} else if req.GitHubAppID != nil {
 		_, _ = m.db.ExecContext(ctx, `UPDATE git_sources SET github_app_id = ? WHERE service_id = ?`, req.GitHubAppID, serviceID)
