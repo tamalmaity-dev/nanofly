@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1741,6 +1742,9 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 		clean = strings.Split(clean, "/")[0]
 		clean = strings.Split(clean, "?")[0]
 		log(fmt.Sprintf("   → https://%s (%s) [%s]", clean, d.direction, statusLabel))
+		if isDomainCloudflareProxied(clean) {
+			log(fmt.Sprintf("     ☁️ Cloudflare proxy detected for %s — Traefik configured for Flexible/Full without Let's Encrypt to avoid 522", clean))
+		}
 		if statusLabel != "DNS verified" {
 			log(fmt.Sprintf("     ⚠️ Ensure A/AAAA record for %s points to this server's public IP; Cloudflare proxy is supported. Verify in Domains panel.", clean))
 		}
@@ -1842,20 +1846,32 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 			time.Sleep(5 * time.Second)
 			internalOK := false
 			for attempt := 1; attempt <= 4; attempt++ {
-				// Try 1: wget via sh — use pipefail so wget failure is not masked by head
+				// Try 1: wget via sh — avoid pipefail (ash doesn't support it), check output content directly
 				curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
-				curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("set -o pipefail; wget -qO- http://localhost:%d 2>&1 | head -c 500; echo \"__EXIT:${PIPESTATUS[0]:-$?}\"", internalPort))
+				curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("wget -qO- http://localhost:%d 2>&1; echo __EXIT:$?", internalPort))
 				out, err := curlCmd.CombinedOutput()
 				curlCancel()
 				outStr := string(out)
-				// Extract exit code from our echo
-				exitOK := strings.Contains(outStr, "__EXIT:0")
-				previewRaw := strings.TrimSpace(strings.ReplaceAll(outStr, "__EXIT:0", ""))
-				previewRaw = strings.ReplaceAll(previewRaw, "__EXIT:1", "")
-				previewRaw = strings.ReplaceAll(previewRaw, "__EXIT:127", "")
+				// Parse exit code from last line
+				lines := strings.Split(strings.TrimSpace(outStr), "\n")
+				exitOK := false
+				previewRaw := ""
+				if len(lines) > 0 {
+					lastLine := strings.TrimSpace(lines[len(lines)-1])
+					if strings.HasPrefix(lastLine, "__EXIT:") {
+						code := strings.TrimPrefix(lastLine, "__EXIT:")
+						if code == "0" {
+							exitOK = true
+						}
+						previewRaw = strings.Join(lines[:len(lines)-1], "\n")
+					} else {
+						previewRaw = outStr
+						exitOK = err == nil
+					}
+				}
 				lowerPreview := strings.ToLower(previewRaw)
-				isErrorOutput := strings.Contains(lowerPreview, "can't connect") || strings.Contains(lowerPreview, "connection refused") || strings.Contains(lowerPreview, "wget: not found") || strings.Contains(lowerPreview, "not found")
-				if err == nil && exitOK && !isErrorOutput && len(strings.TrimSpace(previewRaw)) > 20 {
+				isErrorOutput := strings.Contains(lowerPreview, "can't connect") || strings.Contains(lowerPreview, "connection refused") || strings.Contains(lowerPreview, "wget: not found") || strings.Contains(lowerPreview, "not found") || strings.Contains(lowerPreview, "failed to connect")
+				if exitOK && !isErrorOutput && len(strings.TrimSpace(previewRaw)) > 20 {
 					preview := strings.ReplaceAll(strings.TrimSpace(previewRaw), "\n", " ")
 					if len(preview) > 200 {
 						preview = preview[:200] + "..."
@@ -1922,6 +1938,54 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 		}
 	}
 	log("   If domain shows empty page, check: 1) DNS propagation (dig A theroopsa.com), 2) Traefik running (docker ps | grep traefik), 3) container on nanofly-network (docker network inspect nanofly-network), 4) app logs (docker logs "+svc.ContainerName()+")")
+}
+
+var cloudflareServiceIPs = []string{
+	"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+	"141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+	"197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+	"172.64.0.0/13", "131.0.72.0/22",
+	"2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+	"2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+}
+
+func isServiceCloudflareIp(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range cloudflareServiceIPs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDomainCloudflareProxied(domain string) bool {
+	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(domain), "https://"), "http://")
+	clean = strings.Split(clean, "/")[0]
+	clean = strings.Split(clean, ":")[0]
+	clean = strings.TrimSuffix(clean, ".")
+	if clean == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupHost(ctx, clean)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if isServiceCloudflareIp(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // gitDeploy clones a repo and runs the app inside Docker.
@@ -4375,17 +4439,48 @@ func (m *Manager) appendTraefikLabels(ctx context.Context, svc *Service, exposed
 		}
 
 		if len(customDomains) > 0 {
-			rule := "Host(`" + strings.Join(customDomains, "`, `") + "`)"
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".rule="+rule)
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".entrypoints=websecure")
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".tls.certresolver=letsencrypt")
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".service="+routerName)
+			// Split Cloudflare-proxied vs direct custom domains (Cloudflare needs special handling to avoid 522)
+			var cloudflareDomains []string
+			var directDomains []string
+			for _, d := range customDomains {
+				if isDomainCloudflareProxied(d) {
+					cloudflareDomains = append(cloudflareDomains, d)
+				} else {
+					directDomains = append(directDomains, d)
+				}
+			}
 
-			// HTTP redirect to HTTPS
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+rule)
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
-			runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
-			runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
+			// Direct (non-Cloudflare) custom domains — use Let's Encrypt on websecure
+			if len(directDomains) > 0 {
+				rule := "Host(`" + strings.Join(directDomains, "`, `") + "`)"
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".rule="+rule)
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".entrypoints=websecure")
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".tls.certresolver=letsencrypt")
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+".service="+routerName)
+
+				// HTTP redirect to HTTPS
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.rule="+rule)
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.entrypoints=web")
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-http.middlewares=redirect-to-https")
+				runArgs = append(runArgs, "-l", "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https")
+			}
+
+			// Cloudflare-proxied domains — handle without Let's Encrypt to avoid 522
+			// Cloudflare terminates TLS at edge; origin can be reached via HTTP (Flexible)
+			// or HTTPS with self-signed. We expose both web and websecure without certresolver
+			// so Cloudflare can connect regardless of SSL mode (Flexible/Full).
+			if len(cloudflareDomains) > 0 {
+				rule := "Host(`" + strings.Join(cloudflareDomains, "`, `") + "`)"
+				// HTTP entrypoint directly serves (for Flexible mode)
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf.rule="+rule)
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf.entrypoints=web")
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf.service="+routerName)
+				// HTTPS entrypoint with TLS but no certresolver — allows Full mode with self-signed
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.rule="+rule)
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.entrypoints=websecure")
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.tls=true")
+				runArgs = append(runArgs, "-l", "traefik.http.routers."+routerName+"-cf-secure.service="+routerName)
+			}
 		}
 	}
 
