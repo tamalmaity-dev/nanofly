@@ -497,3 +497,7 @@ export function DeploymentLogsPanel({ serviceId }) {
 function getStatusColor(status) {
   return STATUS_COLORS[status] || '#6b7280';
 }
+
+function getStatusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
