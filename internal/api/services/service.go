@@ -1815,20 +1815,72 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 		log(fmt.Sprintf("📦 Container %s status: %s", svc.ContainerName(), status))
 		if strings.Contains(status, "running") {
 			log(fmt.Sprintf("   Try: curl -I http://%s:%d or docker logs --tail 50 %s", svc.Name, internalPort, svc.ContainerName()))
-			// Quick internal curl test after short wait
-			time.Sleep(2 * time.Second)
-			curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
-			defer curlCancel()
-			curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "wget", "-qO-", fmt.Sprintf("http://localhost:%d", internalPort))
-			if out, err := curlCmd.CombinedOutput(); err == nil && len(out) > 0 {
-				preview := strings.TrimSpace(string(out))
-				if len(preview) > 200 {
-					preview = preview[:200] + "..."
+			// Fetch recent container logs to show if app started correctly
+			logCtx, logCancel := context.WithTimeout(ctx, 3*time.Second)
+			defer logCancel()
+			if logOut, err := exec.CommandContext(logCtx, "docker", "logs", "--tail", "20", svc.ContainerName()).CombinedOutput(); err == nil && len(logOut) > 0 {
+				lines := strings.Split(strings.TrimSpace(string(logOut)), "\n")
+				// Show last 5 lines
+				start := 0
+				if len(lines) > 5 {
+					start = len(lines) - 5
 				}
-				preview = strings.ReplaceAll(preview, "\n", " ")
-				log(fmt.Sprintf("✅ Internal curl http://localhost:%d returned %d bytes: %s", internalPort, len(out), preview))
-			} else if err != nil {
-				log(fmt.Sprintf("⚠️ Internal curl failed (app may still be starting): %v — check docker logs %s", err, svc.ContainerName()))
+				for _, l := range lines[start:] {
+					l = strings.TrimSpace(l)
+					if l != "" {
+						// Strip timestamp prefix if present
+						if len(l) > 20 && l[4] == '-' && l[7] == '-' {
+							if idx := strings.Index(l, " "); idx > 0 {
+								l = l[idx+1:]
+							}
+						}
+						log(fmt.Sprintf("   [app] %s", l))
+					}
+				}
+			}
+			// Internal health check — retry with backoff, try multiple tools (wget, node fetch)
+			time.Sleep(3 * time.Second)
+			internalOK := false
+			for attempt := 1; attempt <= 3; attempt++ {
+				// Try 1: wget via sh (handles minimal images without wget in PATH)
+				curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
+				curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("wget -qO- http://localhost:%d 2>&1 | head -c 300; echo \"__EXIT:$?\"", internalPort))
+				out, err := curlCmd.CombinedOutput()
+				curlCancel()
+				outStr := string(out)
+				if err == nil && strings.Contains(outStr, "__EXIT:0") && len(strings.TrimSpace(strings.ReplaceAll(outStr, "__EXIT:0", ""))) > 0 {
+					preview := strings.TrimSpace(strings.ReplaceAll(outStr, "__EXIT:0", ""))
+					preview = strings.ReplaceAll(preview, "\n", " ")
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
+					}
+					log(fmt.Sprintf("✅ Internal check http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
+					internalOK = true
+					break
+				}
+				// Try 2: node fetch (Next.js standalone has node)
+				curlCtx2, curlCancel2 := context.WithTimeout(ctx, 5*time.Second)
+				nodeCmd := exec.CommandContext(curlCtx2, "docker", "exec", svc.ContainerName(), "node", "-e", fmt.Sprintf("fetch('http://localhost:%d').then(r=>r.text().then(t=>{console.log(t.slice(0,300));process.stdout.write('__EXIT:0')} )).catch(e=>{console.error(String(e));process.exit(1)})", internalPort))
+				out2, err2 := nodeCmd.CombinedOutput()
+				curlCancel2()
+				if err2 == nil && strings.Contains(string(out2), "__EXIT:0") {
+					preview := strings.TrimSpace(strings.ReplaceAll(string(out2), "__EXIT:0", ""))
+					preview = strings.ReplaceAll(preview, "\n", " ")
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
+					}
+					if preview != "" {
+						log(fmt.Sprintf("✅ Internal check (node fetch) http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
+						internalOK = true
+						break
+					}
+				}
+				if attempt < 3 {
+					time.Sleep(2 * time.Second)
+				}
+			}
+			if !internalOK {
+				log(fmt.Sprintf("⚠️ Internal check did not get content yet — app may still be starting or wget/node not available. Check docker logs %s and try curl from host: curl -I http://localhost:%d", svc.ContainerName(), internalPort))
 			}
 		}
 	}
