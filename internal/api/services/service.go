@@ -2042,7 +2042,8 @@ CMD ["sh", "-c", "%s"]
 func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand, installCommand, appDirectory, runFile, requirementsFile string, useVenv bool, log func(string)) error {
 	dockerfilePath := filepath.Join(repoDir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
-		log("ℹ️ Found existing Dockerfile in repository, using it.")
+		log("ℹ️ Found existing Dockerfile in repository, patching for speed…")
+		optimizeExistingDockerfile(dockerfilePath, log)
 		return nil
 	}
 
@@ -2084,15 +2085,93 @@ func detectAndWriteDockerfile(repoDir string, svcPort int, builder, startCommand
 		log("ℹ️ Using NodeJS runtime template (" + baseImage + "). Generating optimized Dockerfile…")
 		install := strings.TrimSpace(installCommand)
 		if install == "" {
-			install = "npm install --production"
+			install = "npm ci --no-audit --no-fund"
+		} else if !strings.Contains(install, "--no-audit") && strings.Contains(install, "npm") {
+			install += " --no-audit --no-fund"
 		}
 		cmd := strings.TrimSpace(startCommand)
 		if cmd == "" {
 			cmd = "npm start"
 		}
+		// Detect Next.js for multi-stage standalone build (Coolify pattern)
+		isNextJS := false
+		if data, err := os.ReadFile(filepath.Join(repoDir, "package.json")); err == nil {
+			if strings.Contains(string(data), `"next"`) {
+				isNextJS = true
+			}
+		}
+		if isNextJS {
+			log("ℹ️ Detected Next.js — using multi-stage standalone build")
+			// Check if standalone output is configured (Coolify requirement for minimal runner)
+			hasStandalone := false
+			for _, cfg := range []string{"next.config.js", "next.config.mjs", "next.config.ts", "next.config.cjs"} {
+				if data, err := os.ReadFile(filepath.Join(repoDir, cfg)); err == nil {
+					if strings.Contains(string(data), "standalone") {
+						hasStandalone = true
+						break
+					}
+				}
+			}
+			if hasStandalone {
+				content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM %s AS deps
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+
+FROM %s AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM %s AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=%s HOSTNAME=0.0.0.0
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE %s
+CMD ["node", "server.js"]
+`, baseImage, baseImage, baseImage, portStr, portStr)
+				return os.WriteFile(dockerfilePath, []byte(content), 0644)
+			}
+			content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM %s AS deps
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+
+FROM %s AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM %s AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=%s HOSTNAME=0.0.0.0
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+USER nextjs
+EXPOSE %s
+CMD ["sh", "-c", "%s"]
+`, baseImage, baseImage, baseImage, portStr, portStr, dockerShellEscape(cmd))
+			return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		}
 		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
 FROM %s
 WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm %s
 COPY . .
@@ -2165,15 +2244,91 @@ EXPOSE %s
 		log("ℹ️ Detected Node.js runtime. Generating optimized Dockerfile…")
 		install := strings.TrimSpace(installCommand)
 		if install == "" {
-			install = "npm install --production"
+			install = "npm ci --no-audit --no-fund"
+		} else if !strings.Contains(install, "--no-audit") && strings.Contains(install, "npm") {
+			install += " --no-audit --no-fund"
 		}
 		cmd := strings.TrimSpace(startCommand)
 		if cmd == "" {
 			cmd = "npm start"
 		}
+		isNextJS := false
+		if data, err := os.ReadFile(filepath.Join(repoDir, "package.json")); err == nil {
+			if strings.Contains(string(data), `"next"`) {
+				isNextJS = true
+			}
+		}
+		if isNextJS {
+			log("ℹ️ Detected Next.js — using multi-stage standalone build")
+			hasStandalone := false
+			for _, cfg := range []string{"next.config.js", "next.config.mjs", "next.config.ts", "next.config.cjs"} {
+				if data, err := os.ReadFile(filepath.Join(repoDir, cfg)); err == nil {
+					if strings.Contains(string(data), "standalone") {
+						hasStandalone = true
+						break
+					}
+				}
+			}
+			if hasStandalone {
+				content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM node:20-alpine AS deps
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=%s HOSTNAME=0.0.0.0
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE %s
+CMD ["node", "server.js"]
+`, portStr, portStr)
+				return os.WriteFile(dockerfilePath, []byte(content), 0644)
+			}
+			content := fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM node:20-alpine AS deps
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=%s HOSTNAME=0.0.0.0
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+USER nextjs
+EXPOSE %s
+CMD ["sh", "-c", "%s"]
+`, portStr, portStr, dockerShellEscape(cmd))
+			return os.WriteFile(dockerfilePath, []byte(content), 0644)
+		}
 		content := fmt.Sprintf(`# syntax=docker/dockerfile:1
 FROM node:20-alpine
 WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm %s
 COPY . .
@@ -2252,6 +2407,90 @@ RUN sed -i 's/listen       80;/listen       %s;/g' /etc/nginx/conf.d/default.con
 EXPOSE %s
 `, portStr, portStr)
 	return os.WriteFile(dockerfilePath, []byte(content), 0644)
+}
+
+// optimizeExistingDockerfile patches an existing Dockerfile for faster builds (Coolify pattern).
+// Adds BuildKit cache mounts, --no-audit --no-fund, and telemetry disable without breaking the build.
+func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
+	data, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		return
+	}
+	content := string(data)
+	original := content
+	patched := false
+
+	// 1. Add BuildKit syntax header if missing
+	if !strings.Contains(content, "# syntax=") {
+		content = "# syntax=docker/dockerfile:1\n" + content
+		patched = true
+	}
+
+	// 2. Patch npm ci / npm install to add cache mount and --no-audit --no-fund
+	//    `RUN npm ci` -> `RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund`
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "RUN") {
+			continue
+		}
+		// Skip if already has cache mount
+		if strings.Contains(trimmed, "--mount=type=cache") {
+			continue
+		}
+		if strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--no-audit") {
+			lines[i] = strings.Replace(line, "npm ci", "npm ci --no-audit --no-fund", 1)
+			// Add cache mount after RUN
+			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+			patched = true
+		} else if strings.Contains(trimmed, "npm install") && !strings.Contains(trimmed, "--no-audit") {
+			lines[i] = strings.Replace(line, "npm install", "npm install --no-audit --no-fund", 1)
+			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+			patched = true
+		} else if strings.Contains(trimmed, "yarn install") && !strings.Contains(trimmed, "--mount") {
+			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/usr/local/share/.cache/yarn ", 1)
+			patched = true
+		} else if strings.Contains(trimmed, "pnpm install") && !strings.Contains(trimmed, "--mount") {
+			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.local/share/pnpm/store ", 1)
+			patched = true
+		}
+		// Also add cache mount to plain `RUN npm ci` that already has --no-audit but no cache
+		if strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--mount=type=cache") && strings.Contains(lines[i], "npm ci") {
+			if !strings.Contains(lines[i], "--mount") {
+				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+				patched = true
+			}
+		}
+	}
+	if patched {
+		content = strings.Join(lines, "\n")
+	}
+
+	// 3. Add NEXT_TELEMETRY_DISABLED if Next.js project and not already present
+	if !strings.Contains(content, "NEXT_TELEMETRY_DISABLED") {
+		if data, err := os.ReadFile(filepath.Join(filepath.Dir(dockerfilePath), "package.json")); err == nil {
+			if strings.Contains(string(data), `"next"`) {
+				// Inject after first FROM line
+				lines2 := strings.Split(content, "\n")
+				for i, line := range lines2 {
+					if strings.HasPrefix(strings.TrimSpace(line), "FROM ") {
+						lines2[i] = line + "\nENV NEXT_TELEMETRY_DISABLED=1"
+						patched = true
+						break
+					}
+				}
+				content = strings.Join(lines2, "\n")
+			}
+		}
+	}
+
+	if patched && content != original {
+		if err := os.WriteFile(dockerfilePath, []byte(content), 0644); err == nil {
+			log("⚡ Patched Dockerfile for faster builds (cache mounts, no-audit, telemetry off)")
+		}
+	} else {
+		log("ℹ️ Existing Dockerfile already optimized, using as-is.")
+	}
 }
 
 // Helper to check if any file with a specific extension exists in a directory
