@@ -2450,6 +2450,16 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 	}
 
+	// Apply resource limits (CPU + memory) from tier
+	tier := docker.GetTierWithCustom(svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+	if tier.Memory > 0 {
+		runArgs = append(runArgs, "--memory", fmt.Sprintf("%d", tier.Memory))
+	}
+	if tier.CPUQuota > 0 {
+		// Convert CPUQuota/CPUPeriod to --cpus float: quota / period
+		runArgs = append(runArgs, "--cpus", fmt.Sprintf("%.2f", float64(tier.CPUQuota)/float64(tier.CPUPeriod)))
+	}
+
 	// Join the shared nanofly network for container-to-container DNS
 	runArgs = append(runArgs, "--network", docker.NanoflyNetworkName())
 
@@ -4237,6 +4247,15 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 			runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
 		}
 
+		// Apply resource limits (CPU + memory) from tier
+		tier := docker.GetTierWithCustom(svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+		if tier.Memory > 0 {
+			runArgs = append(runArgs, "--memory", fmt.Sprintf("%d", tier.Memory))
+		}
+		if tier.CPUQuota > 0 {
+			runArgs = append(runArgs, "--cpus", fmt.Sprintf("%.2f", float64(tier.CPUQuota)/float64(tier.CPUPeriod)))
+		}
+
 		// Traefik must always know the container port, even if the user didn't
 		// specify one. Use the saved service port (= container port) as the
 		// backend target.
@@ -4420,6 +4439,15 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	// Append custom docker run arguments before image
 	if svc.DockerArgs != "" {
 		runArgs = append(runArgs, strings.Fields(svc.DockerArgs)...)
+	}
+
+	// Apply resource limits (CPU + memory) from tier
+	tier := docker.GetTierWithCustom(svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+	if tier.Memory > 0 {
+		runArgs = append(runArgs, "--memory", fmt.Sprintf("%d", tier.Memory))
+	}
+	if tier.CPUQuota > 0 {
+		runArgs = append(runArgs, "--cpus", fmt.Sprintf("%.2f", float64(tier.CPUQuota)/float64(tier.CPUPeriod)))
 	}
 
 	// Traefik must always be told the *container* port. Traefik lives on the
