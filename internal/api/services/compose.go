@@ -93,7 +93,7 @@ func ensureExternalNetworks(ctx context.Context, composePath string, log func(st
 // deployCompose validates and starts a Compose stack without first taking down
 // the running stack. This keeps a healthy deployment online if a new build or
 // Compose configuration is invalid.
-func deployCompose(ctx context.Context, composeDir, serviceID string, log func(string)) error {
+func deployCompose(ctx context.Context, composeDir, serviceID string, log func(string), cpuLimit float64, memoryBytes int64) error {
 	composePath, err := findComposeFile(composeDir)
 	if err != nil {
 		return err
@@ -116,6 +116,13 @@ func deployCompose(ctx context.Context, composeDir, serviceID string, log func(s
 	}
 	if len(labelledServices) > 0 {
 		log("[INFO] Added NanoFly management labels to: " + strings.Join(labelledServices, ", "))
+	}
+
+	// Inject CPU/memory resource limits into compose services
+	if cpuLimit > 0 || memoryBytes > 0 {
+		if err := injectComposeResourceLimits(composePath, cpuLimit, memoryBytes, log); err != nil {
+			log("[WARN] Could not inject resource limits: " + err.Error())
+		}
 	}
 
 	projectName := "nf-" + serviceID
@@ -414,4 +421,126 @@ func namedVolumeSource(source string) (string, bool) {
 
 func isWindowsPath(value string) bool {
 	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '\\' || value[2] == '/')
+}
+
+// injectComposeResourceLimits adds deploy.resources.limits to every service in
+// the compose file so Docker enforces CPU and memory caps.
+func injectComposeResourceLimits(composePath string, cpuLimit float64, memoryBytes int64, log func(string)) error {
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", filepath.Base(composePath), err)
+	}
+
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return fmt.Errorf("invalid YAML: %w", err)
+	}
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("compose document must contain a top-level mapping")
+	}
+
+	services := mappingValue(document.Content[0], "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return fmt.Errorf("compose file must define a services mapping")
+	}
+
+	updated := 0
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		svcNode := services.Content[i+1]
+		if svcNode == nil || svcNode.Kind != yaml.MappingNode {
+			continue
+		}
+
+		// Build deploy.resources.limits node
+		limits := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+		if cpuLimit > 0 {
+			// Convert CPU quota (0.5 = 50% of 1 core) to string like "0.50"
+			cpuStr := fmt.Sprintf("%.2f", cpuLimit)
+			limits.Content = append(limits.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "cpus"},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cpuStr},
+			)
+		}
+
+		if memoryBytes > 0 {
+			// Convert bytes to MB string like "128m"
+			memMB := memoryBytes / (1024 * 1024)
+			if memMB < 1 {
+				memMB = 1
+			}
+			memStr := fmt.Sprintf("%dm", memMB)
+			limits.Content = append(limits.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "memory"},
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: memStr},
+			)
+		}
+
+		resources := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		resources.Content = append(resources.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "limits"},
+			limits,
+		)
+
+		deploy := mappingValue(svcNode, "deploy")
+		if deploy == nil || deploy.Kind == yaml.ScalarNode && deploy.Tag == "!!null" {
+			// Create deploy section
+			svcNode.Content = append(svcNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "deploy"},
+				&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+					{Kind: yaml.ScalarNode, Tag: "!!str", Value: "resources"},
+					resources,
+				}},
+			)
+		} else {
+			// Update existing deploy section
+			existingResources := mappingValue(deploy, "resources")
+			if existingResources == nil || existingResources.Kind == yaml.ScalarNode && existingResources.Tag == "!!null" {
+				deploy.Content = append(deploy.Content,
+					&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "resources"},
+					resources,
+				)
+			} else {
+				existingLimits := mappingValue(existingResources, "limits")
+				if existingLimits == nil || existingLimits.Kind == yaml.ScalarNode && existingLimits.Tag == "!!null" {
+					existingResources.Content = append(existingResources.Content,
+						&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "limits"},
+						limits,
+					)
+				} else {
+					// Merge into existing limits
+					for j := 0; j+1 < len(limits.Content); j += 2 {
+						key := limits.Content[j].Value
+						found := false
+						for k := 0; k+1 < len(existingLimits.Content); k += 2 {
+							if existingLimits.Content[k].Value == key {
+								existingLimits.Content[k+1].Value = limits.Content[j+1].Value
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingLimits.Content = append(existingLimits.Content, limits.Content[j], limits.Content[j+1])
+						}
+					}
+				}
+			}
+		}
+		updated++
+	}
+
+	if updated == 0 {
+		return nil
+	}
+
+	normalized, err := yaml.Marshal(&document)
+	if err != nil {
+		return fmt.Errorf("serializing compose file: %w", err)
+	}
+	if err := os.WriteFile(composePath, normalized, 0644); err != nil {
+		return fmt.Errorf("writing compose file: %w", err)
+	}
+
+	log(fmt.Sprintf("[INFO] Injected resource limits (CPU: %.2f, Memory: %dMB) into %d compose service(s)", cpuLimit, memoryBytes/(1024*1024), updated))
+	return nil
 }

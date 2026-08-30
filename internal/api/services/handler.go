@@ -2,10 +2,15 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nanofly/nanofly/internal/response"
@@ -43,6 +48,11 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Delete("/services/{id}/envvars/{key}", h.DeleteEnvVar)
 	r.Post("/services/{id}/backup", h.BackupDatabase)
 	r.Post("/services/{id}/import", h.ImportDatabase)
+
+	// Compose file management
+	r.Get("/services/{id}/compose", h.GetCompose)
+	r.Put("/services/{id}/compose", h.SaveCompose)
+	r.Post("/services/{id}/compose/validate", h.ValidateCompose)
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -365,4 +375,97 @@ func (h *Handler) ImportDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"status": "imported"})
+}
+
+// GetCompose returns the compose file content for a service.
+func (h *Handler) GetCompose(w http.ResponseWriter, r *http.Request) {
+	svc, err := h.mgr.Get(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		response.Error(w, http.StatusNotFound, "service not found")
+		return
+	}
+	if svc.Builder != "docker-compose" {
+		response.Error(w, http.StatusBadRequest, "service is not a docker-compose service")
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{
+		"content": svc.DockerComposeContent,
+	})
+}
+
+// SaveCompose saves compose file content and triggers a redeploy.
+func (h *Handler) SaveCompose(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if req.Content == "" {
+		response.Error(w, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	svc, err := h.mgr.Get(r.Context(), id)
+	if err != nil {
+		response.Error(w, http.StatusNotFound, "service not found")
+		return
+	}
+	if svc.Builder != "docker-compose" {
+		response.Error(w, http.StatusBadRequest, "service is not a docker-compose service")
+		return
+	}
+
+	// Update compose content in DB
+	if err := h.mgr.UpdateComposeContent(r.Context(), id, req.Content); err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Trigger redeploy
+	go h.mgr.Deploy(r.Context(), id, DeployOptions{Trigger: "manual"})
+
+	response.JSON(w, http.StatusOK, map[string]string{"status": "saved and redeploying"})
+}
+
+// ValidateCompose validates compose YAML without saving.
+func (h *Handler) ValidateCompose(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if req.Content == "" {
+		response.Error(w, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	// Write to temp file and validate with docker compose config
+	tmpDir := os.TempDir()
+	tmpFile := filepath.Join(tmpDir, "nanofly-validate-compose.yml")
+	if err := os.WriteFile(tmpFile, []byte(req.Content), 0644); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to write temp file")
+		return
+	}
+	defer os.Remove(tmpFile)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "compose", "--file", tmpFile, "config", "--quiet")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		response.JSON(w, http.StatusOK, map[string]any{
+			"valid":   false,
+			"message": strings.TrimSpace(string(out)),
+		})
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]any{
+		"valid":   true,
+		"message": "Compose file is valid",
+	})
 }

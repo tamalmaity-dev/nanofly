@@ -25,6 +25,7 @@ export function ServiceSidebar({ service, activeTab, onSelect, domains, project 
         { id: 'resources', label: 'Resource Limits', icon: Sliders },
         { id: 'advanced', label: 'Advanced', icon: Wrench },
         { id: 'healthcheck', label: 'Healthcheck', icon: Activity },
+        ...(isCompose ? [{ id: 'compose', label: 'Compose', icon: FileCode }] : []),
       ],
     },
     {

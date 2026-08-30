@@ -2211,7 +2211,12 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 				return fmt.Errorf("writing docker-compose.yml: %w", err)
 			}
 		}
-		if err := deployCompose(ctx, repoDir, svc.ID, log); err != nil {
+		tier := docker.GetTierWithCustom(svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+		cpuLimit := 0.0
+		if tier.CPUPeriod > 0 && tier.CPUQuota > 0 {
+			cpuLimit = float64(tier.CPUQuota) / float64(tier.CPUPeriod)
+		}
+		if err := deployCompose(ctx, repoDir, svc.ID, log, cpuLimit, tier.Memory); err != nil {
 			return err
 		}
 		return nil
@@ -4081,6 +4086,12 @@ func (m *Manager) Update(ctx context.Context, serviceID string, req UpdateServic
 	return m.Get(ctx, serviceID)
 }
 
+// UpdateComposeContent saves the compose file content for a service.
+func (m *Manager) UpdateComposeContent(ctx context.Context, serviceID string, content string) error {
+	_, err := m.db.ExecContext(ctx, `UPDATE services SET docker_compose_content = ? WHERE id = ?`, content, serviceID)
+	return err
+}
+
 // Stop stops a service container and updates DB status.
 func (m *Manager) Stop(ctx context.Context, serviceID string) error {
 	svc, err := m.Get(ctx, serviceID)
@@ -4246,7 +4257,12 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 	log("🔍 Detected local build type: " + bType)
 
 	if bType == "docker-compose" {
-		return deployCompose(ctx, localPath, svc.ID, log)
+		tier := docker.GetTierWithCustom(svc.ResourceTier, svc.CustomMemory, float64(svc.CustomCPU))
+		cpuLimit := 0.0
+		if tier.CPUPeriod > 0 && tier.CPUQuota > 0 {
+			cpuLimit = float64(tier.CPUQuota) / float64(tier.CPUPeriod)
+		}
+		return deployCompose(ctx, localPath, svc.ID, log, cpuLimit, tier.Memory)
 	}
 
 	if bType == "dockerfile" {

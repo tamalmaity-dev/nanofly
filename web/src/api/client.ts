@@ -90,6 +90,9 @@ export const servicesApi = {
   importBackup: (id: string, fileName: string): Promise<unknown> => post(`/services/${id}/import`, { file_name: fileName }),
   webhookLog: (id: string): Promise<unknown> => get(`/services/${id}/webhook-log`),
   webhookTest: (id: string): Promise<unknown> => post(`/services/${id}/webhook-test`),
+  getCompose: (id: string): Promise<unknown> => get(`/services/${id}/compose`),
+  saveCompose: (id: string, content: string): Promise<unknown> => put(`/services/${id}/compose`, { content }),
+  validateCompose: (id: string, content: string): Promise<unknown> => post(`/services/${id}/compose/validate`, { content }),
 };
 
 // Systemd Services (real system services)

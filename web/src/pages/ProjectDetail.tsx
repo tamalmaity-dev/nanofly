@@ -21,6 +21,7 @@ import { DomainsPanel } from './ProjectDetail/DomainsPanel';
 import { GeneralSettingsPanel } from './ProjectDetail/GeneralSettingsPanel';
 import { GitSourcePanel } from './ProjectDetail/GitSourcePanel';
 import { WebhookPanel } from './ProjectDetail/WebhookPanel';
+import { ComposePanel } from './ProjectDetail/ComposePanel';
 import { GitHubAppWizard } from './ProjectDetail/github-app/GitHubAppWizard';
 import VolumesPanel from '../components/panels/VolumesPanel';
 const ContainerTerminalPanel = React.lazy(() => import('../components/panels/TerminalPanel'));
@@ -3533,49 +3534,7 @@ export default function ProjectDetail() {
                 )}
                 {activeTab === 'domains' && <DomainsPanel service={selectedSvc} project={project} domains={domains} onUpdate={load} />}
                 {activeTab === 'compose' && isCompose && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Docker Compose file</h3>
-                      <Button variant="outline" size="sm" onClick={() => setActiveTab('configuration')}>Edit Compose file</Button>
-                    </div>
-                    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-                      <CodeEditor value={selectedSvc.docker_compose_content || ''} onChange={() => { }} language="yaml" style={{ height: 260 }} readOnly />
-                    </div>
-
-                    <div>
-                      <h3 style={{ margin: '16px 0 6px', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>Compose resources</h3>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 12px' }}>Applications and databases defined in this service.</p>
-                      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ background: 'var(--bg-base)', borderBottom: '1px solid var(--border)' }}>
-                              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Resource</th>
-                              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Image</th>
-                              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(() => {
-                              try {
-                                const parsed = yamlLoad(selectedSvc.docker_compose_content || '');
-                                const svcs = parsed?.services ? Object.entries(parsed.services) : [];
-                                if (svcs.length === 0) return <tr><td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No services defined</td></tr>;
-                                return svcs.map(([name, cfg]) => (
-                                  <tr key={name} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={{ padding: '10px 14px', fontSize: '0.85rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}><Package size={14} /> {name}</td>
-                                    <td style={{ padding: '10px 14px', fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{(cfg as { image?: string }).image || '—'}</td>
-                                    <td style={{ padding: '10px 14px' }}><span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: 999, background: selectedSvc.status === 'running' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: selectedSvc.status === 'running' ? '#22c55e' : '#ef4444' }}>{selectedSvc.status}</span></td>
-                                  </tr>
-                                ));
-                              } catch {
-                                return <tr><td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: 'var(--red)' }}>Invalid compose file</td></tr>;
-                              }
-                            })()}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+                  <ComposePanel service={selectedSvc} />
                 )}
               </div>
             </div>
