@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Code, FileText, Package, RefreshCw, Save, Play } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle2, Code, FileText, Package, RefreshCw, Save, Play, Wand2 } from 'lucide-react';
 import { servicesApi } from '../../api/client';
 import { Button, useToast } from '../../components/ui';
 
@@ -13,6 +13,24 @@ const THEME_STYLES: Record<string, { bg: string; text: string; gutter: string; b
   GitHub: { bg: '#f6f8fa', text: '#24292e', gutter: '#6a737d', border: '#e1e4e8' },
   Nord: { bg: '#2e3440', text: '#d8dee9', gutter: '#4c566a', border: '#3b4252' },
 };
+
+// Extract missing volume names from docker compose validation errors
+function extractMissingVolumes(msg: string): string[] {
+  const vols: string[] = [];
+  const re = /(?:undefined|undeclared|not declared)\s+(?:volume|named volume)\s+['"]?(\S+?)['"]?(?:\s|:|,|$)/gi;
+  let m;
+  while ((m = re.exec(msg)) !== null) vols.push(m[1]);
+  return [...new Set(vols)];
+}
+
+// Extract missing external volumes from "must be declared" errors
+function extractExternalVolumes(msg: string): string[] {
+  const vols: string[] = [];
+  const re = /volume\s+['"]?(\S+?)['"]?\s+.*(?:must be declared|not found|external)/gi;
+  let m;
+  while ((m = re.exec(msg)) !== null) vols.push(m[1]);
+  return [...new Set(vols)];
+}
 
 export function ComposePanel({ service }) {
   const toast = useToast();
@@ -28,6 +46,9 @@ export function ComposePanel({ service }) {
 
   const isCompose = service?.git_builder === 'docker-compose' || !!service?.docker_compose_content;
   const hasChanges = content !== original;
+
+  // Clear validation when content changes
+  useEffect(() => { if (editing) setValidation(null); }, [content, editing]);
 
   const fetchCompose = useCallback(async () => {
     if (!service?.id) return;
@@ -47,25 +68,37 @@ export function ComposePanel({ service }) {
 
   useEffect(() => { fetchCompose(); }, [fetchCompose]);
 
-  const handleValidate = async () => {
+  const handleValidate = async (text?: string) => {
+    const toValidate = text ?? content;
     setValidating(true);
     setValidation(null);
     try {
-      const data = await servicesApi.validateCompose(service.id, content) as any;
+      const data = await servicesApi.validateCompose(service.id, toValidate) as any;
       setValidation(data);
+      return data;
     } catch (e: any) {
-      setValidation({ valid: false, message: e?.message || 'Validation failed' });
+      const result = { valid: false, message: e?.message || 'Validation failed' };
+      setValidation(result);
+      return result;
     } finally {
       setValidating(false);
     }
   };
 
   const handleSave = async () => {
+    // Auto-validate before save
     setSaving(true);
     try {
+      const result = await handleValidate(content);
+      if (result && !result.valid) {
+        toast.error('Fix compose errors before saving');
+        setSaving(false);
+        return;
+      }
       await servicesApi.saveCompose(service.id, content);
       setOriginal(content);
       setEditing(false);
+      setValidation({ valid: true, message: 'Compose file is valid' });
       toast.success('Compose file saved. Service is redeploying...');
     } catch (e: any) {
       toast.error(e?.message || 'Could not save compose file');
@@ -74,7 +107,56 @@ export function ComposePanel({ service }) {
     }
   };
 
+  const handleQuickFix = () => {
+    const missing = extractMissingVolumes(validation?.message || '');
+    const external = extractExternalVolumes(validation?.message || '');
+    const volumes = [...new Set([...missing, ...external])];
+    if (volumes.length === 0) return;
+
+    let updated = content;
+    const lines = updated.split('\n');
+
+    // Check if top-level volumes: section exists
+    const hasVolumesSection = lines.some(l => l.trimStart() === 'volumes:');
+
+    if (hasVolumesSection) {
+      // Find the volumes: section and append missing volumes
+      let insertIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trimStart() === 'volumes:') {
+          // Find the last volume entry (indented line after volumes:)
+          insertIdx = i + 1;
+          while (insertIdx < lines.length && (lines[insertIdx].startsWith('  ') || lines[insertIdx].trim() === '')) {
+            insertIdx++;
+          }
+          break;
+        }
+      }
+      if (insertIdx > 0) {
+        for (const vol of volumes) {
+          lines.splice(insertIdx, 0, `  ${vol}:`);
+          insertIdx++;
+        }
+      }
+    } else {
+      // Add a new top-level volumes: section at the end
+      if (lines.length > 0 && lines[lines.length - 1].trim() !== '') lines.push('');
+      lines.push('volumes:');
+      for (const vol of volumes) {
+        lines.push(`  ${vol}:`);
+      }
+    }
+
+    updated = lines.join('\n');
+    setContent(updated);
+    toast.success(`Added missing volume${volumes.length > 1 ? 's' : ''}: ${volumes.join(', ')}`);
+  };
+
   const ts = THEME_STYLES[theme] || THEME_STYLES.Monokai;
+  const missingVolumes = useMemo(() => {
+    if (!validation || validation.valid) return [];
+    return [...extractMissingVolumes(validation.message), ...extractExternalVolumes(validation.message)];
+  }, [validation]);
 
   if (!isCompose) {
     return (
@@ -113,7 +195,7 @@ export function ComposePanel({ service }) {
               <Button type="button" variant="ghost" size="sm" onClick={() => { setContent(original); setEditing(false); setValidation(null); }}>
                 Cancel
               </Button>
-              <Button type="button" variant="outline" size="sm" icon={Play} loading={validating} onClick={handleValidate}>
+              <Button type="button" variant="outline" size="sm" icon={Play} loading={validating} onClick={() => handleValidate()}>
                 Validate
               </Button>
               <Button type="button" variant="primary" size="sm" icon={Save} loading={saving} disabled={!hasChanges} onClick={handleSave}>
@@ -124,15 +206,23 @@ export function ComposePanel({ service }) {
         </div>
       </div>
 
+      {/* Validation result */}
       {validation && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8,
+          display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', borderRadius: 8,
           background: validation.valid ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
           border: `1px solid ${validation.valid ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
-          fontSize: '0.82rem', color: validation.valid ? 'var(--green)' : 'var(--red)',
         }}>
-          {validation.valid ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-          {validation.message}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: validation.valid ? 'var(--green)' : 'var(--red)' }}>
+            {validation.valid ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            <span style={{ fontWeight: 600 }}>{validation.valid ? 'Valid' : 'Invalid'}</span>
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— {validation.message}</span>
+          </div>
+          {missingVolumes.length > 0 && (
+            <Button type="button" variant="outline" size="sm" icon={Wand2} onClick={handleQuickFix} style={{ alignSelf: 'flex-start', gap: 6, fontSize: '0.76rem' }}>
+              Add missing volume{missingVolumes.length > 1 ? 's' : ''}: {missingVolumes.join(', ')}
+            </Button>
+          )}
         </div>
       )}
 
@@ -198,7 +288,7 @@ export function ComposePanel({ service }) {
 
       {editing && (
         <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-          Press <kbd style={{ padding: '1px 4px', borderRadius: 3, background: 'var(--bg-elevated)', border: '1px solid var(--border)', fontSize: '0.7rem' }}>Tab</kbd> for 2-space indentation. Changes are saved to the database and trigger an automatic redeploy.
+          Press <kbd style={{ padding: '1px 4px', borderRadius: 3, background: 'var(--bg-elevated)', border: '1px solid var(--border)', fontSize: '0.7rem' }}>Tab</kbd> for 2-space indentation. Save validates automatically before applying.
         </p>
       )}
 
@@ -218,9 +308,8 @@ export function ComposePanel({ service }) {
             <tbody>
               {(() => {
                 try {
-                  // Simple YAML-like parse for services section
                   const lines = content.split('\n');
-                  const services: Record<string, { image?: string }> = {};
+                  const svcs: Record<string, { image?: string }> = {};
                   let inServices = false;
                   let currentService = '';
                   for (const line of lines) {
@@ -229,14 +318,14 @@ export function ComposePanel({ service }) {
                     if (inServices && !line.startsWith(' ') && line.trim() && !line.startsWith('#')) { inServices = false; }
                     if (inServices) {
                       const svcMatch = trimmed.match(/^(\w[\w.-]*):$/);
-                      if (svcMatch && !line.startsWith('    ')) { currentService = svcMatch[1]; services[currentService] = {}; continue; }
+                      if (svcMatch && !line.startsWith('    ')) { currentService = svcMatch[1]; svcs[currentService] = {}; continue; }
                       if (currentService) {
                         const imgMatch = trimmed.match(/^image:\s*['"]?([^'"]+)['"]?$/);
-                        if (imgMatch) services[currentService].image = imgMatch[1];
+                        if (imgMatch) svcs[currentService].image = imgMatch[1];
                       }
                     }
                   }
-                  const entries = Object.entries(services);
+                  const entries = Object.entries(svcs);
                   if (entries.length === 0) return <tr><td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No services defined</td></tr>;
                   return entries.map(([name, cfg]) => (
                     <tr key={name} style={{ borderBottom: '1px solid var(--border)' }}>
