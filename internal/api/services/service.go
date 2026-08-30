@@ -1443,6 +1443,13 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 			}
 
 			m.db.ExecContext(bgCtx, `UPDATE services SET status='running', port=? WHERE id=?`, hostPort, serviceID) //nolint:errcheck
+			// Refresh svc port for domain summary logging
+			svc.Port = hostPort
+			exposedForLog := hostPort
+			if svc.PortsExposes > 0 {
+				exposedForLog = svc.PortsExposes
+			}
+			m.logDeployDomainSummary(bgCtx, svc, exposedForLog, log)
 		}
 
 		finalStatus = "running"
@@ -1685,6 +1692,97 @@ func (m *Manager) logServiceDomains(ctx context.Context, svc *Service, log func(
 	if len(domains) > 0 {
 		log("Domains: " + strings.Join(domains, ", "))
 	}
+}
+
+func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, exposedPort int, log func(string)) {
+	var projectName string
+	_ = m.db.QueryRowContext(ctx, `SELECT name FROM projects WHERE id = ?`, svc.ProjectID).Scan(&projectName)
+	rows, err := m.db.QueryContext(ctx, `
+		SELECT domain, COALESCE(direction,'both'), COALESCE(tls_status,'')
+		FROM domains_v2
+		WHERE service = ? AND project = ?
+		ORDER BY created_at DESC
+	`, svc.Name, projectName)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type domInfo struct {
+		domain    string
+		direction string
+		tlsStatus string
+	}
+	var domains []domInfo
+	for rows.Next() {
+		var d domInfo
+		if err := rows.Scan(&d.domain, &d.direction, &d.tlsStatus); err == nil && d.domain != "" {
+			domains = append(domains, d)
+		}
+	}
+	if len(domains) == 0 {
+		// No custom domain — hint about sslip or host:port
+		if svc.Port > 0 {
+			log(fmt.Sprintf("🌐 No custom domain configured — app reachable via http://<server-ip>:%d or generate a sslip.io domain in Domains panel", svc.Port))
+		} else {
+			log("🌐 No custom domain configured — add one in Domains panel to expose this service publicly")
+		}
+		return
+	}
+
+	log(fmt.Sprintf("🌐 Domains: %d configured", len(domains)))
+	for _, d := range domains {
+		statusLabel := "DNS pending"
+		if d.tlsStatus == "active" {
+			statusLabel = "DNS verified"
+		}
+		// Clean domain for URL
+		clean := strings.TrimPrefix(strings.TrimPrefix(d.domain, "https://"), "http://")
+		clean = strings.Split(clean, "/")[0]
+		clean = strings.Split(clean, "?")[0]
+		log(fmt.Sprintf("   → https://%s (%s) [%s]", clean, d.direction, statusLabel))
+		if statusLabel != "DNS verified" {
+			log(fmt.Sprintf("     ⚠️ Ensure A/AAAA record for %s points to this server's public IP; Cloudflare proxy is supported. Verify in Domains panel.", clean))
+		}
+	}
+	// Internal and Traefik hints
+	internalPort := exposedPort
+	if internalPort <= 0 {
+		internalPort = svc.Port
+		if svc.PortsExposes > 0 {
+			internalPort = svc.PortsExposes
+		}
+	}
+	if internalPort <= 0 {
+		internalPort = 80
+	}
+	routerName := "router_" + strings.ReplaceAll(svc.ID, "-", "")
+	log(fmt.Sprintf("🔗 Internal: http://%s:%d @ %s (router: %s)", svc.Name, internalPort, docker.NanoflyNetworkName(), routerName))
+	log(fmt.Sprintf("🚦 Traefik: %s → %s (TLS via letsencrypt, entrypoints websecure + http→https redirect for custom domains)", domains[0].domain, svc.ContainerName()))
+	// Check Traefik container status for diagnostics
+	traefikCheckCtx, traefikCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer traefikCancel()
+	if out, err := exec.CommandContext(traefikCheckCtx, "docker", "inspect", "-f", "{{.State.Status}}", "nf-traefik").Output(); err == nil {
+		status := strings.TrimSpace(string(out))
+		if status == "running" {
+			log("✅ Traefik is running (nf-traefik)")
+		} else {
+			log(fmt.Sprintf("⚠️ Traefik container status: %s — check docker logs nf-traefik", status))
+		}
+	} else {
+		log("⚠️ Traefik container not found — run: docker ps -a | grep traefik and check install")
+	}
+	// Check app container status immediately after start
+	appCheckCtx, appCheckCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer appCheckCancel()
+	if out, err := exec.CommandContext(appCheckCtx, "docker", "inspect", "-f", "{{.State.Status}} ({{.State.Health.Status}})", svc.ContainerName()).Output(); err == nil {
+		status := strings.TrimSpace(string(out))
+		log(fmt.Sprintf("📦 Container %s status: %s", svc.ContainerName(), status))
+		if strings.Contains(status, "running") {
+			log(fmt.Sprintf("   Try: curl -I http://%s:%d or docker logs --tail 50 %s", svc.Name, internalPort, svc.ContainerName()))
+		}
+	}
+	log("   If domain shows empty page, check: 1) DNS propagation (dig A theroopsa.com), 2) Traefik running (docker ps | grep nf-traefik), 3) container on nanofly-network (docker network inspect nanofly-network), 4) app logs (docker logs "+svc.ContainerName()+")")
 }
 
 // gitDeploy clones a repo and runs the app inside Docker.
@@ -2122,6 +2220,8 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 	if err != nil {
 		return fmt.Errorf("docker run: %w", err)
 	}
+	// Domain summary — helps operator verify Traefik routing after a successful build
+	m.logDeployDomainSummary(ctx, svc, exposedPort, log)
 	return nil
 }
 
@@ -3896,6 +3996,7 @@ func (m *Manager) localDeploy(ctx context.Context, svc *Service, localPath strin
 		if err != nil {
 			return fmt.Errorf("docker run: %w", err)
 		}
+		m.logDeployDomainSummary(ctx, svc, svc.Port, log)
 		return nil
 	}
 

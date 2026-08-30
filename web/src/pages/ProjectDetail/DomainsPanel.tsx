@@ -44,6 +44,13 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
     [domains, project?.name, service.name],
   );
 
+  const handleGenerateDomain = () => {
+    const host = window.location.hostname.split(':')[0];
+    const randomStr = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 6);
+    const generated = `${randomStr}.${host}.sslip.io`;
+    setDomain(generated);
+  };
+
   const refresh = async () => {
     if (onUpdate) await onUpdate();
   };
@@ -140,7 +147,12 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.4fr) minmax(190px, 1fr) auto', gap: 10, alignItems: 'end' }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">Hostname</label>
-              <input className="form-input" value={domain} onChange={event => setDomain(event.target.value)} placeholder="app.example.com" autoFocus />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input className="form-input" value={domain} onChange={event => setDomain(event.target.value)} placeholder="app.example.com" autoFocus style={{ flex: 1 }} />
+                <Button type="button" variant="outline" size="sm" onClick={handleGenerateDomain} style={{ whiteSpace: 'nowrap', height: 38, border: '1px solid var(--border)', fontSize: '0.75rem' }}>
+                  Generate
+                </Button>
+              </div>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">Routing direction</label>
@@ -152,7 +164,7 @@ export function DomainsPanel({ service, project, domains = [], onUpdate }) {
             <Button type="submit" variant="primary" icon={Plus} loading={saving} disabled={saving}>Add</Button>
           </div>
           <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Point the domain A/AAAA record to this server. Cloudflare proxy domains are supported.
+            Point the domain A/AAAA record to this server. Cloudflare proxy domains are supported. Use Generate for instant <code style={{ background: 'var(--bg-elevated)', padding: '1px 4px', borderRadius: 3 }}>sslip.io</code> domain.
           </div>
         </form>
       )}
