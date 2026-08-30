@@ -79,6 +79,7 @@ export const servicesApi = {
   stop: (id: string): Promise<unknown> => post(`/services/${id}/stop`),
   restart: (id: string): Promise<unknown> => post(`/services/${id}/restart`),
   deployments: (id: string): Promise<unknown> => get(`/services/${id}/deployments`),
+  cancelDeployment: (id: string, deployID: string): Promise<unknown> => post(`/services/${id}/deployments/${deployID}/cancel`),
   getLogs: (id: string): Promise<unknown> => get(`/services/${id}/logs`),
   getMetrics: (id: string): Promise<unknown> => get(`/services/${id}/metrics`),
   getEnvVars: (id: string): Promise<unknown> => get(`/services/${id}/envvars`),

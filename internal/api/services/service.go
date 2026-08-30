@@ -164,9 +164,10 @@ type DeployOptions struct {
 
 // Manager handles service operations.
 type Manager struct {
-	db       *db.DB
-	docker   *docker.Manager
-	deployWg sync.WaitGroup
+	db             *db.DB
+	docker         *docker.Manager
+	deployWg     sync.WaitGroup
+	deployCancels sync.Map // deployID -> context.CancelFunc
 }
 
 // New creates a Manager. docker may be nil if Docker is unavailable.
@@ -872,11 +873,14 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 	// Update service status
 	m.db.ExecContext(ctx, `UPDATE services SET status='deploying' WHERE id=?`, serviceID) //nolint:errcheck
 
-	// Run deployment in background — tracked for graceful shutdown.
+	// Run deployment in background — tracked for graceful shutdown and cancellable.
 	m.deployWg.Add(1)
 	go func() {
 		defer m.deployWg.Done()
-		bgCtx := context.Background()
+		bgCtx, bgCancel := context.WithCancel(context.Background())
+		m.deployCancels.Store(deployID, bgCancel)
+		defer m.deployCancels.Delete(deployID)
+		defer bgCancel()
 		var logBuf strings.Builder
 		var finalStatus string
 		var logMu sync.Mutex
@@ -907,24 +911,38 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 		}
 
 		defer func() {
+			// If context was cancelled, mark as cancelled
+			if bgCtx.Err() == context.Canceled {
+				finalStatus = "cancelled"
+				log("⚠️ Deployment cancelled by user.")
+			}
+			if finalStatus == "" {
+				finalStatus = "error"
+			}
 			logMu.Lock()
 			finalLog := logBuf.String()
 			logMu.Unlock()
 
+			// Use background context for final DB update (original ctx may be cancelled)
+			finalCtx := context.Background()
 			now := time.Now().Format("2006-01-02 15:04:05")
-			m.db.ExecContext(bgCtx, `
+			m.db.ExecContext(finalCtx, `
 				UPDATE deployments SET status=?, log=?, finished_at=? WHERE id=?
 			`, finalStatus, finalLog, now, deployID) //nolint:errcheck
 
 			if finalStatus == "running" {
-				m.db.ExecContext(bgCtx, `
+				m.db.ExecContext(finalCtx, `
 					UPDATE deployments 
 					SET status='completed', finished_at=? 
 					WHERE service_id=? AND id != ? AND status IN ('running', 'building')
 				`, now, serviceID, deployID) //nolint:errcheck
 			}
 
-			m.db.ExecContext(bgCtx, `UPDATE services SET status=? WHERE id=?`, finalStatus, serviceID) //nolint:errcheck
+			svcStatus := finalStatus
+			if svcStatus == "cancelled" {
+				svcStatus = "error"
+			}
+			m.db.ExecContext(finalCtx, `UPDATE services SET status=? WHERE id=?`, svcStatus, serviceID) //nolint:errcheck
 
 			// Prune old deployment logs to prevent unbounded DB growth
 			if finalStatus == "running" || finalStatus == "error" {
@@ -1760,8 +1778,19 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 			log(fmt.Sprintf("📁 Build context: %.1f MB", sizeMB))
 		}
 
+		// Check if build was cancelled before starting docker build
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("deployment cancelled")
+		}
 		log("🔨 Building Docker image…")
-		buildArgs := []string{"build", "--progress=plain", "--pull", "--network=host", "-t", imageTag}
+		hasBuildKit := isBuildKitAvailable()
+		var buildArgs []string
+		if hasBuildKit {
+			buildArgs = []string{"build", "--progress=plain", "--pull", "--network=host", "-t", imageTag}
+		} else {
+			buildArgs = []string{"build", "--pull", "-t", imageTag}
+			log("ℹ️ BuildKit not detected — using standard Docker build")
+		}
 		if svc.DockerfileLocation != "" {
 			buildArgs = append(buildArgs, "-f", filepath.Join(repoDir, svc.DockerfileLocation))
 		}
@@ -1798,10 +1827,14 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		}
 		buildArgs = append(buildArgs, contextDir)
 
-		// DOCKER_BUILDKIT=1 enables BuildKit features (cache mounts, secrets, etc.)
 		buildCmd := exec.CommandContext(ctx, "docker", buildArgs...)
-		buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+		if hasBuildKit {
+			buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+		}
 		if err := runCommandStreaming(buildCmd, log); err != nil {
+			if ctx.Err() == context.Canceled {
+				return fmt.Errorf("deployment cancelled")
+			}
 			return fmt.Errorf("docker build: %w", err)
 		}
 	}
@@ -2434,8 +2467,8 @@ EXPOSE %s
 	return os.WriteFile(dockerfilePath, []byte(content), 0644)
 }
 
-// optimizeExistingDockerfile patches an existing Dockerfile for faster builds (Coolify pattern).
-// Adds BuildKit cache mounts, --no-audit --no-fund, and telemetry disable without breaking the build.
+// optimizeExistingDockerfile patches an existing Dockerfile for faster builds.
+// Adds --no-audit --no-fund always; adds BuildKit cache mounts and syntax header only if BuildKit is available.
 func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 	data, err := os.ReadFile(dockerfilePath)
 	if err != nil {
@@ -2444,15 +2477,15 @@ func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 	content := string(data)
 	original := content
 	patched := false
+	hasBuildKit := isBuildKitAvailable()
 
-	// 1. Add BuildKit syntax header if missing
-	if !strings.Contains(content, "# syntax=") {
+	// 1. Add BuildKit syntax header only if BuildKit available and we'll use cache mounts
+	if hasBuildKit && !strings.Contains(content, "# syntax=") {
 		content = "# syntax=docker/dockerfile:1\n" + content
 		patched = true
 	}
 
-	// 2. Patch npm ci / npm install to add cache mount and --no-audit --no-fund
-	//    `RUN npm ci` -> `RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund`
+	// 2. Patch npm ci / npm install to add --no-audit --no-fund and optionally cache mount
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -2465,22 +2498,25 @@ func optimizeExistingDockerfile(dockerfilePath string, log func(string)) {
 		}
 		if strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--no-audit") {
 			lines[i] = strings.Replace(line, "npm ci", "npm ci --no-audit --no-fund", 1)
-			// Add cache mount after RUN
-			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+			if hasBuildKit {
+				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+			}
 			patched = true
 		} else if strings.Contains(trimmed, "npm install") && !strings.Contains(trimmed, "--no-audit") {
 			lines[i] = strings.Replace(line, "npm install", "npm install --no-audit --no-fund", 1)
-			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+			if hasBuildKit {
+				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
+			}
 			patched = true
-		} else if strings.Contains(trimmed, "yarn install") && !strings.Contains(trimmed, "--mount") {
+		} else if hasBuildKit && strings.Contains(trimmed, "yarn install") && !strings.Contains(trimmed, "--mount") {
 			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/usr/local/share/.cache/yarn ", 1)
 			patched = true
-		} else if strings.Contains(trimmed, "pnpm install") && !strings.Contains(trimmed, "--mount") {
+		} else if hasBuildKit && strings.Contains(trimmed, "pnpm install") && !strings.Contains(trimmed, "--mount") {
 			lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.local/share/pnpm/store ", 1)
 			patched = true
 		}
-		// Also add cache mount to plain `RUN npm ci` that already has --no-audit but no cache
-		if strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--mount=type=cache") && strings.Contains(lines[i], "npm ci") {
+		// Also add cache mount to plain `RUN npm ci` that already has --no-audit but no cache (BuildKit only)
+		if hasBuildKit && strings.Contains(trimmed, "npm ci") && !strings.Contains(trimmed, "--mount=type=cache") && strings.Contains(lines[i], "npm ci") {
 			if !strings.Contains(lines[i], "--mount") {
 				lines[i] = strings.Replace(lines[i], "RUN ", "RUN --mount=type=cache,target=/root/.npm ", 1)
 				patched = true
@@ -2577,6 +2613,60 @@ func fileExistsWithExtension(dir, ext string) bool {
 		}
 	}
 	return false
+}
+
+// isBuildKitAvailable checks if Docker BuildKit is available on this host.
+// Caches result for 5 minutes to avoid repeated checks.
+var (
+	buildKitCache     bool
+	buildKitCacheTime time.Time
+	buildKitCacheMu   sync.Mutex
+)
+
+func isBuildKitAvailable() bool {
+	buildKitCacheMu.Lock()
+	defer buildKitCacheMu.Unlock()
+	if time.Since(buildKitCacheTime) < 5*time.Minute {
+		return buildKitCache
+	}
+	// Check 1: docker buildx version
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "buildx", "version")
+	if err := cmd.Run(); err == nil {
+		buildKitCache = true
+		buildKitCacheTime = time.Now()
+		return true
+	}
+	// Check 2: DOCKER_BUILDKIT=1 docker build --help | grep progress
+	cmd2 := exec.CommandContext(ctx, "sh", "-c", "DOCKER_BUILDKIT=1 docker build --help 2>&1 | grep -q '\\-\\-progress'")
+	if err := cmd2.Run(); err == nil {
+		buildKitCache = true
+		buildKitCacheTime = time.Now()
+		return true
+	}
+	buildKitCache = false
+	buildKitCacheTime = time.Now()
+	return false
+}
+
+// CancelDeployment cancels a running deployment.
+func (m *Manager) CancelDeployment(ctx context.Context, deployID string) error {
+	val, ok := m.deployCancels.Load(deployID)
+	if !ok {
+		return fmt.Errorf("no active deployment found for %s", deployID)
+	}
+	cancel, ok := val.(context.CancelFunc)
+	if !ok {
+		return fmt.Errorf("invalid cancel function")
+	}
+	cancel()
+	// Update DB status
+	now := time.Now().Format("2006-01-02 15:04:05")
+	m.db.ExecContext(ctx, `UPDATE deployments SET status='cancelled', finished_at=? WHERE id=? AND status='building'`, now, deployID) //nolint:errcheck
+	// Also try to kill any running docker build
+	exec.CommandContext(ctx, "sh", "-c", "pkill -f 'docker build' 2>/dev/null; true").Run() //nolint:errcheck
+	return nil
 }
 
 // recordDeploymentCommit fills commit_sha/commit_msg from the cloned repo when not already set by webhook.

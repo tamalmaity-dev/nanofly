@@ -37,6 +37,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/services/{id}/logs", h.GetContainerLogs)
 	r.Get("/services/{id}/metrics", h.GetMetrics)
 	r.Get("/services/{id}/deployments", h.ListDeployments)
+	r.Post("/services/{id}/deployments/{deployID}/cancel", h.CancelDeployment)
 	r.Get("/services/{id}/envvars", h.GetEnvVars)
 	r.Post("/services/{id}/envvars", h.UpsertEnvVar)
 	r.Delete("/services/{id}/envvars/{key}", h.DeleteEnvVar)
@@ -228,6 +229,15 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, deps)
+}
+
+func (h *Handler) CancelDeployment(w http.ResponseWriter, r *http.Request) {
+	deployID := chi.URLParam(r, "deployID")
+	if err := h.mgr.CancelDeployment(r.Context(), deployID); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 func (h *Handler) GetEnvVars(w http.ResponseWriter, r *http.Request) {
