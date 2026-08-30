@@ -906,7 +906,7 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 				logBuf.WriteString(truncated)
 			}
 			now := time.Now()
-			shouldFlush := now.Sub(lastWrite) > 1*time.Second || logBuf.Len() >= 64*1024
+			shouldFlush := now.Sub(lastWrite) > 500*time.Millisecond || logBuf.Len() >= 32*1024
 			if shouldFlush {
 				lastWrite = now
 				logContent := logBuf.String()
@@ -1643,7 +1643,6 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 	m.recordDeploymentCommit(ctx, deployID, repoDir)
 
 	// Remove .git directory after clone — reduces build context dramatically
-	// (Coolify does this: .git can be 50-200MB of history never needed in image)
 	if err := os.RemoveAll(filepath.Join(repoDir, ".git")); err == nil {
 		log("🧹 Removed .git directory from build context")
 	}
@@ -1657,7 +1656,6 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 				return fmt.Errorf("writing docker-compose.yml: %w", err)
 			}
 		}
-
 		if err := deployCompose(ctx, repoDir, svc.ID, log); err != nil {
 			return err
 		}
@@ -1689,9 +1687,17 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		return fmt.Errorf("generating Dockerfile: %w", err)
 	}
 
+	// Get commit SHA for build skip optimization
 	imageTag := "nf-" + svc.Name + ":latest"
+	var commitSHA string
+	if out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "HEAD").Output(); err == nil {
+		commitSHA = strings.TrimSpace(string(out))
+	}
 
-	if svc.Builder == "nixpacks" {
+	// Check if we can skip the build (like Coolify: if image with same commit SHA exists)
+	if commitSHA != "" && hasImageWithCommitSHA(ctx, imageTag, commitSHA) {
+		log("✅ No build configuration changed & image found (hash:" + commitSHA[:7] + ") with the same Git Commit SHA. Build step skipped.")
+	} else if svc.Builder == "nixpacks" {
 		log("📦 Building with Nixpacks…")
 		buildCmd := exec.CommandContext(ctx, "nixpacks", "build", contextDir, "--name", imageTag)
 		buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
@@ -1832,19 +1838,30 @@ func (m *Manager) gitDeploy(ctx context.Context, svc *Service, deployID string, 
 		if svc.BuildCustomOptions != "" {
 			buildArgs = append(buildArgs, strings.Fields(svc.BuildCustomOptions)...)
 		}
+		// Add commit SHA as label for build skip optimization (like Coolify)
+		if commitSHA != "" {
+			buildArgs = append(buildArgs, "--label", "nanofly.commit_sha="+commitSHA)
+		}
 		buildArgs = append(buildArgs, contextDir)
 
-		buildCmd := exec.CommandContext(ctx, "docker", buildArgs...)
+		// Apply build timeout to prevent indefinite hangs (30 minutes)
+		buildCtx, buildCancel := context.WithTimeout(ctx, buildTimeout)
+		defer buildCancel()
+		buildCmd := exec.CommandContext(buildCtx, "docker", buildArgs...)
 		if hasBuildKit {
 			buildCmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 		}
 		if err := runCommandStreaming(buildCmd, log); err != nil {
+			if buildCtx.Err() == context.DeadlineExceeded {
+				return fmt.Errorf("docker build timed out after %v — check for stuck processes or very large build contexts", buildTimeout)
+			}
 			if ctx.Err() == context.Canceled {
 				return fmt.Errorf("deployment cancelled")
 			}
 			return fmt.Errorf("docker build: %w", err)
 		}
-	}
+	} // end else (build needed)
+	// Note: if build was skipped, we still proceed to container start below
 
 	// Tag and Push to Docker Registry if specified
 	if svc.DockerRegistryImage != "" {
@@ -2656,6 +2673,27 @@ func isBuildKitAvailable() bool {
 	buildKitCacheTime = time.Now()
 	return false
 }
+
+// hasImageWithCommitSHA checks if a Docker image with the given commit SHA already exists.
+// This is used to skip rebuilds when the same commit has already been built (like Coolify).
+func hasImageWithCommitSHA(ctx context.Context, imageTag, commitSHA string) bool {
+	if commitSHA == "" {
+		return false
+	}
+	// Check if the image exists and has the commit SHA as a label
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(checkCtx, "docker", "inspect", "--format", "{{index .Config.Labels \"nanofly.commit_sha\"}}", imageTag)
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	existingSHA := strings.TrimSpace(string(out))
+	return existingSHA == commitSHA
+}
+
+// buildTimeout is the maximum time allowed for a Docker build before it's considered stuck.
+const buildTimeout = 30 * time.Minute
 
 // CancelDeployment cancels a running deployment.
 func (m *Manager) CancelDeployment(ctx context.Context, deployID string) error {
