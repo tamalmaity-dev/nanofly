@@ -889,6 +889,13 @@ func (m *Manager) Deploy(ctx context.Context, serviceID string, opts ...DeployOp
 
 		log := func(line string) {
 			slog.Info("[deploy]", "svc", svc.Name, "line", line)
+			// Prefix with timestamp like Coolify: 2026-Aug-19 23:35:30 (if not already)
+			if line != "" {
+				alreadyStamped := len(line) >= 11 && line[4] == '-' && (line[7] == '-' || line[3] == '-')
+				if !alreadyStamped {
+					line = time.Now().Format("2006-Jan-02 15:04:05") + " " + line
+				}
+			}
 			logMu.Lock()
 			logBuf.WriteString(line + "\n")
 			if logBuf.Len() > maxLogBytes {
