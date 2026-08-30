@@ -1839,18 +1839,24 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 				}
 			}
 			// Internal health check — retry with backoff, try multiple tools (wget, node fetch)
-			time.Sleep(3 * time.Second)
+			time.Sleep(5 * time.Second)
 			internalOK := false
-			for attempt := 1; attempt <= 3; attempt++ {
-				// Try 1: wget via sh (handles minimal images without wget in PATH)
+			for attempt := 1; attempt <= 4; attempt++ {
+				// Try 1: wget via sh — use pipefail so wget failure is not masked by head
 				curlCtx, curlCancel := context.WithTimeout(ctx, 5*time.Second)
-				curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("wget -qO- http://localhost:%d 2>&1 | head -c 300; echo \"__EXIT:$?\"", internalPort))
+				curlCmd := exec.CommandContext(curlCtx, "docker", "exec", svc.ContainerName(), "sh", "-c", fmt.Sprintf("set -o pipefail; wget -qO- http://localhost:%d 2>&1 | head -c 500; echo \"__EXIT:${PIPESTATUS[0]:-$?}\"", internalPort))
 				out, err := curlCmd.CombinedOutput()
 				curlCancel()
 				outStr := string(out)
-				if err == nil && strings.Contains(outStr, "__EXIT:0") && len(strings.TrimSpace(strings.ReplaceAll(outStr, "__EXIT:0", ""))) > 0 {
-					preview := strings.TrimSpace(strings.ReplaceAll(outStr, "__EXIT:0", ""))
-					preview = strings.ReplaceAll(preview, "\n", " ")
+				// Extract exit code from our echo
+				exitOK := strings.Contains(outStr, "__EXIT:0")
+				previewRaw := strings.TrimSpace(strings.ReplaceAll(outStr, "__EXIT:0", ""))
+				previewRaw = strings.ReplaceAll(previewRaw, "__EXIT:1", "")
+				previewRaw = strings.ReplaceAll(previewRaw, "__EXIT:127", "")
+				lowerPreview := strings.ToLower(previewRaw)
+				isErrorOutput := strings.Contains(lowerPreview, "can't connect") || strings.Contains(lowerPreview, "connection refused") || strings.Contains(lowerPreview, "wget: not found") || strings.Contains(lowerPreview, "not found")
+				if err == nil && exitOK && !isErrorOutput && len(strings.TrimSpace(previewRaw)) > 20 {
+					preview := strings.ReplaceAll(strings.TrimSpace(previewRaw), "\n", " ")
 					if len(preview) > 200 {
 						preview = preview[:200] + "..."
 					}
@@ -1858,29 +1864,60 @@ func (m *Manager) logDeployDomainSummary(ctx context.Context, svc *Service, expo
 					internalOK = true
 					break
 				}
-				// Try 2: node fetch (Next.js standalone has node)
+				if isErrorOutput && attempt == 1 {
+					// Log first failure reason for debugging, but continue retrying
+					preview := strings.TrimSpace(previewRaw)
+					if len(preview) > 150 {
+						preview = preview[:150]
+					}
+					preview = strings.ReplaceAll(preview, "\n", " ")
+					log(fmt.Sprintf("   [health] attempt %d wget: %s (retrying...)", attempt, preview))
+				}
+				// Try 2: node fetch (Next.js standalone has node) — more reliable in minimal image
 				curlCtx2, curlCancel2 := context.WithTimeout(ctx, 5*time.Second)
-				nodeCmd := exec.CommandContext(curlCtx2, "docker", "exec", svc.ContainerName(), "node", "-e", fmt.Sprintf("fetch('http://localhost:%d').then(r=>r.text().then(t=>{console.log(t.slice(0,300));process.stdout.write('__EXIT:0')} )).catch(e=>{console.error(String(e));process.exit(1)})", internalPort))
+				nodeCmd := exec.CommandContext(curlCtx2, "docker", "exec", svc.ContainerName(), "node", "-e", fmt.Sprintf("fetch('http://localhost:%d').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(t=>{console.log(t.slice(0,400));process.stdout.write('__EXIT:0')}).catch(e=>{console.error(String(e));process.exit(1)})", internalPort))
 				out2, err2 := nodeCmd.CombinedOutput()
 				curlCancel2()
 				if err2 == nil && strings.Contains(string(out2), "__EXIT:0") {
 					preview := strings.TrimSpace(strings.ReplaceAll(string(out2), "__EXIT:0", ""))
 					preview = strings.ReplaceAll(preview, "\n", " ")
-					if len(preview) > 200 {
-						preview = preview[:200] + "..."
-					}
-					if preview != "" {
+					lower2 := strings.ToLower(preview)
+					if preview != "" && !strings.Contains(lower2, "econnrefused") && !strings.Contains(lower2, "fetch failed") {
+						if len(preview) > 200 {
+							preview = preview[:200] + "..."
+						}
 						log(fmt.Sprintf("✅ Internal check (node fetch) http://localhost:%d returned %d bytes (attempt %d): %s", internalPort, len(preview), attempt, preview))
 						internalOK = true
 						break
 					}
 				}
-				if attempt < 3 {
-					time.Sleep(2 * time.Second)
+				if attempt < 4 {
+					time.Sleep(3 * time.Second)
 				}
 			}
 			if !internalOK {
-				log(fmt.Sprintf("⚠️ Internal check did not get content yet — app may still be starting or wget/node not available. Check docker logs %s and try curl from host: curl -I http://localhost:%d", svc.ContainerName(), internalPort))
+				log(fmt.Sprintf("⚠️ Internal check still not responding after retries — app may still be starting. Check docker logs %s and try curl from host: curl -I http://localhost:%d", svc.ContainerName(), internalPort))
+				// Fetch one more time fresh logs to show startup progress
+				logCtx2, logCancel2 := context.WithTimeout(ctx, 3*time.Second)
+				defer logCancel2()
+				if logOut2, err := exec.CommandContext(logCtx2, "docker", "logs", "--tail", "30", svc.ContainerName()).CombinedOutput(); err == nil && len(logOut2) > 0 {
+					lines2 := strings.Split(strings.TrimSpace(string(logOut2)), "\n")
+					start2 := 0
+					if len(lines2) > 8 {
+						start2 = len(lines2) - 8
+					}
+					for _, l := range lines2[start2:] {
+						l = strings.TrimSpace(l)
+						if l != "" {
+							if len(l) > 20 && l[4] == '-' && l[7] == '-' {
+								if idx := strings.Index(l, " "); idx > 0 {
+									l = l[idx+1:]
+								}
+							}
+							log(fmt.Sprintf("   [app] %s", l))
+						}
+					}
+				}
 			}
 		}
 	}
