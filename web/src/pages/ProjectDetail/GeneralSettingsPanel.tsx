@@ -21,6 +21,46 @@ const SUB_NAV = [
 
 const NANOFLY_NETWORK = 'nanofly-network';
 
+function parseImageRef(image) {
+  if (!image) return { base: '', tag: 'latest', digest: '' };
+  if (image.includes('@sha256:')) {
+    const [basePart, digestPart] = image.split('@sha256:');
+    let base = basePart;
+    const lastSlash = base.lastIndexOf('/');
+    const lastColon = base.lastIndexOf(':');
+    if (lastColon > lastSlash) base = base.substring(0, lastColon);
+    return { base, tag: '', digest: digestPart };
+  }
+  const lastSlash = image.lastIndexOf('/');
+  const lastColon = image.lastIndexOf(':');
+  if (lastColon > lastSlash) {
+    return { base: image.substring(0, lastColon), tag: image.substring(lastColon + 1), digest: '' };
+  }
+  return { base: image, tag: 'latest', digest: '' };
+}
+
+function buildImageRef(base, tag, digest) {
+  base = (base || '').trim();
+  if (!base) return '';
+  const cleanDigest = (digest || '').trim().replace(/^sha256:/, '');
+  if (cleanDigest) {
+    let b = base.split('@')[0];
+    const lastSlash = b.lastIndexOf('/');
+    const lastColon = b.lastIndexOf(':');
+    if (lastColon > lastSlash) b = b.substring(0, lastColon);
+    return `${b}@sha256:${cleanDigest}`;
+  }
+  const cleanTag = (tag || '').trim();
+  if (cleanTag) {
+    let b = base.split('@')[0];
+    const lastSlash = b.lastIndexOf('/');
+    const lastColon = b.lastIndexOf(':');
+    if (lastColon > lastSlash) b = b.substring(0, lastColon);
+    return `${b}:${cleanTag}`;
+  }
+  return base;
+}
+
 function ConfigSection({ title, desc, children }) {
   return (
     <div style={{
@@ -60,15 +100,20 @@ export function GeneralSettingsPanel({ service, project, domains, onUpdate, onNa
   const internalHostname = service.status === 'running' || service.status === 'deploying'
     ? service.name
     : 'No deployed container found';
+  const isDockerImage = service.type === 'app' && !!service.image && (!service.git_repo_url || service.git_repo_url === '' || service.git_repo_url === 'github-app://pending');
 
   const handleSave = async () => {
     if (!form.name.trim()) {
       toast.error('Name is required');
       return;
     }
+    if (isDockerImage && !form.imageBase.trim()) {
+      toast.error('Image name is required');
+      return;
+    }
     setSaving(true);
     try {
-      await servicesApi.update(service.id, {
+      const payload = {
         name: form.name.trim(),
         description: form.description.trim(),
         port: Number(form.port) || 0,
@@ -90,7 +135,11 @@ export function GeneralSettingsPanel({ service, project, domains, onUpdate, onNa
         ports_exposes: Number(form.portsExposes) || 0,
         port_mappings: form.portMappings.trim(),
         network_aliases: form.networkAliases.trim(),
-      });
+      };
+      if (isDockerImage) {
+        payload.image = buildImageRef(form.imageBase, form.imageTag, form.imageDigest);
+      }
+      await servicesApi.update(service.id, payload);
 
       const matched = domains.find(d => d.service === service.name && d.project === project?.name);
       const cleanNewDomain = form.domain.trim().replace(/^https?:\/\//, '');
@@ -199,54 +248,94 @@ export function GeneralSettingsPanel({ service, project, domains, onUpdate, onNa
         )}
 
         {section === 'build' && (
-          <ConfigSection title="Build pipeline" desc="Configure compilation paths and builder options.">
-            <div className="form-group">
-              <label className="form-label">Builder</label>
-              <select className="form-input" value={form.gitBuilder} onChange={set('gitBuilder')}>
-                <option value="auto">Auto-detect</option>
-                <option value="dockerfile">Dockerfile</option>
-                <option value="docker-compose">Docker Compose</option>
-                <option value="nixpacks">Nixpacks</option>
-                <option value="node:22-alpine">Node.js</option>
-                <option value="python:3.11-slim">Python</option>
-                <option value="golang:1.22-alpine">Go</option>
-                <option value="php:8.2-apache">PHP</option>
-              </select>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Base Directory</label>
-                <input className="form-input" placeholder="/" value={form.baseDirectory} onChange={set('baseDirectory')} />
+          isDockerImage ? (
+            <ConfigSection title="Build pipeline" desc="Build configuration for this application.">
+              <div style={{ padding: '1rem', background: 'var(--bg-elevated)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)', fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                Nothing to build. This application deploys a prebuilt Docker image.
               </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Dockerfile Location</label>
-                <input className="form-input" placeholder="/Dockerfile" value={form.dockerfileLocation} onChange={set('dockerfileLocation')} />
+            </ConfigSection>
+          ) : (
+            <ConfigSection title="Build pipeline" desc="Configure compilation paths and builder options.">
+              <div className="form-group">
+                <label className="form-label">Builder</label>
+                <select className="form-input" value={form.gitBuilder} onChange={set('gitBuilder')}>
+                  <option value="auto">Auto-detect</option>
+                  <option value="dockerfile">Dockerfile</option>
+                  <option value="docker-compose">Docker Compose</option>
+                  <option value="nixpacks">Nixpacks</option>
+                  <option value="node:22-alpine">Node.js</option>
+                  <option value="python:3.11-slim">Python</option>
+                  <option value="golang:1.22-alpine">Go</option>
+                  <option value="php:8.2-apache">PHP</option>
+                </select>
               </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Build Stage Target</label>
-                <input className="form-input" placeholder="e.g. runner" value={form.buildStageTarget} onChange={set('buildStageTarget')} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Base Directory</label>
+                  <input className="form-input" placeholder="/" value={form.baseDirectory} onChange={set('baseDirectory')} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Dockerfile Location</label>
+                  <input className="form-input" placeholder="/Dockerfile" value={form.dockerfileLocation} onChange={set('dockerfileLocation')} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Build Stage Target</label>
+                  <input className="form-input" placeholder="e.g. runner" value={form.buildStageTarget} onChange={set('buildStageTarget')} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Watch Paths</label>
+                  <input className="form-input" placeholder="src/**" value={form.buildWatchPaths} onChange={set('buildWatchPaths')} />
+                </div>
               </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Watch Paths</label>
-                <input className="form-input" placeholder="src/**" value={form.buildWatchPaths} onChange={set('buildWatchPaths')} />
-              </div>
-            </div>
-          </ConfigSection>
+            </ConfigSection>
+          )
         )}
 
         {section === 'image' && (
-          <ConfigSection title="Container image" desc="Docker registry image and tag (optional).">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Docker Image</label>
-                <input className="form-input" placeholder="username/my-app" value={form.dockerRegistryImage} onChange={set('dockerRegistryImage')} />
+          isDockerImage ? (
+            <ConfigSection title="Container image" desc="Prebuilt Docker image from a registry.">
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Image
+                  <Tooltip content="e.g. nginx, ghcr.io/user/app"><Info size={12} style={{ cursor: 'help', color: 'var(--text-muted)' }} /></Tooltip>
+                </label>
+                <input className="form-input" placeholder="ghcr.io/tamalmaity-dev/roopsa-web" value={form.imageBase} onChange={set('imageBase')} />
               </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Docker Image Tag</label>
-                <input className="form-input" placeholder="latest" value={form.dockerRegistryTag} onChange={set('dockerRegistryTag')} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'end' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Tag
+                    <Tooltip content="Image tag, e.g. latest"><Info size={12} style={{ cursor: 'help', color: 'var(--text-muted)' }} /></Tooltip>
+                  </label>
+                  <input className="form-input" placeholder="latest" value={form.imageTag} onChange={set('imageTag')} disabled={!!form.imageDigest.trim()} style={form.imageDigest.trim() ? { opacity: 0.5 } : undefined} />
+                </div>
+                <div style={{ paddingBottom: 10, fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>OR</div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    SHA256 digest
+                    <Tooltip content="Without sha256: prefix"><Info size={12} style={{ cursor: 'help', color: 'var(--text-muted)' }} /></Tooltip>
+                  </label>
+                  <input className="form-input" placeholder="59e02939b1bf39f16c93138a28727aec..." value={form.imageDigest} onChange={set('imageDigest')} disabled={!!form.imageTag.trim() && form.imageTag.trim() !== 'latest'} style={form.imageTag.trim() && form.imageTag.trim() !== 'latest' ? { opacity: 0.5 } : undefined} />
+                </div>
               </div>
-            </div>
-          </ConfigSection>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace', background: 'var(--bg-elevated)', padding: '6px 8px', borderRadius: 4, border: '1px solid var(--border)' }}>
+                Full reference: <span style={{ color: 'var(--text-primary)' }}>{buildImageRef(form.imageBase, form.imageTag, form.imageDigest) || '—'}</span>
+              </div>
+            </ConfigSection>
+          ) : (
+            <ConfigSection title="Container image" desc="Docker registry image and tag (optional).">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Docker Image</label>
+                  <input className="form-input" placeholder="username/my-app" value={form.dockerRegistryImage} onChange={set('dockerRegistryImage')} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Docker Image Tag</label>
+                  <input className="form-input" placeholder="latest" value={form.dockerRegistryTag} onChange={set('dockerRegistryTag')} />
+                </div>
+              </div>
+            </ConfigSection>
+          )
         )}
 
         {section === 'networking' && (
@@ -354,10 +443,15 @@ function buildForm(service, domains, project) {
   if (initialDomain && !initialDomain.startsWith('http')) {
     initialDomain = `http://${initialDomain}`;
   }
+  const { base: imageBase, tag: imageTag, digest: imageDigest } = parseImageRef(service.image || '');
   return {
     name: service.name,
     description: service.description || '',
     port: service.port || '',
+    image: service.image || '',
+    imageBase,
+    imageTag,
+    imageDigest,
     gitBuilder: service.git_builder || 'auto',
     appDirectory: service.app_directory || '',
     runFile: service.run_file || '',

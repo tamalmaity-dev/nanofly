@@ -206,7 +206,7 @@ WORDPRESS_TABLE_PREFIX=wp_`,
       };
     }
     case 'docker-image':
-      return { ...shared, port: '80' };
+      return { ...shared, port: '80', imageTag: 'latest', imageDigest: '' };
     default:
       if (resource.subType === 'github') {
         return { ...shared, gitBuilder: 'auto', port: '3000' };
@@ -724,14 +724,42 @@ export function AddServiceConfigFields({
 
             {builderType === 'docker-image' ? (
               <>
-                <div className="form-group">
-                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    Image name *
-                    <Tooltip content="E.g. nginx:alpine or registry.hub.docker.com/library/nginx:alpine">
-                      <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-                    </Tooltip>
-                  </label>
-                  <input className="form-input" placeholder="nginx:alpine" value={form.image} onChange={set('image')} />
+                <div style={{ background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem 1.25rem' }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Docker image</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 14 }}>Deploy an existing image from Docker Hub or another OCI registry.</div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      Image name *
+                      <Tooltip content="e.g. nginx, ghcr.io/user/app:v1.2.3, or nginx:stable@sha256:... — without tag/digest if you use the fields below">
+                        <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                      </Tooltip>
+                    </label>
+                    <input className="form-input" placeholder="nginx, ghcr.io/user/app:v1.2.3, or nginx:stable@sha256:..." value={form.image} onChange={set('image')} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'end' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Tag
+                        <Tooltip content="Image tag, e.g. latest, stable, v1.2.3">
+                          <Info size={12} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                        </Tooltip>
+                      </label>
+                      <input className="form-input" placeholder="latest" value={form.imageTag || ''} onChange={set('imageTag')} disabled={!!(form.imageDigest && form.imageDigest.trim())} style={form.imageDigest && form.imageDigest.trim() ? { opacity: 0.5 } : undefined} />
+                    </div>
+                    <div style={{ paddingBottom: 10, fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textAlign: 'center' }}>OR</div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        SHA256 digest
+                        <Tooltip content="Content-addressable digest (without sha256: prefix)">
+                          <Info size={12} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                        </Tooltip>
+                      </label>
+                      <input className="form-input" placeholder="59e02939b1bf39f16c93138a28727aec..." value={form.imageDigest || ''} onChange={set('imageDigest')} disabled={!!(form.imageTag && form.imageTag.trim() && form.imageTag.trim() !== 'latest')} style={form.imageTag && form.imageTag.trim() && form.imageTag.trim() !== 'latest' ? { opacity: 0.5 } : undefined} />
+                    </div>
+                  </div>
+                  <p style={{ margin: '8px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Leave digest empty to use tag. Tag defaults to <code style={{ background: 'var(--bg-elevated)', padding: '1px 4px', borderRadius: 3 }}>latest</code> if not specified.
+                  </p>
                 </div>
                 <div className="form-group">
                   <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -912,40 +940,43 @@ export function AddServiceConfigFields({
 
       {resourceId !== 'wordpress' && (
         <>
-          <ConfigSection title="Docker Registry" desc="Specify a Docker Registry to tag and push the compiled image (optional).">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  Docker Image
-                  <Tooltip content="E.g. registry.hub.docker.com/username/image. Empty means it won't push the image to a docker registry.">
-                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-                  </Tooltip>
-                </label>
-                <input
-                  className="form-input"
-                  placeholder="e.g. username/my-app"
-                  value={form.dockerRegistryImage || ''}
-                  onChange={set('dockerRegistryImage')}
-                />
+          {builderType !== 'docker-image' && (
+            <ConfigSection title="Docker Registry" desc="Specify a Docker Registry to tag and push the compiled image (optional).">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Docker Image
+                    <Tooltip content="E.g. registry.hub.docker.com/username/image. Empty means it won't push the image to a docker registry.">
+                      <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                    </Tooltip>
+                  </label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. username/my-app"
+                    value={form.dockerRegistryImage || ''}
+                    onChange={set('dockerRegistryImage')}
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Docker Image Tag
+                    <Tooltip content="Empty means it will only push with 'latest'.">
+                      <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
+                    </Tooltip>
+                  </label>
+                  <input
+                    className="form-input"
+                    placeholder="e.g. latest, v1.0.0"
+                    value={form.dockerRegistryTag || ''}
+                    onChange={set('dockerRegistryTag')}
+                  />
+                </div>
               </div>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  Docker Image Tag
-                  <Tooltip content="Empty means it will only push with 'latest'.">
-                    <Info size={14} style={{ cursor: 'help', color: 'var(--text-muted)' }} />
-                  </Tooltip>
-                </label>
-                <input
-                  className="form-input"
-                  placeholder="e.g. latest, v1.0.0"
-                  value={form.dockerRegistryTag || ''}
-                  onChange={set('dockerRegistryTag')}
-                />
-              </div>
-            </div>
-          </ConfigSection>
+            </ConfigSection>
+          )}
 
-          <ConfigSection title="Build" desc="Configure compilation paths, multi-stage targets, and custom builder options.">
+          {builderType !== 'docker-image' && (
+            <ConfigSection title="Build" desc="Configure compilation paths, multi-stage targets, and custom builder options.">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1032,6 +1063,7 @@ export function AddServiceConfigFields({
               </label>
             </div>
           </ConfigSection>
+          )}
 
           <ConfigSection title="Network" desc="Container network, exposed ports, and port forwarding configuration.">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>

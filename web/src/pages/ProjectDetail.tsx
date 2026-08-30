@@ -619,6 +619,8 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
   const [form, setForm] = useState(() => ({
     name: '',
     image: '',
+    imageTag: 'latest',
+    imageDigest: '',
     port: '',
     gitUrl: '',
     localPath: '',
@@ -777,10 +779,49 @@ function AddServiceForm({ projectId, projectName, domains = [], services = [], o
           tier_name: form.resourceTier,
         });
       } else {
+        // Docker image — combine base image + tag/digest like Coolify
+        let finalImage = form.image.trim();
+        if (!finalImage) {
+          setError('Image name is required');
+          setLoading(false);
+          return;
+        }
+        const tag = (form.imageTag || '').trim();
+        const digest = (form.imageDigest || '').trim();
+        if (digest) {
+          const cleanDigest = digest.replace(/^sha256:/, '');
+          const baseWithoutDigest = finalImage.split('@')[0];
+          // strip existing tag if present (e.g. nginx:alpine -> nginx)
+          const lastSlash = baseWithoutDigest.lastIndexOf('/');
+          const lastColon = baseWithoutDigest.lastIndexOf(':');
+          const hasTag = lastColon > lastSlash;
+          const base = hasTag ? baseWithoutDigest.substring(0, lastColon) : baseWithoutDigest;
+          finalImage = `${base}@sha256:${cleanDigest}`;
+        } else if (tag) {
+          const baseWithoutDigest = finalImage.split('@')[0];
+          const lastSlash = baseWithoutDigest.lastIndexOf('/');
+          const lastColon = baseWithoutDigest.lastIndexOf(':');
+          const hasTag = lastColon > lastSlash;
+          if (hasTag) {
+            const base = baseWithoutDigest.substring(0, lastColon);
+            finalImage = `${base}:${tag}`;
+          } else {
+            finalImage = `${finalImage}:${tag}`;
+          }
+        } else {
+          // No tag/digest and no tag in base — default to :latest for explicitness
+          const baseWithoutDigest = finalImage.split('@')[0];
+          const lastSlash = baseWithoutDigest.lastIndexOf('/');
+          const lastColon = baseWithoutDigest.lastIndexOf(':');
+          const hasTag = lastColon > lastSlash;
+          if (!hasTag && !finalImage.includes('@')) {
+            finalImage = `${finalImage}:latest`;
+          }
+        }
         svc = await servicesApi.createApp(projectId, {
           name: form.name.trim(),
-          image: form.image.trim(),
-          port: Number(form.port) || 0,
+          image: finalImage,
+          port: Number(form.port) || Number(form.portsExposes) || 80,
           env_vars: envVars,
           tier_name: form.resourceTier,
         });
